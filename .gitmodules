@@ -1,0 +1,6 @@
+[submodule "mlibc"]
+	path = mlibc
+	url = https://github.com/managarm/mlibc.git
+[submodule "musl"]
+	path = musl
+	url = git://git.musl-libc.org/musl

@@ -1,0 +1,12 @@
+*.a
+*.o
+*.d
+*.elf
+limine
+iso_root
+build
+zig-*
+.vscode
+*.iso
+ovmf*
+elysia.iso
