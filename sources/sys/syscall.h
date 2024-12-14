@@ -9,4 +9,6 @@
 
 #define SYS_API_GRAPHIC 0XAA73CCFF
 
+void sys_write(uint64_t descriptor, const char *buffer, uint64_t length);
+
 #endif // __SYS__SYSCALL_H__

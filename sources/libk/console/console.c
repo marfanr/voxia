@@ -39,6 +39,9 @@ int pos_x = 0;
 int pos_y = -2;
 uint32_t fgcolor = 0xffefff;
 
+int console_get_pos_x() { return pos_x; }
+int console_get_pos_y() { return pos_y; }
+
 // print string with newline
 void console_println(const char *str) {
   // serial_send_number(pos_y, 10);
@@ -48,6 +51,18 @@ void console_println(const char *str) {
   }
   pos_y += 1;
   pos_x = 0;
+}
+
+void console_print(const char *str, uint64_t len) {
+  for (uint64_t i = 0; i < len; i++) {
+    if (str[i] == '\n') {
+      pos_y += 1;
+      pos_x = 0;
+      continue;
+    }
+    fb_put_char(str[i], pos_x, pos_y, fgcolor, FB_COLOR_BLACK);
+    pos_x += 1;
+  }
 }
 
 // convert number to string

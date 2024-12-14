@@ -1,21 +1,34 @@
 #include "syscall.h"
+#include "descriptor.h"
+#include <dev/cpu/int/idt.h>
 #include <dev/graphic/fb.h>
+#include <libk/console/console.h>
 #include <libk/debug/debug.h>
 #include <libk/serial.h>
 
-void sys_read(int descriptor, void *buffer, uint64_t length) {}
+void syscall(uint64_t rsp) {
+  uint64_t rdi = ((uint64_t *)rsp)[0];
+  uint64_t rsi = ((uint64_t *)rsp)[1];
+  uint64_t rdx = ((uint64_t *)rsp)[2];
+  uint64_t rax = ((uint64_t *)rsp)[3];
+  // serial_trace("rdi : %d\n", rdi);
 
-void sys_write(int descriptor, const char *buffer, uint64_t length) {
+  switch (rax) {
+  case SYSCALL_WRITE:
+    sys_write(rdi, (const char *)rsi, rdx);
+    break;
 
-  uint64_t rdi = 0;
-  asm volatile("mov %%r8, %0" : "=r"(rdi));
-  serial_trace("r8 : 0x%x\n", rdi);
-
+  default:
+    break;
+  }
+}
+void sys_write(uint64_t descriptor, const char *buffer, uint64_t length) {
   if (descriptor == 0) {
-    serial_printf(buffer);
+    for (uint64_t i = 0; i < length; i++) {
+      serial_putc(buffer[i]);
+    }
   } else if (descriptor == 1) {
-    serial_trace("length : %d\n", length);
-    KDEBUG(DEBUG_LEVEL_INFO, buffer);
+    console_print(buffer, length);
   }
 }
 

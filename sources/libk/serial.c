@@ -17,7 +17,7 @@ void serial_setup() {
 int serial_is_transmit_empty(void) { return inb(SERIAL_COM3 + 5) & 0x20; }
 
 // send data to SERIAL_COM3
-void serial_send_char(char c) {
+void serial_putc(char c) {
   while (serial_is_transmit_empty() == 0)
     ;
 
@@ -27,7 +27,7 @@ void serial_send_char(char c) {
 // send even more data to SERIAL_COM3
 void serial_send_string(char *str) {
   for (int i = 0; str[i] != '\0'; i++)
-    serial_send_char(str[i]);
+    serial_putc(str[i]);
 }
 
 void serial_send_number(uint64_t num, int base) {
@@ -60,7 +60,7 @@ void serial_printf(const char *fmt, ...) {
   __builtin_va_start(args, fmt);
   for (const char *p = fmt; *p != '\0'; p++) {
     if (*p != '%') {
-      serial_send_char(*p);
+      serial_putc(*p);
       continue;
     }
     p++;

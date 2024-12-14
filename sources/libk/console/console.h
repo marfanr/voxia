@@ -42,5 +42,8 @@ void console_chfg(uint32_t color);
 void console_vaprintf(const char *fmt, __builtin_va_list args);
 void console_add_space(int n);
 void console_set_pos(int x, int y);
+int console_get_pos_x();
+int console_get_pos_y();
+void console_print(const char *str, uint64_t len);
 
 #endif // __LIBK__CONSOLE__CONSOLE_H_

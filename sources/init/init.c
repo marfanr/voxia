@@ -42,41 +42,6 @@ extern unsigned char userspace_end;
 
 void setup_stack(uint8_t *stack, const char *argv[], const char *envp[]) {}
 
-void syscall(unsigned long func, unsigned long arg1, unsigned long arg2,
-             unsigned long arg3) {
-  asm volatile("mov %0, %%rdi" : : "r"(arg1));
-  asm volatile("mov %0, %%rsi" : : "r"(arg2));
-  asm volatile("mov %0, %%rdx" : : "r"(arg3));
-  asm volatile("mov %0, %%rax" : : "r"(func));
-  asm volatile("int $0x73");
-
-  // call task_addr as function
-}
-
-void task_switch() {
-  char *txt = "Hello from userspace\n";
-  // asm volatile("mov %0, %%rsi" : : "r"((unsigned long)0));
-  // asm volatile("mov %0, %%rdx" : : "r"(txt));
-  // asm volatile("mov %0, %%rdi" : : "r"((unsigned long)0));
-  // asm volatile("mov %0, %%rax" : : "r"((unsigned long)0x1));
-  // asm volatile("int $0x73");
-  syscall(0x1, 1, "Hello from userspace\n", 20);
-
-  uint64_t r8 = 0;
-  asm volatile("mov %%r8, %0" : "=r"(r8));
-
-  // call addr on  r8
-  asm volatile("call *%0" : : "r"(r8));
-
-  // // call task_addr as function
-  // // ((void (*)(void))task_addr)();
-
-  // void (*task)() = (void (*)())r8;
-  // task();
-  for (;;) {
-  }
-}
-
 extern bool is_running_program;
 
 /**
@@ -300,25 +265,7 @@ void _start(struct stivale2_struct *stivale2_struct) {
     }
     phdr2 = (Elf64_Phdr *)((uint64_t)phdr2 + ehdr->e_phentsize);
   }
-  serial_trace("pmem size : 0x%x", (uint64_t)phdr2->p_memsz);
-
-  // run
-
-  // serial_trace("mmap test_user_function to user space\n");
-  // uint64_t uspace_len = (uint64_t)&userspace_end -
-  // (uint64_t)&userspace_start; uint8_t *uspace = (uint8_t
-  // *)phys_base_alloc(4);
-  // // copy test_user_function to user space
-  // for (register uint32_t i = 0; i < 0x10000; i++) {
-  //   uspace[i] = ((uint8_t *)task_switch)[i];
-  // }
-  // serial_trace("test_user_function : 0x%x\n", (uint64_t)task_switch);
-  serial_trace("success entering userspace\n");
-
-  // for (uint32_t i = 0; i < 0x10000; i += 0x1000) {
-  //   paging_mmap(p, (uint64_t)2 * GB + i, (uint64_t)VIRT2PHYS(uspace) + i,
-  //               0b111);
-  // }
+  serial_trace("pmem size : 0x%x\n\n", (uint64_t)phdr2->p_memsz);
 
   // paging_reload(p);
   KDEBUG(DEBUG_LEVEL_INFO, "highest addr : 0x%x", highest_loaded_task_addr);

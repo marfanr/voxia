@@ -17,7 +17,7 @@ run: iso
 
 .PHONY: run-gdb
 run-gdb: iso
-	qemu-system-x86_64 -M q35 -m 2G -rtc base=localtime -cdrom naya.iso -boot d -enable-kvm -s -serial stdio -d trace:usb_ehci_opreg* -device usb-ehci,id=ehci -device usb-kbd,bus=ehci.0,port=2,id=kbd \
+	qemu-system-x86_64 -M q35 -m 2G -rtc base=localtime -cdrom naya.iso -boot d -enable-kvm -s -S -serial stdio -d trace:usb_ehci_opreg* -device usb-ehci,id=ehci -device usb-kbd,bus=ehci.0,port=2,id=kbd \
 	-device e1000-82544gc,netdev=nic1,id=e1000 -netdev bridge,id=nic1,br=br0
 
 .PHONY: run-uefi
