@@ -19,7 +19,7 @@ jump_usermode:
 
 section .bss
     align 16
-    user_stack resq 512       ; 4KB stack untuk user mode
+    user_stack resq 8       ; 4KB stack untuk user mode
 
 	; add rsp, 8 ; skip over the pushed rdi
 

@@ -1,7 +1,7 @@
 #include "loader.h"
 
 // ini adalah besar dari stack yang akan digunakan oleh kernel
-static uint8_t stack[4096 * 8];
+static uint8_t stack[4096 * 16];
 
 // static struct stivale2_tag l5_tag = {
 //     .identifier = STIVALE2_HEADER_TAG_5LV_PAGING_ID, .next = 0};
