@@ -3,12 +3,21 @@
 
 #include <libk/type.h>
 
-typedef struct file_descriptor {
-	uint64_t offset;
-	uint64_t inode;
-	uint64_t flags;
-} file_descriptor_t;
+#define FD_FLAG_READ 1
+#define FD_FLAG_WRITE 1 << 1
 
-void add_file_descriptor(file_descriptor_t *fd, uint64_t inode, uint64_t flags);
+struct file_descriptor
+{
+    int inode;
+    uintptr_t addr;
+    uint64_t offset;
+    uint8_t flags;
+    uint64_t page;
+};
+
+int descriptor_add (int inode, uintptr_t addr, uint64_t offset, uint8_t flags);
+struct file_descripor *descriptor_get (int fd);
+void descriptor_free (int fd);
+void descriptor_install ();
 
 #endif // __SYS__DESCRIPTOR_H__
