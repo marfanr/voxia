@@ -1,3 +1,16 @@
 ---
-BasedOnStyle: GNU
+BasedOnStyle: LLVM
 IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 0
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: Inline
+IndentCaseLabels: true
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true
+AlignTrailingComments: true
+SortIncludes: false
+PointerAlignment: Right
+SpacesInParentheses: false
+SpacesInAngles: false
