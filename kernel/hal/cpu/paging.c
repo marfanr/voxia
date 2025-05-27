@@ -86,7 +86,7 @@ initialize_physical_paging_window()
 
     for (uint64_t i = 0; i < CONFIG_PHYS_MAX_WINDOW_COUNT; i++)
     {
-        paging_physwindow_mmap(pml4, (uint64_t)(mem_vma_phys_window_start + i * 0x1000), 0, 0b11);
+        paging_physwindow_mmap(pml4, (uint64_t)(mem_vma_phys_window_start + i * 0x1000), 0, 0b1);
     }
 
     // mapping phsywindow_pt
