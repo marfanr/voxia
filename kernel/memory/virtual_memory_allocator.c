@@ -175,11 +175,12 @@ vma_tree_splay(virtual_memory *node)
 }
 
 void
-vma_tree_add(uintptr_t virt_addr, uintptr_t phys_addr)
+vma_tree_add(uintptr_t virt_addr, uintptr_t phys_addr, size_t length)
 {
     virtual_memory *new_tree = create_virtual_memory_tree();
     new_tree->virt_address   = virt_addr;
     new_tree->phys_address   = phys_addr;
+    new_tree->length         = length;
 
     virtual_memory *current = virtual_memory_tree_root;
     virtual_memory *parent  = 0;
@@ -300,7 +301,7 @@ steal_phys_mem_to_chunk(virtual_memory_zone_size size, size_t phys_block_count)
     virtual_memory_queue_list *queue = acquire_queue();
     queue->start                     = (uintptr_t)_chunk;
 
-    vma_tree_add((uintptr_t)_chunk, (uintptr_t)raw_chunk);
+    vma_tree_add((uintptr_t)_chunk, (uintptr_t)raw_chunk, phys_block_count);
     virtual_memory_queue_list *current_queue = queue;
 
     for (size_t i = 1; i < count; i++)
@@ -362,16 +363,14 @@ vma_setup_zone()
 {
     steal_phys_mem_to_chunk(VM_ZONE_8, 1);
     steal_phys_mem_to_chunk(VM_ZONE_16, 4);
-    steal_phys_mem_to_chunk(VM_ZONE_64, 256);
+    steal_phys_mem_to_chunk(VM_ZONE_64, 8);
+    steal_phys_mem_to_chunk(VM_ZONE_128, 2);
+    steal_phys_mem_to_chunk(VM_ZONE_256, 8);
 
     vma_create_new_zone("vm.kernel", VM_ZONE_16);
     vma_create_new_zone("vm.permanent", VM_ZONE_16);
-
-    uint8_t *a = (uint8_t *)vma_request_zone("vm.kernel");
-    serial_trace("a addr 0x%x\n", (uintptr_t)a);
-
-    vma_tree_debug();
-    *a = 3;
+    vma_create_new_zone("vm.obj8", VM_ZONE_8);
+    vma_create_new_zone("vm.obj64", VM_ZONE_64);
 }
 
 uint64_t

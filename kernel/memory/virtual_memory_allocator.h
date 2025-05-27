@@ -1,7 +1,6 @@
 #ifndef __MEMORY__VIRTUAL_MEMORY_ALLOCATOR_H__
 #define __MEMORY__VIRTUAL_MEMORY_ALLOCATOR_H__
 
-#include "hal/cpu/paging.h"
 #include "hal/cpu/spinlock.h"
 #include <libk/type.h>
 
@@ -53,6 +52,8 @@ struct virtual_memory
     spinlock_t      used;
     uintptr_t       virt_address;
     uintptr_t       phys_address;
+    size_t          length;
+    int             flags;
     virtual_memory *parent;
     virtual_memory *left_child;
     virtual_memory *right_child;
