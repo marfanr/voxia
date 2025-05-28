@@ -8,7 +8,7 @@
 
 struct vfs_open_response
 {
-    bool is_directory;
+    boolean_t is_directory;
     int id;
     int permission;
     int size;
@@ -41,15 +41,15 @@ typedef struct
 
 struct vfs_fs
 {
-    bool has_own_inode;
+    boolean_t has_own_inode;
     const char *name;
     vfs_operations_t *ops;
 };
 
 typedef struct
 {
-    bool is_mounted;
-    bool is_directory;
+    boolean_t is_mounted;
+    boolean_t is_directory;
     uint32_t permission;
     uint32_t ref_count;
     size_t size;
@@ -118,7 +118,7 @@ typedef struct
 
 void vfs_install ();
 void vfs_register_fs (const char *name, vfs_operations_t *ops,
-                      bool has_own_inode);
+                      boolean_t has_own_inode);
 int vfs_mount (const char *path, const char *block, const char *fs);
 int vfs_umount (const char *path);
 

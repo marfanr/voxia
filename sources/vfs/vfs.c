@@ -226,7 +226,7 @@ get_inode_by_id (int id)
 }
 
 void
-vfs_register_fs (const char *name, vfs_operations_t *ops, bool has_own_inode)
+vfs_register_fs (const char *name, vfs_operations_t *ops, boolean_t has_own_inode)
 {
     struct vfs_fs *fs = (struct vfs_fs *)VIRT2PHYS (
         phys_base_alloc (1 + sizeof (struct vfs_fs) / 4096));
@@ -505,7 +505,7 @@ vfs_mount (const char *path, const char *block, const char *fs)
                     struct vfs_entry *entry = vfs_create_entry (
                         exploded_path[i], curr_inode, curr_entry);
                     curr_inode->entry = entry;
-                    curr_inode->is_directory = true;
+                    curr_inode->is_directory = 1;
 
                     if (curr_entry != 0)
                         add_new_entry (entry, curr_entry);
@@ -525,7 +525,7 @@ vfs_mount (const char *path, const char *block, const char *fs)
             // serial_trace ("mount path : %s  hash %d\n", _path, _hash);
         }
 
-    curr_inode->is_mounted = true;
+    curr_inode->is_mounted = 1;
     // serial_trace ("last node id : %d\n", curr_inode->id);
     save_mount (curr_inode, _fs, device);
 
@@ -697,7 +697,7 @@ get_curr_mount_inode_id_by_path (const char *path)
     memset (_path, 0, 4096);
 
     int hash_path;
-    bool mount_found = false;
+    boolean_t mount_found = 0;
     for (int i = 0; i < path_depth; i++)
         {
             if (!mount_found)
@@ -714,7 +714,7 @@ get_curr_mount_inode_id_by_path (const char *path)
                                 {
                                     if (curr_mount->inode->id == hash_path)
                                         {
-                                            mount_found = true;
+                                            mount_found = 1;
                                         }
                                     curr_mount = curr_mount->next;
                                 }

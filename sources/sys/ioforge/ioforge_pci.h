@@ -6,7 +6,7 @@
 struct IoForgePCIBar
 {
     uint32_t address;
-    bool iospace;
+    boolean_t iospace;
 };
 
 struct IoForgePCI
