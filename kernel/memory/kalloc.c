@@ -7,7 +7,7 @@
 #include <libk/str.h>
 #include <memory/kalloc.h>
 
-#define KALLOC_BASE_ADDR 0xFFFFFE0800000000
+#define KALLOC_BASE_ADDR 0xFFFFFE0000000000
 static uintptr_t kalloc_next_addr = KALLOC_BASE_ADDR;
 
 struct kalloc_cache
@@ -29,15 +29,38 @@ static struct kalloc_cache cache;
 
 #define MAX_FREED_VADDRS 512
 
-static uintptr_t freed_vaddrs[MAX_FREED_VADDRS] = {0};
-static size_t    freed_vaddr_count              = 0;
+typedef struct
+{
+    uintptr_t addr;
+    size_t    size;
+} freed_t;
+
+static freed_t freed_vaddrs[MAX_FREED_VADDRS] = {0};
+static size_t  freed_vaddr_count              = 0;
 
 static uintptr_t
-get_vaddr()
+get_vaddr(size_t count)
 {
     if (freed_vaddr_count > 0)
     {
-        return freed_vaddrs[--freed_vaddr_count];
+        // return freed_vaddrs[--freed_vaddr_count].addr;
+        for (size_t i = 0; i < freed_vaddr_count; i++)
+        {
+            if (freed_vaddrs[i].size >= count)
+            {
+                freed_vaddrs[i].size -= count;
+
+                if (freed_vaddrs[i].size == 0)
+                {
+                    freed_vaddr_count--;
+                }
+                else
+                {
+                    freed_vaddrs[i].addr += count * BLOCK_SIZE;
+                }
+                return freed_vaddrs[i].addr;
+            }
+        }
     }
     uintptr_t addr = kalloc_next_addr;
     kalloc_next_addr += BLOCK_SIZE;
@@ -48,7 +71,7 @@ static void *
 __alloc_4k(void)
 {
     uintptr_t phys_addr = (uintptr_t)phys_base_alloc(1);
-    uintptr_t virt_addr = get_vaddr();
+    uintptr_t virt_addr = get_vaddr(1);
     paging_mmap(paging_get_highest_page_map(), virt_addr, phys_addr,
                 PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
     vma_register((uintptr_t)phys_addr, (uintptr_t)virt_addr, BLOCK_SIZE);
@@ -162,14 +185,17 @@ kalloc(size_t size)
         return ret;
     }
 
-    uintptr_t phys_addr =
-        (uintptr_t)phys_base_alloc(ALIGN_UP(ALIGN_DOWN(size, BLOCK_SIZE), BLOCK_SIZE));
-    paging_mmap_fill(paging_get_highest_page_map(), get_vaddr(), phys_addr,
-                     ALIGN_UP(ALIGN_DOWN(size, BLOCK_SIZE), BLOCK_SIZE),
+    size_t allocate_size = ALIGN_UP(size, BLOCK_SIZE) / BLOCK_SIZE;
+    serial_trace("allocate more than 2kb, %d page\n", allocate_size);
+
+    uintptr_t phys_addr = (uintptr_t)phys_base_alloc(200);
+    serial_trace("phys addr 0x%x\n", phys_addr);
+    uintptr_t vaddr = kalloc_next_addr;
+    kalloc_next_addr += BLOCK_SIZE * allocate_size;
+    paging_mmap_fill(paging_get_highest_page_map(), vaddr, phys_addr, allocate_size,
                      PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
-    vma_register((uintptr_t)phys_addr, (uintptr_t)kalloc_next_addr,
-                 ALIGN_UP(ALIGN_DOWN(size, BLOCK_SIZE), BLOCK_SIZE));
-    void *ret = (void *)kalloc_next_addr;
+    vma_register((uintptr_t)phys_addr, (uintptr_t)vaddr, allocate_size);
+    void *ret = (void *)vaddr;
     return ret;
 }
 
@@ -218,12 +244,14 @@ kfree(void *ptr, size_t size)
         if (!v)
             return;
 
-        phys_base_free((void *)v->phys_address,
-                       ALIGN_UP(ALIGN_DOWN(size, BLOCK_SIZE), BLOCK_SIZE) / BLOCK_SIZE);
-        paging_unmap_fill(paging_get_highest_page_map(), (uintptr_t)ptr,
-                          ALIGN_UP(ALIGN_DOWN(size, BLOCK_SIZE), BLOCK_SIZE) / BLOCK_SIZE);
+        size_t allocate_size = ALIGN_UP(size, BLOCK_SIZE) / BLOCK_SIZE;
+        phys_base_free((void *)v->phys_address, allocate_size);
+        paging_unmap_fill(paging_get_highest_page_map(), (uintptr_t)ptr, allocate_size);
 
         vma_unregister((uintptr_t)ptr);
-        freed_vaddrs[freed_vaddr_count++] = (uintptr_t)ptr;
+        freed_vaddrs[freed_vaddr_count++] = (freed_t){
+            .addr = (uintptr_t)ptr,
+            .size = allocate_size,
+        };
     }
 }
