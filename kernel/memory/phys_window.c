@@ -2,12 +2,17 @@
 #include <config.h>
 #include <hal/cpu/paging.h>
 #include <libk/serial.h>
-#include <memory/virtual_memory_allocator.h>
+#include <memory/vm_manager.h>
 
 static mem_physwindow_t physical_memory_windows[CONFIG_PHYS_MAX_WINDOW_COUNT] = {0};
 
 extern void paging_physwindow_mmap(page_t page_dir, uint64_t virt, uint64_t phys, int flags);
 
+/**
+ * resolve a physical memory window by virtual address
+ * @param virt_addr the virtual address of the physical memory window
+ * @return a pointer to the mem_physwindow_t structure if found, NULL otherwise
+ */
 mem_physwindow_t *
 mem_resolve_physwindow(uintptr_t virt_addr)
 {

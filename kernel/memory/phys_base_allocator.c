@@ -4,7 +4,6 @@
 #include <libk/debug/debug.h>
 #include <libk/serial.h>
 #include <libk/str.h>
-#include <memory/buddy.h>
 #include <memory/memory_utils.h>
 
 uint64_t higher_base_length_ = 0;
@@ -13,6 +12,7 @@ uint64_t usable_total        = 0;
 extern void vma_setup_zone();
 extern void paging_install();
 
+uint8_t         *bitmap_base_       = 0;
 memory_4k_block *phys_boot_metadata = 0;
 uint64_t         metadata_count     = 0;
 uint64_t         metadata_size      = 0;
@@ -34,8 +34,8 @@ phys_base_allocator_install(struct stivale2_struct_tag_memmap *memmap)
         }
     }
 
-    metadata_count = higher_base_length_ / 0x1000;
-    metadata_size  = ALIGN_UP(metadata_count * sizeof(memory_4k_block), 0x1000);
+    metadata_count = higher_base_length_ / BLOCK_SIZE / 8;
+    metadata_size  = ALIGN_UP(metadata_count * sizeof(uint8_t), BLOCK_SIZE);
 
     serial_trace("metadata  count %d with size %d kb\n", metadata_count, metadata_size / 1024);
 
@@ -48,35 +48,15 @@ phys_base_allocator_install(struct stivale2_struct_tag_memmap *memmap)
             serial_trace("found suitale place for metadata 0x%x length %d kb \n", entry->base,
                          entry->length / 1024);
 
-            phys_boot_metadata = (memory_4k_block *)(entry->base);
+            // phys_boot_metadata = (memory_4k_block *)(entry->base);
+            bitmap_base_ = (uint8_t *)(entry->base);
             entry->length -= metadata_size;
             entry->base += metadata_size;
             break;
         }
     }
 
-    for (uint64_t i = 0; i < metadata_count; i++)
-    {
-        phys_boot_metadata[i].address = i * 0x1000;
-        if ((i + 1) != metadata_count)
-        {
-            phys_boot_metadata[i].next = &phys_boot_metadata[i + 1];
-        }
-        else
-        {
-            phys_boot_metadata[i].next = &phys_boot_metadata[0];
-        }
-
-        if (i > 0)
-        {
-            phys_boot_metadata[i].prev = &phys_boot_metadata[i - 1];
-        }
-        else
-        {
-            phys_boot_metadata[i].prev = &phys_boot_metadata[metadata_count - 1];
-        }
-        phys_boot_metadata[i].used = 1;
-    }
+    memset(bitmap_base_, 0xFF, metadata_size);
 
     for (uint64_t i = 0; i < memmap->entries; i++)
     {
@@ -89,7 +69,17 @@ phys_base_allocator_install(struct stivale2_struct_tag_memmap *memmap)
         uint64_t metadata_end   = entry->length / 0x1000;
         for (uint64_t j = metadata_index; j < (metadata_index + metadata_end); j++)
         {
-            phys_boot_metadata[j].used = 0;
+            bitmap_base_[j / 8] &= ~(1 << (j % 8));
+        }
+    }
+
+    // find first smallest entry
+    for (uint64_t i = 0; i < metadata_count; i++)
+    {
+        if ((bitmap_base_[i / 8] & (1 << (i % 8))) == 0)
+        {
+            serial_trace("found smallest entry at index %d\n", i);
+            break;
         }
     }
 
@@ -141,15 +131,6 @@ phys_base_allocator_install(struct stivale2_struct_tag_memmap *memmap)
         serial_send_string("\n");
     }
 
-    for (uint64_t i = 0; i < metadata_count; i++)
-    {
-        if (phys_boot_metadata[i].used == 0)
-        {
-            serial_trace("first free block at index %d : 0x%x\n", i, phys_boot_metadata[i].address);
-            break;
-        }
-    }
-
     paging_install();
     vma_setup_zone();
 }
@@ -160,23 +141,30 @@ phys_base_alloc(uint64_t block)
     uint64_t start = 0;
     for (uint64_t i = 0; i < metadata_count; i++)
     {
-        if (phys_boot_metadata[i].used == 0 && !start)
+        if ((bitmap_base_[i / 8] & (1 << (i % 8))) == 0)
         {
             start = i;
         }
 
         if (start && (i - start) == block)
         {
+            // serial_trace("found free block at index %d count %d\n", start, block);
             /* serial_trace("i-start %d block %d\n", i - start, block); */
             for (uint64_t j = start; j < i; j++)
             {
-                if (phys_boot_metadata[j].used)
+                if (bitmap_base_[j / 8] & (1 << (j % 8)))
                 {
                     start = 0;
+                    for (uint64_t k = start; k < j; k++)
+                    {
+                        bitmap_base_[k / 8] &= ~(1 << (k % 8));
+                    }
+                    break;
                 }
-                phys_boot_metadata[j].used = 1;
+                bitmap_base_[j / 8] |= (1 << (j % 8));
             }
-            return (void *)phys_boot_metadata[start].address;
+            // serial_trace("allocated memory at index %d count %d\n", start, block);
+            return (void *)(start * BLOCK_SIZE);
         }
     }
 
@@ -187,39 +175,7 @@ phys_base_alloc_on_top(uint64_t block)
 {
     if (block == 0)
         return NULL;
-    //
-    // uint64_t total_blocks = higher_base_length_ / BLOCK_SIZE;
-    //
-    // // Start from the highest block and go down
-    // for (int64_t i = total_blocks - 1; i >= 0; i--) {
-    //     // Skip if this block is already used
-    //     if (bitmap_base_[i / 8] & (1 << (i % 8)))
-    //         continue;
-    //
-    //     // Check if we have enough free blocks below this one
-    //     boolean_t all_free = 1;
-    //     for (uint64_t j = 1; j < block; j++) {
-    //         // Make sure we don't go below block 0
-    //         if (i < j || bitmap_base_[(i - j) / 8] & (1 << ((i - j) % 8))) {
-    //             all_free = 0;
-    //             break;
-    //         }
-    //     }
-    //
-    //     if (all_free) {
-    //         // Mark all blocks in the range as used
-    //         for (uint64_t j = 0; j < block; j++) {
-    //             bitmap_base_[(i - j) / 8] |= (1 << ((i - j) % 8));
-    //         }
-    //
-    //         // Return the address corresponding to the lowest block in
-    //         // the range
-    //         return (void *)PHYS2VIRT(
-    //             (uint64_t)((i - block + 1) * BLOCK_SIZE));
-    //     }
-    // }
-    //
-    // Could not find enough consecutive free blocks
+
     return NULL;
 }
 
@@ -238,9 +194,11 @@ pys_base_get_free_block_count()
 void
 phys_base_free(void *ptr, uint64_t size)
 {
-    uint64_t index = VIRT2PHYS((uint64_t)ptr) / BLOCK_SIZE;
-    // for (uint64_t i = 0; i < size; i++)
-    //     bitmap_base_[(index + i) / 8] &= ~(1 << ((index + i) % 8));
+    uint64_t index = (uint64_t)ptr / BLOCK_SIZE;
+    for (uint64_t i = index; i < index + size; i++)
+    {
+        bitmap_base_[i / 8] &= ~(1 << (i % 8));
+    }
 }
 
 void
