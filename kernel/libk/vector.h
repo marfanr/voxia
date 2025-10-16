@@ -81,14 +81,4 @@ typedef struct
     size_t alloc_size; // Size of each element in bytes
 } vector_T;
 
-// void   vector_init(vector_T *vec, size_t size);
-// void   vector_push_back(vector_T *vec, void *element);
-// void  *vector_pop_back(vector_T *vec);
-// void  *vector_get(vector_T *vec, size_t index);
-// void   vector_set(vector_T *vec, size_t index, void *element);
-// size_t vector_size(vector_T *vec);
-// void   vector_clear(vector_T *vec);
-// void   vector_free(vector_T *vec);
-// void   vector_destroy(vector_T *vec);
-
 #endif // __LIBK__VECTOR_H_
