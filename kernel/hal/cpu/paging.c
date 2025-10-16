@@ -6,14 +6,14 @@
 #include <memory/memory_utils.h>
 #include <memory/phys_base_allocator.h>
 #include <memory/phys_window.h>
-#include <memory/virtual_memory_allocator.h>
+#include <memory/vm_manager.h>
 
 #define PHYS_BASE_METADATA_ADDR 0xffffffe000000000
 
 boolean_t paging_has_been_set = false;
 
-extern memory_4k_block *phys_boot_metadata;
-extern uint64_t         metadata_size;
+extern uint8_t *bitmap_base_;
+extern uint64_t metadata_size;
 
 typedef struct paging_page paging_page;
 struct paging_page
@@ -92,29 +92,28 @@ initialize_physical_paging_window()
     // mapping phsywindow_pt
     paging_mmap_fill(pml4, mem_vma_phys_window_pt, (uint64_t)physwindow_pt, 511, 0b11);
 
-    serial_trace("mapping physwindow_pt 0x%x to 0x%x\n", (uint64_t)physwindow_pt,
-                 (uint64_t)mem_vma_phys_window_pt);
+    LOG_INFO("PAGING", "mapping physwindow_pt 0x%x to 0x%x", (uint64_t)physwindow_pt,
+             (uint64_t)mem_vma_phys_window_pt);
     physwindow_pt = (page_t)mem_vma_phys_window_pt;
 }
 
 void
 paging_install()
 {
-    serial_trace("Installing paging\n");
     pml4 = VMM_PAGE;
-    serial_trace("PML4: 0x%x\n", ((uint64_t)pml4));
+    LOG_INFO("PAGING", "PML4: 0x%", ((uint64_t)pml4));
 
     paging_setup(pml4);
 
-    serial_trace("dma mapping count %d\n", mapping_data_count);
+    LOG_INFO("PAGING", "dma mapping count %", mapping_data_count);
 
     initialize_physical_paging_window();
 
-    paging_mmap_fill(pml4, PHYS_BASE_METADATA_ADDR, (uint64_t)phys_boot_metadata,
+    paging_mmap_fill(pml4, PHYS_BASE_METADATA_ADDR, (uint64_t)bitmap_base_,
                      metadata_size / VMM_PAGE_SIZE, 0b11);
     paging_reload(pml4);
-    serial_trace("paging setup done \n");
-    phys_boot_metadata = (memory_4k_block *)PHYS_BASE_METADATA_ADDR;
+    LOG_INFO("PAGING", "paging setup done");
+    bitmap_base_ = (uint8_t *)PHYS_BASE_METADATA_ADDR;
 
     paging_has_been_set = 1;
 }
@@ -214,7 +213,7 @@ paging_setup(page_t pml4)
     //  mapping 0x0240000000 to __r
     void *a = (void *)(phys_base_alloc(1 + 0x1000 / 4096));
     memcopy(a, (void *)__r, 0x1000);
-    paging_mmap(pml4, 0x0240000000, VIRT2PHYS((uint64_t)a), 0b11);
+    paging_mmap(pml4, 0x0240000000, VIRT2PHYS((uint64_t)a), 0b1);
 }
 
 void
@@ -359,37 +358,101 @@ paging_unmap_page(page_t page_dir, uint64_t virt)
     page_t pdp  = 0;
     page_t pt   = 0;
 
+    uintptr_t pml4_virt_addr = (uintptr_t)pml4;
+    if (paging_has_been_set)
+    {
+        mem_create_physwindow((uintptr_t)pml4, &pml4_virt_addr,
+                              PHYS_WINDOW_FLAG_READ | PHYS_WINDOW_FLAG_WRITE |
+                                  PHYS_WINDOW_FLAG_LOCK);
+    }
+    pml4 = (page_t)pml4_virt_addr;
+
     if (pml4[index4] & 1)
     {
-        pdpt = (page_t)(pml4[index4] & ~(511));
+        uintptr_t pdpt_phys_addr = pml4[index4] & ~(0xFFF);
+        uintptr_t pdpt_virt_addr = pdpt_phys_addr;
+
+        if (paging_has_been_set)
+        {
+            mem_create_physwindow(pdpt_phys_addr, &pdpt_virt_addr,
+                                  PHYS_WINDOW_FLAG_READ | PHYS_WINDOW_FLAG_WRITE |
+                                      PHYS_WINDOW_FLAG_LOCK);
+        }
+        pdpt = (page_t)pdpt_virt_addr;
     }
     else
     {
+        if (paging_has_been_set)
+        {
+            mem_release_physwindow((uintptr_t)pml4);
+        }
         return;
     }
 
     if (pdpt[index3] & 1)
     {
-        pdp = (page_t)(pdpt[index3] & ~(511));
+        uintptr_t pdp_phys_addr = pdpt[index3] & ~(0xFFF);
+        uintptr_t pdp_virt_addr = pdp_phys_addr;
+        if (paging_has_been_set)
+        {
+            mem_create_physwindow(pdp_phys_addr, &pdp_virt_addr,
+                                  PHYS_WINDOW_FLAG_READ | PHYS_WINDOW_FLAG_WRITE |
+                                      PHYS_WINDOW_FLAG_LOCK);
+        }
+        pdp = (page_t)pdp_virt_addr;
     }
     else
     {
+        if (paging_has_been_set)
+        {
+            mem_release_physwindow((uintptr_t)pml4);
+            mem_release_physwindow((uintptr_t)pdpt);
+        }
         return;
     }
 
     if (pdp[index2] & 1)
     {
-        pt = (page_t)(pdp[index2] & ~(511));
+        uintptr_t pt_phys_addr = pdp[index2] & ~(0xFFF);
+        uintptr_t pt_virt_addr = pt_phys_addr;
+        if (paging_has_been_set)
+        {
+            mem_create_physwindow(pt_phys_addr, &pt_virt_addr, 0);
+        }
+        pt = (page_t)pt_virt_addr;
     }
     else
     {
+        if (paging_has_been_set)
+        {
+            mem_release_physwindow((uintptr_t)pml4);
+            mem_release_physwindow((uintptr_t)pdpt);
+            mem_release_physwindow((uintptr_t)pdp);
+        }
         return;
     }
 
     pt[index1] = 0;
 
+    if (paging_has_been_set)
+    {
+        mem_release_physwindow((uintptr_t)pml4);
+        mem_release_physwindow((uintptr_t)pdpt);
+        mem_release_physwindow((uintptr_t)pdp);
+        mem_release_physwindow((uintptr_t)pt);
+    }
+
     // refresh cr3
     asm volatile("invlpg (%0)" ::"r"(virt) : "memory"); // flush the entry from TLB
+}
+
+void
+paging_unmap_fill(page_t page_dir, uint64_t virt, size_t size)
+{
+    for (uint64_t i = 0; i < size; i++)
+    {
+        paging_unmap_page(page_dir, virt + i * 4096);
+    }
 }
 
 void

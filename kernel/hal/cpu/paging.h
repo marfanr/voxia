@@ -32,10 +32,25 @@ page_t paging_create_page_directory();
 
 #define VMM_PAGE paging_create_page_directory()
 
+enum
+{
+    PAGE_PRESENT       = 1U << 0,
+    PAGE_WRITABLE      = 1U << 1,
+    PAGE_USER          = 1U << 2,
+    PAGE_WRITE_THROUGH = 1U << 3,
+    PAGE_CACHE_DISABLE = 1U << 4,
+    PAGE_ACCESSED      = 1U << 5,
+    PAGE_DIRTY         = 1U << 6,
+    PAGE_HUGE          = 1U << 7,
+    PAGE_GLOBAL        = 1U << 8,
+    PAGE_NO_EXECUTE    = 1U << 63,
+} __attribute__((enum_extensibility(closed)));
+
 void     paging_mmap(page_t page_dir, uint64_t virt, uint64_t phys, int flags);
 void     paging_reload(page_t pml4);
 page_t   paging_get_highest_page_map(void);
 void     paging_unmap_page(page_t page_dir, uint64_t virt);
+void     paging_unmap_fill(page_t page_dir, uint64_t virt, size_t size);
 void     paging_setup(page_t pml4);
 void     paging_fork(page_t parent_pml4, page_t child_pml4);
 void     paging_mmap_fill(page_t page_dir, uint64_t virt, uint64_t phys, uint64_t size, int flags);
