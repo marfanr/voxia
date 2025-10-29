@@ -30,30 +30,39 @@ typedef struct
 {
     uint16_t offset_low;
     uint16_t selector;
-    uint8_t ist;
-    uint8_t type_attr;
+    uint8_t  ist;
+    uint8_t  type_attr;
     uint16_t offset_mid;
     uint32_t offset_high;
     uint32_t zero;
-} __attribute__ ((packed)) interrupt_entry_t;
+} __attribute__((packed)) interrupt_entry_t;
 
 typedef struct
 {
     uint16_t limit;
     uint64_t base;
-} __attribute__ ((packed)) interrupt_pointers_t;
+} __attribute__((packed)) interrupt_pointers_t;
 
 typedef struct
 {
-    uint64_t rax, rbx, rcx, rdx, rbp, rsi, rdi, r8, r9, r10, r11, r12, r13,
-        r14, r15, int_no, err_code, rip, cs, rflags, rsp, ss;
-} __attribute__ ((packed)) interrupt_stack_frame_t;
+    uint64_t rax, rbx, rcx, rdx, rbp, rsi, rdi, r8, r9, r10, r11, r12, r13, r14, r15, int_no,
+        err_code, rip, cs, rflags, rsp, ss;
+} __attribute__((packed)) interrupt_stack_frame_t;
 
-void interrupt_setup (void);
 // register interrupt ISR
-void interrupt_register (uint8_t n, void *handler, uint16_t selector,
-                         uint8_t ist, uint8_t type_attr);
+void interrupt_register(uint8_t n, void *handler, uint16_t selector, uint8_t ist,
+                        uint8_t type_attr);
 // register interrupt handler with default ISR
-void interrupt_register_handler (uint8_t n, void *handler);
+void interrupt_register_handler(uint8_t n, void *handler);
+
+typedef struct
+{
+    boolean_t use_default_isr;
+    boolean_t configured;
+    void     *handler;
+} irq_entry_t;
+
+void irq_register(uint8_t n, void *handler, boolean_t use_default_isr, uint16_t selector,
+                  uint8_t ist, uint8_t type_attr);
 
 #endif // __HAL__CPU__INTERRUPT_H__

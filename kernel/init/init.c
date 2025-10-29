@@ -1,167 +1,147 @@
-#include "initrd.h"
-#include "libk/type.h"
-#include "loader.h"
-#include <dev/cpu/apic/apic.h>
-#include <dev/cpu/apic/ioapic.h>
-#include <dev/graphic/fb.h>
-#include <dev/initrd/initrd.h>
-#include <firmw/acpi/acpi.h>
-#include <hal/cpu/gdt.h>
-#include <hal/cpu/interrupt.h>
-#include <hal/cpu/paging.h>
-#include <hal/graphic/framebuffer.h>
-#include <libk/console/console.h>
-#include <libk/debug/debug.h>
-#include <libk/executable/elf.h>
-#include <libk/io.h>
-#include <libk/serial.h>
-#include <libk/stivale2.h>
+#include "hal/cpu/paging.h"
+#include "hal/graphic/graphic.h"
+#include "libk/bmp.h"
+#include "libk/debug/debug.h"
+#include "libk/executable/elf.h"
+#include "libk/serial.h"
+#include "memory/phys_base_allocator.h"
+#include "memory/vm_manager.h"
+#include "modules/voxmo.h"
+#include <init/loader.h>
 #include <libk/str.h>
-#include <libk/timer.h>
-#include <memory/kalloc.h>
-#include <memory/memory_utils.h>
-#include <memory/phys_base_allocator.h>
-#include <procc/library.h>
-#include <procc/procc.h>
-#include <procc/scheduler.h>
-#include <procc/spawn.h>
-#include <procc/task.h>
-#include <sys/api.h>
-#include <sys/descriptor.h>
-#include <sys/ioforge/ioforge.h>
-#include <vfs/vfs.h>
 
-extern boolean_t is_running_program;
-extern void      init_runtime();
-extern void      rust_main();
+// don't mess up with this sequence
+// #define SEQUENCE_INITIALS_LIST \
+//     L(simd) \
+//     L(gdt) \
+//     L(interrupt) \
+//     L(phys_base_allocator) \
+//     L(paging) \
+//     L(vma) \
+//     L(block) \
+//     L(descriptor) \
+//     L(vfs) \
+//     L(initrd) \
+//     L(graphic) \
+//     L(acpi) \ L(apic_timer)
 
-extern void
+// #define L(name)                                                                                    \
+//     extern void name##_init(init_context_t *ctx);                                                  \
+//     REGISTER_INIT_PRIORITY(name);
+
+// SEQUENCE_INITIALS_LIST
+// #undef L
+
+extern boolean_t                          is_running_program;
+extern void                               init_runtime();
+extern void                               rust_main();
+extern struct stivale2_struct_tag_memmap *saved_memmap_info;
+
+void
 __r()
 {
     // call exit handler
-    asm("movq %%rax, %%rdi;\n"
-        "movq $0x9, %%rax;\n"
-        "int $0x73"
-        :
-        :
-        : "rax", "rdi", "rsi", "rdx"); // Add rdx to the clobber list
-    for (;;)
-        ;
+    // asm("movq %%rax, %%rdi;\n"
+    //     "movq $0x9, %%rax;\n"
+    //     "int $0x73"
+    //     :
+    //     :
+    //     : "rax", "rdi", "rsi", "rdx"); // Add rdx to the clobber list
+    INFLOOP;
 }
+
+static init_context_t ctx = {};
+
+void render_bmp32_with_alpha(uint8_t *pixels, int width, int height, int new_w, int new_h, int posx,
+                             int posy);
 
 // entry point of kernel
 extern void
 _start(struct stivale2_struct *stivale2_struct)
 {
     serial_setup();
-    gdt_setup();
-    interrupt_setup();
+    build_context_from_stivale2(stivale2_struct, &ctx);
 
-    // initialize kernel modules
-    struct stivale2_struct_tag_modules *modules_info =
-        (struct stivale2_struct_tag_modules *)stivale2_get_tag(stivale2_struct,
-                                                               STIVALE2_STRUCT_TAG_MODULES_ID);
+    LOG_INFO("INIT", "run all init");
+    run_all_init_calls(&ctx);
 
-    // this module must be exist
-    if (modules_info->module_count < 1)
+    voxmo_register("/dev/initrd/modules/ehci.voxmo");
+
+    KDEBUG(DEBUG_LEVEL_INFO, "init done");
+
+    // TEST RENDER BMP
+    int img_fd = vfs_open("/dev/initrd/media/boot/logo.bmp", OPEN_MODE_R);
+    if (img_fd < 0)
     {
-        serial_trace("error, no kernel module found!!\n");
-        for (;;)
-            ;
+        LOG_ERROR("BMP", "Failed to open image file");
+        // goto end;
+    }
+    struct vfs_file_stats img_stats;
+    vfs_fstat(img_fd, &img_stats);
+    LOG_DEBUG("JPG", "image size : %d kb", img_stats.size / 1024);
+    uint8_t *img = (uint8_t *)kalloc(img_stats.size);
+    vfs_read(img_fd, img, img_stats.size);
+
+    bmp_header_t *hdr = (bmp_header_t *)img;
+
+    if (hdr->signature != 0x4D42)
+        LOG_WARN("BMP", "bukan BMP");
+    if (hdr->bpp != 24)
+        LOG_WARN("BMP", "bpp bukan 24");
+
+    LOG_INFO("BMP", "compression : %d", hdr->compression);
+
+    int width  = hdr->width;
+    int height = hdr->height;
+    LOG_INFO("BMP", "width : %d", width);
+    LOG_INFO("BMP", "height : %d", height);
+
+    // int row_size = width * 4;
+    // int      row_size = ((width * 3 + 3) / 4) * 4;
+    uint8_t *pixels = img + hdr->pixel_offset;
+
+    // bmp mask
+    if (hdr->compression != 0)
+    {
+        uint8_t *ptr        = (uint8_t *)hdr;
+        uint32_t red_mask   = *((uint32_t *)(ptr + 14 + hdr->dib_header_size + 0));
+        uint32_t green_mask = *((uint32_t *)(ptr + 14 + hdr->dib_header_size + 4));
+        uint32_t blue_mask  = *((uint32_t *)(ptr + 14 + hdr->dib_header_size + 8));
+        uint32_t alpha_mask = *((uint32_t *)(ptr + 14 + hdr->dib_header_size + 12)); // opsional
     }
 
-    // finding initrd module
-    initrd_module_t initrd_module;
-    for (uint64_t i = 0; i < modules_info->module_count; i++)
+    double scale = 0.4;
+    int    w     = width * scale;
+    int    h     = height * scale;
+    render_bmp32_with_alpha(pixels, width, height, w, h,
+                            ctx.framebuffer.framebuffer_width / 2 - w / 2,
+                            ctx.framebuffer.framebuffer_height / 2 - h / 2);
+
+    LOG_INFO("INIT", "end of init");
+    INFLOOP;
+}
+
+void
+render_bmp32_with_alpha(uint8_t *pixels, int width, int height, int new_w, int new_h, int posx,
+                        int posy)
+{
+    int row_size = width * 4; // BGRA
+    for (int y = 0; y < new_h; y++)
     {
-        struct stivale2_module *module = &modules_info->modules[i];
-        if (strncmp(module->string, "boot:///initrd.tar", 18) == 0)
+        for (int x = 0; x < new_w; x++)
         {
-            serial_send_string("\ninitrd found\n");
-            initrd_module.start = module->begin;
-            initrd_module.size  = module->end - module->begin;
-            break;
+            int    srcx = (x * width) / new_w;
+            int    srcy = (y * height) / new_h;
+            size_t idx  = (height - 1 - srcy) * row_size + srcx * 4;
+
+            pixel_t src = {
+                .b = pixels[idx + 0],
+                .g = pixels[idx + 1],
+                .r = pixels[idx + 2],
+                .a = pixels[idx + 3],
+            };
+
+            put_pixel_alpha(posx + x, posy + y, src);
         }
     }
-
-    // initialize memori allocator
-    struct stivale2_struct_tag_memmap *memmap_info =
-        (struct stivale2_struct_tag_memmap *)stivale2_get_tag(stivale2_struct,
-                                                              STIVALE2_STRUCT_TAG_MEMMAP_ID);
-    phys_base_allocator_install(memmap_info);
-
-    serial_trace("initrd module found at 0x%x\n", initrd_module.start);
-
-    // iniialize block device
-    // block_install();
-    // block_register_device("/block/initrd", initrd_block_impl(&initrd_module),
-    //                       0);
-    //
-    // // initialize vfs
-    // vfs_install();
-    // descriptor_install();
-    // vfs_register_fs("initrd", initrd_vfs_impl(&initrd_module), 0);
-    // vfs_mount("/dev/initrd", "/block/initrd", "initrd");
-    //
-    // int                   font_fd = vfs_open("/dev/initrd/fonts/unifont.sfn",
-    // O_RDONLY); struct vfs_file_stats stats; vfs_fstat(font_fd, &stats);
-    // serial_trace("(init) font size : %d\n", stats.size);
-    //
-    // uint8_t *font = (uint8_t *)(phys_base_alloc(1 + stats.size / 4096));
-    // memset((void *)font, 0, stats.size);
-    // serial_trace("font address : 0x%x\n", font);
-    // vfs_read(font_fd, font, stats.size);
-    // serial_trace("read font success\n");
-    //
-    // paging_install();
-    //
-    // // setup framebuffer
-    // struct stivale2_struct_tag_framebuffer *framebuffer_info = (struct
-    // stivale2_struct_tag_framebuffer *)stivale2_get_tag(
-    //     stivale2_struct, STIVALE2_STRUCT_TAG_FRAMEBUFFER_ID);
-    // serial_trace("framebuffer address : 0x%x\n",
-    //              framebuffer_info->framebuffer_addr);
-    //
-    // struct framebuffer *fb_info = (struct framebuffer *)(phys_base_alloc(1));
-    // *fb_info                    = (struct framebuffer){
-    //                        .addr   = framebuffer_info->framebuffer_addr,
-    //                        .width  = framebuffer_info->framebuffer_width,
-    //                        .height = framebuffer_info->framebuffer_height,
-    //                        .pitch  = framebuffer_info->framebuffer_pitch,
-    //                        .bpp    = framebuffer_info->framebuffer_bpp,
-    //                        .font   = font,
-    // };
-    // serial_trace("framebuffer address : 0x%x\n", fb_info->addr);
-    // serial_trace("framebuffer width : %d\n", fb_info->width);
-    // framebuffer_setup(fb_info);
-    // fb_init(framebuffer_info, FB_COLOR_BLACK);
-    //
-    // KDEBUG(DEBUG_LEVEL_INFO, "Framebuffer initialized\n");
-    //
-    // struct stivale2_struct_tag_rsdp *rsdp_info = (struct
-    // stivale2_struct_tag_rsdp *)stivale2_get_tag(
-    //     stivale2_struct, STIVALE2_STRUCT_TAG_RSDP_ID);
-    // KDEBUG(DEBUG_LEVEL_INFO, "RSDP address: 0x%x\n", rsdp_info->rsdp);
-    //
-    // ACPI
-    // acpi_setup(rsdp_info);
-    // apic_setup();
-    // ioapic_setup();
-
-    // IO initialization
-    // ioforge_init();
-
-    // task_initialize();
-    // library_add("/initrd/lib/libnayalib.so", LIBRARY_TYPE_DYNAMIC);
-
-    // // spawn("/initrd/modules/runtimeinit.elf", 0, 0);
-    // spawn("/initrd/modules/flui.elf", 0, 0);
-
-    // pmm_log_usage();
-    // // menjalankan scheduler (blocking)
-    // scheduler_init();
-
-    // just loop
-    for (;;)
-        ;
 }

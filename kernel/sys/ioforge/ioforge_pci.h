@@ -3,12 +3,14 @@
 
 #include "./ioforge.h"
 
-struct IoForgePCIBar {
-    uint32_t address;
-    boolean_t     iospace;
+struct IoForgePCIBar
+{
+    uint64_t  address;
+    boolean_t iospace;
 };
 
-struct IoForgePCI {
+struct IoForgePCI
+{
     struct IoForgeService service;
     size_t                pci_dev;
     size_t                pci_bus;
@@ -29,8 +31,8 @@ struct IoForgePCI {
     uint8_t              bus;
     uint8_t              device;
     uint8_t              function;
-    uint8_t              capability_ptr;
-    struct IoForgePCIBar bar[5];
+    uint16_t             capability_ptr;
+    struct IoForgePCIBar bar[6];
 };
 
 #endif // __SYS__IOFORGE__IOFORGE_PCI_H_

@@ -8,32 +8,37 @@ KERNEL := ../build/kernel.elf
 # Verbosity control
 V ?= 0
 ifeq ($(V),1)
-    Q :=
-    E := @true
+	Q :=
+	E := @true
 else
-    Q := @
-    E := @echo
+	Q := @
+	E := @echo
 endif
 
 CFLAGS := -Wall -Wextra -O0 -pipe -ggdb -g \
-                    -std=gnu2x -ffreestanding \
-                    -fno-stack-protector -fno-pie \
-                    -mno-80387 -mno-mmx -mno-3dnow \
-                    -mno-sse -mno-sse2 -mno-red-zone \
-                    -I . -nostdlib -nostartfiles \
-                    -nodefaultlibs -nostdinc -fno-builtin \
-            -mcmodel=kernel -Wdeprecated-declarations
+					-std=gnu2x -ffreestanding \
+					-fno-stack-protector -fno-pie \
+					-mno-80387 -mno-3dnow \
+					-mfpmath=sse -msse -msse2  -mmmx \
+					-mno-red-zone \
+					-I . -nostdlib -nostartfiles \
+					-nodefaultlibs -nostdinc -fno-builtin \
+			-mcmodel=kernel -Wdeprecated-declarations -fvisibility=hidden 
 
 LDFLAGS := -nostdlib -static \
-                     -z max-page-size=0x1000 \
-                     -T linker.ld --no-dynamic-linker
+					 -z max-page-size=0x1000 \
+					 -T linker.ld --no-dynamic-linker
 
 RUST_KERNEL := ../rust/target/x86_64-unknown-none/release/libkernel.a
 
 .PHONY: all
-all: $(OBJ) $(RUST_KERNEL)
+all: $(OBJ)
 	$(E) "  LD     $(notdir $(KERNEL))"
-	$(Q)ld.lld $(LDFLAGS) $(OBJ) $(RUST_KERNEL) -o $(KERNEL)
+	$(Q)ld.lld $(LDFLAGS) $(OBJ) -o $(KERNEL)
+	objdump -t $(KERNEL) | grep '\.export' | awk '{print $$6}' > keep.txt
+	objcopy --strip-unneeded --keep-symbols=keep.txt  $(KERNEL) $(KERNEL)
+# 	nm -S --defined-only $(KERNEL) | grep '\.export' >> keep.txt
+# 	nm $(KERNEL) | grep "__export_" | awk '{print $$3}'t > keep.txt
 
 -include $(DFILES)
 

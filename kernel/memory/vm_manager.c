@@ -1,4 +1,5 @@
 #include "config.h"
+#include "init/init.h"
 #include "libk/type.h"
 #include <hal/cpu/paging.h>
 #include <libk/serial.h>
@@ -22,15 +23,14 @@ static rbt_node *virtual_memory_tree_root = 0;
 
 // hnya unutk kebutuhan lookup zone
 static struct virtual_memory_tree vma_tree_zone_a;
-// static struct virtual_memory_tree *vma_tree_zone_b = 0;
-// static struct virtual_memory_tree *vma_tree_zone_c = 0;
+static struct virtual_memory_tree vma_tree_zone_b;
+static struct virtual_memory_tree vma_tree_zone_c;
 
 static struct slab_cache *rbt_node_cache      = NULL;
 static struct slab_cache *vma_cache           = NULL;
 static struct slab_cache *vma_tree_zone_cache = NULL;
 
-void
-vma_setup_zone()
+INIT(vma)
 {
     slab_cache_create(&rbt_node_cache, "rbt_node", sizeof(rbt_node), 64, 0);
     slab_cache_create(&vma_cache, "vma", sizeof(virtual_memory), 64, 0);
@@ -125,7 +125,21 @@ vma_tree_add(mem_vma_region region, uintptr_t start_address, uintptr_t end_addre
 uintptr_t
 vma_lookup_free_vaddr(mem_vma_region region, size_t size)
 {
-    struct virtual_memory_tree_node *curr = vma_tree_zone_a.active;
+    struct virtual_memory_tree_node *curr = 0;
+    switch (region)
+    {
+        case VMA_REGION_A:
+            curr = vma_tree_zone_a.active;
+            break;
+        case VMA_REGION_B:
+            curr = vma_tree_zone_b.active;
+            break;
+        case VMA_REGION_C:
+            curr = vma_tree_zone_c.active;
+            break;
+        default:
+            break;
+    }
 
     if (curr == 0)
     {

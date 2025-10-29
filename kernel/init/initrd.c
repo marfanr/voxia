@@ -1,276 +1,224 @@
 #include "initrd.h"
-#include "libk/str/memcopy.h"
+#include "hal/block/block.h"
+#include "hal/cpu/paging.h"
+#include "init/init.h"
+#include "libk/type.h"
+#include "libk/vector.h"
+#include "memory/kalloc.h"
+#include "memory/memory_utils.h"
+#include "memory/phys_base_allocator.h"
+#include "vfs/dentry.h"
+#include "vfs/filesystem.h"
 #include <libk/fs/tar.h>
+
 #include <libk/serial.h>
 #include <libk/str.h>
-#include <libk/str/strncmp.h>
-#include <memory/memory_utils.h>
-#include <memory/phys_base_allocator.h>
+#include <memory/kalloc.h>
+#include <memory/slab.h>
+#include <memory/vm_manager.h>
 #include <sys/descriptor.h>
 #include <vfs/vfs.h>
 
-/**
- * @brief Mengonversi bilangan oktal menjadi bilangan biner.
- *
- * Fungsi ini mengonversi string yang mewakili bilangan oktal menjadi bilangan
- * biner. Bilangan oktal direpresentasikan sebagai string dengan
- * karakter-karakter '0' hingga '7'. Setiap karakter diubah menjadi bilangan
- * desimal dan kemudian diubah menjadi bilangan biner.
- *
- * @param str Pointer ke string yang mewakili bilangan oktal.
- * @param len Panjang string yang mewakili bilangan oktal.
- * @return Bilangan biner yang dihasilkan dari konversi.
- */
-int initrd_oct2bin(unsigned char *str, int len) {
-  int n = 0;
-  unsigned char *c = str;
-  while (len-- > 0) {
-    n *= 8;
-    n += *c - '0';
-    c++;
-  }
-  return n;
-}
+// local use
+static initrd_module_t *initrd_module = 0;
 
-/**
- * @brief load file from initrd
- *
- * @param module initrd module
- * @param name file name
- * @return char* file data
- */
-char *initrd_load(initrd_module_t module, const char *name) {
-  uint8_t *addr = (uint8_t *)module.start;
-  TarHeader *header = (TarHeader *)addr;
-
-  if (strncmp(name, "/", 1) == 0) {
-    name++;
-  }
-
-  while (strncmp(header->ustar, "ustar", 5) == 0) {
-    int size = initrd_oct2bin(header->size, 11);
-    if (strncmp(header->filename, name, sizeof(name)) == 0) {
-      serial_trace("\nfile %s found\n", header->filename);
-      if (header->typeflag == '5') { // directory
-        uint8_t *subaddr = addr + 512;
-        header = (TarHeader *)subaddr;
-        serial_trace("file %s loaded from subdir\n", header->filename);
-        // continue;
-        char *out = subaddr + 512;
-        return out;
-      }
-
-      header = (TarHeader *)addr;
-      char *out = addr + 512;
-      serial_trace("file %s loaded\n", header->filename);
-      serial_trace("file size : %d\n", size);
-      serial_trace("file gid : 0x%x\n", initrd_oct2bin(header->gid, 8));
-      return out;
+static int
+initrd_oct2bin(unsigned char *str, int len)
+{
+    int            n = 0;
+    unsigned char *c = str;
+    while (len-- > 0)
+    {
+        n *= 8;
+        n += *c - '0';
+        c++;
     }
-    addr += (((size + 511) / 512) + 1) * 512;
-    header = (TarHeader *)addr;
-  }
-  return 0;
+    return n;
 }
 
-static char **explode_path(const char *path) {
-  // serial_trace ("exploding path : %s\n", path);
-  char **result =
-      (char **)(phys_base_alloc(1 + sizeof(char *) * strlen(path) / 4096));
-  memset(result, 0, sizeof(char *) * strlen(path));
+// /**
+//  * @brief load file from initrd
+//  *
+//  * @param module initrd module
+//  * @param name file name
+//  * @return char* file data
+//  */
+// char *
+// initrd_load(initrd_module_t module, const char *name)
+// {
+//     uint8_t   *addr   = (uint8_t *)module.start;
+//     TarHeader *header = (TarHeader *)addr;
 
-  int i = 0, j = 0;
-  char *buffer = (char *)(phys_base_alloc(1 + 256 / 4096));
-  memset(buffer, 0, 1 + 256);
-  while (*path) {
-    if (*path == '/') {
-      buffer[i] = 0;
-      result[j] = (char *)(phys_base_alloc(1 + sizeof(buffer) / 4096));
-      memset(result[j], 0, sizeof(buffer));
-      // if buffer is empty add /
-      if (strlen(buffer) == 0)
-        memcopy(result[j], "/", sizeof(char));
-      else
-        memcopy(result[j], buffer, sizeof(buffer));
-      // serial_trace ("result[%d] : %s\n", j, result[j]);
-      i = 0;
-      memset(buffer, 0, 256);
-      j++;
-    } else {
-      buffer[i] = *path;
-      i++;
-    }
-    path++;
-  }
-  if (i > 0) {
-    buffer[i] = 0;
-    result[j] = (char *)(phys_base_alloc(1 + strlen(buffer) / 4096));
-    memcopy(result[j], buffer, strlen(buffer));
-    // serial_trace ("result[%d] : %s\n", j, result[j]);
-    j++;
-  }
-  phys_base_free((void *)(uint64_t)buffer, 1 + 256 / 4096);
-  return result;
+//     if (strncmp(name, "/", 1) == 0)
+//     {
+//         name++;
+//     }
+
+//     while (strncmp(header->ustar, "ustar", 5) == 0)
+//     {
+//         int size = initrd_oct2bin(header->size, 11);
+//         if (strncmp(header->filename, name, sizeof(name)) == 0)
+//         {
+//             serial_trace("\nfile %s found\n", header->filename);
+//             if (header->typeflag == '5')
+//             { // directory
+//                 uint8_t *subaddr = addr + 512;
+//                 header           = (TarHeader *)subaddr;
+//                 serial_trace("file %s loaded from subdir\n", header->filename);
+//                 // continue;
+//                 char *out = subaddr + 512;
+//                 return out;
+//             }
+
+//             header    = (TarHeader *)addr;
+//             char *out = addr + 512;
+//             serial_trace("file %s loaded\n", header->filename);
+//             serial_trace("file size : %d\n", size);
+//             serial_trace("file gid : 0x%x\n", initrd_oct2bin(header->gid, 8));
+//             return out;
+//         }
+//         addr += (((size + 511) / 512) + 1) * 512;
+//         header = (TarHeader *)addr;
+//     }
+//     return 0;
+// }`
+
+INIT(initrd)
+{
+    initrd_module = &ctx->initrd_module;
+    paging_mmap_fill(paging_get_highest_page_map(), 0xFFFFD00000000000,
+                     VIRT2PHYS(initrd_module->start), initrd_module->size / BLOCK_SIZE, 0b111);
+    initrd_module->start = 0xFFFFD00000000000;
+    LOG_INFO("INITRD", "initrd module found at 0x%x", initrd_module->start);
+
+    // registering initrd
+    block_register_device("/block/initrd", initrd_block_impl(), 0);
+    filesystem_register("initrd", initrd_fs_impl());
+    vfs_mount("/dev/initrd", "/block/initrd", "initrd");
+    LOG_INFO("INITRD", "initrd registered");
 }
 
-static int calc_path_depth(const char *path) {
-  int depth = 0;
-  while (*path) {
-    if (*path == '/') {
-      depth++;
-    }
-    path++;
-  }
-  return depth + 1;
+static uint8_t *
+initrd_block_read(uint64_t offset, size_t _count)
+{
+    // we dont need copy the whole file, just return the address
+    // because the initrd is read-only
+    uint8_t *addr = (uint8_t *)(initrd_module->start + offset);
+    return addr;
 }
 
-uint8_t *initrd_block_read(void *this, uint64_t offset, size_t _count) {
-  // no used in initrd
-  block_device_operations_t *_this = (block_device_operations_t *)this;
-  initrd_module_t *module = (initrd_module_t *)_this->ctx;
-  uint8_t *addr = (uint8_t *)(module->start + offset);
-  return addr;
+int
+initrd_block_write(uint64_t offset, size_t count, uint8_t *data)
+{
+    return BLOCK_OPT_NOT_IMPLEMENTED;
 }
 
-int initrd_block_write(block_device_operations_t *this, uint64_t offset,
-                       size_t count, uint8_t *data) {
-  return BLOCK_OPT_NOT_IMPLEMENTED;
+open_response_code
+initrd_block_open(fmode_t mode)
+{
+    return OPEN_SUCCESS;
 }
 
-block_device_operations_t *initrd_block_impl(initrd_module_t *module) {
-  block_device_operations_t *ops =
-      (block_device_operations_t *)(phys_base_alloc(
-          1 + sizeof(block_device_operations_t) / 4096));
-  ops->ctx = (void *)module;
-  ops->read = initrd_block_read;
-  return ops;
+block_device_operations_t *
+initrd_block_impl()
+{
+
+    block_device_operations_t *ops =
+        (block_device_operations_t *)kalloc(sizeof(block_device_operations_t));
+    ops->read = initrd_block_read;
+    ops->open = initrd_block_open;
+    // ops->write = initrd_block_write;
+    return ops;
 }
 
-struct vfs_open_response *initrd_open(block_device_operations_t *block_op,
-                                      const char *path, int _inode) {
-  _inode; // not used
-  serial_trace("lookup %s\n", path);
-  int offset = 0;
-  TarHeader *header = (TarHeader *)block_op->read(block_op, offset, 0);
-  while (strncmp(header->ustar, "ustar", 5) == 0) {
-    int size = initrd_oct2bin(header->size, 11);
-
-    if (strncmp(header->filename, path, strlen(path)) == 0) {
-      struct vfs_open_response *response =
-          (struct vfs_open_response *)(phys_base_alloc(
-              1 + sizeof(struct vfs_open_response) / 4096));
-      memset(response, 0, sizeof(struct vfs_open_response) / 4096);
-
-      response->size = size;
-      response->permission = initrd_oct2bin(header->mode, 8);
-      response->is_directory = header->typeflag == '5';
-      response->addr = (uintptr_t)block_op->read(block_op, offset + 512, 0);
-
-      serial_trace("loaded file name : %s from 0x%x \n", header->filename,
-                   response->addr);
-
-      return response;
-    }
-    offset += (((size + 511) / 512) + 1) * 512;
-    header = (TarHeader *)block_op->read(block_op, offset, 0);
-  }
-  return 0;
+int
+initrd_lookup(vfs_inode_t *dir, dentry_ptr dentry)
+{
+    // ini tidk diperlukan karena semua file sudah di inde dari awal
+    return 0;
 }
 
-int initrd_read(block_device_operations_t *block_op, int inode, void *buf,
-                size_t count) {
-  return 0;
-}
+void
+initrd_mount(vfs_inode_t *inode, dentry_ptr dentry)
+{
+    block_device *dev    = inode->block;
+    uint64_t      offset = 0;
+    uint8_t      *addr   = (uint8_t *)dev->ops->read(offset, 0);
+    TarHeader    *header = (TarHeader *)addr;
 
-/**
- * this will  no longer used in the initrd because all the structures inside
- *  the initd have already been copied into the VFS node
- * @return 0 not found
- */
-int initrd_lookup(vfs_inode_t *node, struct vfs_entry *entry,
-                  vfs_inode_t **output) {
-  return 0;
-}
+    // serial_trace("header at 0x%x\n", header);
 
-int initrd_mount(vfs_inode_t *node) {
-  // construct vfs tree from initrd archive
-  serial_trace("initrd mount\n");
+    while (strncmp(header->ustar, "ustar", 5) == 0)
+    {
+        dentry_ptr curr_entry = dentry;
 
-  uint64_t current_offset = 0;
+        size_t l = strlen(header->filename);
+        if (header->filename[l - 1] == '\n')
+            l--;
 
-  TarHeader *header =
-      (TarHeader *)node->block->ops->read(node->block->ops, current_offset, 0);
+        int size = initrd_oct2bin(header->size, 11);
+        // serial_trace("file name %s, size : %d\n", header->filename, size);
 
-  while (strncmp(header->ustar, "ustar", 5) == 0) {
-    int size = initrd_oct2bin((unsigned char *)header->size, 11);
+        // exploding path
+        vector(string) exploded_path = {0};
+        vector_init(&exploded_path);
+        explode(header->filename, '/', &exploded_path);
 
-    // skip processing if it is a directory to reduce loop
-    if (header->typeflag == '5')
-      goto mount_end;
+        for (size_t i = 0; i < exploded_path.size; i++)
+        {
+            // serial_trace("      path %d = %s \n", i, exploded_path.data[i]->c_str);
 
-    char *path = header->filename;
+            boolean_t found = false;
+            for (size_t j = 0; j < curr_entry->children.size; j++)
+            {
+                dentry_t *child = curr_entry->children.data[j];
 
-    // if (strncmp(header->filename, entry->name, sizeof(entry->name)) == 0) {
-    // serial_trace("ON MOUNT: found path %s\n", header->filename);
-    int path_depth = calc_path_depth(path);
-    vfs_inode_t *curr_inode = node;
-    struct vfs_entry *curr_entry = node->entry;
-    char **exploded_path = explode_path(path);
+                if (stringcmp(child->name, exploded_path.data[i]))
+                {
+                    curr_entry = child;
+                    found      = true;
+                    break;
+                }
+            }
 
-    for (int i = 0; i < path_depth; i++) {
-      for (int j = 0; j < curr_entry->child_count; j++) {
-        if (strncmp(curr_entry->child[j]->name, exploded_path[i],
-                    strlen(path)) == 0) {
+            if (!found)
+            {
+                vfs_inode_t *child_inode = vfs_create_inode(inode->fs);
+                child_inode->block       = dev;
+                // child_inode->is_directory = true;
 
-          curr_entry = curr_entry->child[j];
-          // curr_inode = curr_entry->inode;
-          goto continue_next_path;
-          break;
+                // if (i == exploded_path.size - 1)
+                // {
+                child_inode->is_directory = header->typeflag == '5';
+                child_inode->permission   = initrd_oct2bin(header->mode, 8);
+                child_inode->size         = size;
+                child_inode->offset       = offset + 512;
+                child_inode->block->bar   = (uintptr_t)initrd_module->start;
+                // child_inode->
+                // }
+
+                dentry_ptr new_entry =
+                    create_directory_entry(exploded_path.data[i], child_inode, curr_entry);
+                curr_entry = new_entry;
+                // serial_trace("      | created new entry\n");
+            }
         }
-      }
 
-      // serial_trace("not found child %s\n", exploded_path[i]);
-      // create new entry
-      curr_inode = vfs_create_inode(vfs_last_existing_inode++, node->fs);
-      curr_inode->size = size;
+        vector_destroy(&exploded_path);
 
-      if (i != (path_depth - 1)) {
-        curr_inode->is_directory = 1;
-      }
-
-      struct vfs_entry *entry =
-          vfs_create_entry(exploded_path[i], curr_inode, curr_entry);
-
-      curr_inode->entry = entry;
-      entry->addr = (uintptr_t)node->block->ops->read(node->block->ops,
-                                                      current_offset + 512, 0);
-      if (curr_entry->child_count == 0)
-        curr_entry->child = (struct vfs_entry **)(phys_base_alloc(
-            1 + sizeof(struct vfs_entry *) / 4096));
-
-      curr_entry->child_count++;
-      curr_entry->child[curr_entry->child_count - 1] = entry;
-      curr_entry = entry;
-
-    continue_next_path:
-      continue;
+        offset += (((size + 511) / 512) + 1) * 512;
+        header = (TarHeader *)dev->ops->read(offset, 0);
     }
-
-  mount_end:
-    current_offset += (((size + 511) / 512) + 1) * 512;
-    header = (TarHeader *)node->block->ops->read(node->block->ops,
-                                                 current_offset, 0);
-  }
-  return 0;
 }
 
-vfs_operations_t *initrd_vfs_impl(initrd_module_t *module) {
-  // TODO: migrate to proper calloc
-  vfs_operations_t *ops =
-      (vfs_operations_t *)phys_base_alloc(1 + sizeof(vfs_operations_t) / 4096);
-  ops->open = initrd_open;
-  ops->read = initrd_read;
-  ops->lookup = initrd_lookup;
-  ops->mount = initrd_mount;
-  return ops;
+filesystem_t *
+initrd_fs_impl()
+{
+    filesystem_t *fs = (filesystem_t *)kalloc(sizeof(filesystem_t));
+    strcpy((char *)fs->name, "initrd");
+    fs->ops         = (vfs_operations_t *)kalloc(sizeof(vfs_operations_t));
+    fs->ops->lookup = initrd_lookup;
+    fs->ops->mount  = initrd_mount;
+
+    return fs;
 }

@@ -1,4 +1,6 @@
 #include "gdt.h"
+#include "init/init.h"
+#include "libk/serial.h"
 #include <libk/debug/debug.h>
 #include <libk/str.h>
 #include <memory/memory_utils.h>
@@ -33,7 +35,8 @@ uint8_t stack[4096] __attribute__((aligned(16)));
 // | 12  |   &tss (high)   | sizeof(tss) (high)|       0x00      |       0x00      |
 // +----+-----------------+-------------------+-----------------+-----------------+
 
-void gdt_setup() {
+INIT(gdt)
+{
     gdt_entries[0] = gdt_make_entry(0, 0, 0, 0); // 0x00 null segment
     //   16 bit
     gdt_entries[1] = gdt_make_entry(0, 0xFFFF, 0x9A, 0x00); // 0x08 16 bit code segment
@@ -52,8 +55,8 @@ void gdt_setup() {
     gdt_entries[7] = gdt_make_entry(0, 0, 0xFA, 0x20); // 0x38 64 bit code segment
     gdt_entries[8] = gdt_make_entry(0, 0, 0xF2, 0x00); // 0x40 64 bit data segment
     // 64 bit modulespace (ring 1)
-    gdt_entries[9]  = gdt_make_entry(0, 0, 0xBA, 0x20); // 0x48 64 bit code segment
-    gdt_entries[10] = gdt_make_entry(0, 0, 0xB2, 0x00); // 0x50 64 bit data segment
+    // gdt_entries[9]  = gdt_make_entry(0, 0, 0xBA, 0x20); // 0x48 64 bit code segment
+    // gdt_entries[10] = gdt_make_entry(0, 0, 0xB2, 0x00); // 0x50 64 bit data segment
 
     // tss
     tss.rsp[0]     = 0;
@@ -92,14 +95,15 @@ void gdt_setup() {
     gdt_ptr.limit = sizeof(gdt_entry_t) * (14 + 1) - 1;
     gdt_ptr.base  = (uint64_t)&gdt_entries;
     gdt_flush(gdt_ptr);
-    __asm__ volatile("ltr %%ax"
-                     :
-                     : "a"(0x58));
+    __asm__ volatile("ltr %%ax" : : "a"(0x58));
     reloadGDT(0x28, 0x30);
+
+    LOG_INFO("GDT", "GDT initialized");
 }
 
 gdt_entry_t
-gdt_make_entry(uint32_t base, uint16_t limit, uint8_t access, uint8_t flags) {
+gdt_make_entry(uint32_t base, uint16_t limit, uint8_t access, uint8_t flags)
+{
     gdt_entry_t entry;
     entry.base_low    = base & 0xFFFF;
     entry.base_middle = (base >> 16) & 0xFF;
@@ -111,8 +115,8 @@ gdt_make_entry(uint32_t base, uint16_t limit, uint8_t access, uint8_t flags) {
     return entry;
 }
 
-void gdt_flush(gdt_ptr_t gdt_ptr) {
-    __asm__ volatile("lgdt %0"
-                     :
-                     : "memory"(gdt_ptr));
+void
+gdt_flush(gdt_ptr_t gdt_ptr)
+{
+    __asm__ volatile("lgdt %0" : : "memory"(gdt_ptr));
 }

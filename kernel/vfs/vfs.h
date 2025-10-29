@@ -77,7 +77,6 @@ enum
 
 struct vfs_inode *vfs_create_inode(filesystem_t *fs);
 int               vfs_mount(const char *path, const char *block, const char *fs);
-void              vfs_install();
 vfs_mount_error   vfs_umount(const char *path);
 
 /**

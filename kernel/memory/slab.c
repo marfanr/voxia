@@ -33,7 +33,7 @@ slab_cache_create(struct slab_cache **cache, const char *name, const size_t obj_
                   size_t alignment, const uintptr_t virt_addr)
 {
     uintptr_t phys_addr = (uintptr_t)phys_base_alloc(1);
-    serial_trace("created new slab cache '%s' at phys 0x%x\n", name, phys_addr);
+    LOG_INFO("SLAB", "created new slab cache '%s' at phys 0x%x", name, phys_addr);
     uintptr_t vaddr = virt_addr;
 
     if (virt_addr == 0)

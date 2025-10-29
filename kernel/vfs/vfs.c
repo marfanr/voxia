@@ -1,3 +1,4 @@
+#include "init/init.h"
 #include "libk/string.h"
 #include "memory/kalloc.h"
 #include <libk/type.h>
@@ -37,8 +38,7 @@ static struct slab_cache *rbt_node_cache;
 static struct slab_cache *vfs_inode_cache;
 static dentry_ptr         root_dentry;
 
-void
-vfs_install()
+INIT(vfs)
 {
     slab_cache_create(&rbt_node_cache, "rbt_node", sizeof(rbt_node), 64, 0);
     slab_cache_create(&vfs_inode_cache, "vfs_inode", sizeof(struct vfs_inode), 64, 0);
@@ -100,6 +100,7 @@ strcat(char *dest, const char *src)
     *dest = 0;
 }
 
+KERNEL_API
 vfs_mount_error
 vfs_mount(const char *path, const char *block, const char *fs)
 {
@@ -156,6 +157,7 @@ vfs_umount(const char *path)
     return -1;
 }
 
+KERNEL_API
 int
 vfs_open(const char *path, vfs_open_mode flags)
 {
@@ -238,6 +240,7 @@ vfs_open(const char *path, vfs_open_mode flags)
     return descriptor_add(curr_entry->inode, curr_entry, flags);
 }
 
+KERNEL_API
 int
 vfs_fstat(int fd, vfs_file_stats_ptr buf)
 {
@@ -251,6 +254,7 @@ vfs_fstat(int fd, vfs_file_stats_ptr buf)
     return 0;
 }
 
+KERNEL_API
 int
 vfs_read(int fd, void *buf, size_t count)
 {

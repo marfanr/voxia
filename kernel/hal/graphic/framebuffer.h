@@ -3,17 +3,20 @@
 
 #include <libk/type.h>
 
-struct framebuffer
+typedef struct
 {
-    uint32_t width;
-    uint32_t height;
-    uint32_t pitch;
-    uint32_t bpp;
-    uint64_t addr;
-    uint8_t *font;
-};
+    uint64_t framebuffer_addr;
+    uint16_t framebuffer_width;
+    uint16_t framebuffer_height;
+    uint16_t framebuffer_pitch;
+    uint16_t framebuffer_bpp;
 
-void framebuffer_setup (struct framebuffer *fb);
-void putpx (uint32_t x, uint32_t y, uint32_t color);
-void putc (char c, int x, int y, uint32_t fg, uint32_t bg);
+    uint8_t red_mask_size;
+    uint8_t red_mask_shift;
+    uint8_t green_mask_size;
+    uint8_t green_mask_shift;
+    uint8_t blue_mask_size;
+    uint8_t blue_mask_shift;
+} __attribute__((aligned(32))) framebuffer_t;
+
 #endif // __HAL_GRAPHIC_FRAMEBUFFER_H__

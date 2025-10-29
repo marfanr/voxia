@@ -13,8 +13,8 @@ enum IoForgeType
 struct IoForgeService
 {
     const char name[255];
-    uint8_t type;
-    void (*init) (struct IoForgeService *);
+    uint8_t    type;
+    void (*init)(struct IoForgeService *);
     struct IoForgeService *next;
 };
 
@@ -23,9 +23,7 @@ struct IoForgeACPI
     struct IoForgeService service;
 };
 
-void ioforge_init ();
-void ioforge_register_service (struct IoForgeService *service);
-struct IoForgePCI *ioforge_get_pci_device (uint16_t vendor_id,
-                                           uint16_t device_id);
+void               ioforge_register_service(struct IoForgeService *service);
+struct IoForgePCI *ioforge_get_pci_device(uint16_t vendor_id, uint16_t device_id);
 
 #endif // __SYS__IOFORGE__IOFORGE_H_

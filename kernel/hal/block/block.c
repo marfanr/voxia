@@ -1,4 +1,5 @@
 #include "block.h"
+#include "init/init.h"
 #include <libk/hash.h>
 #include <libk/serial.h>
 #include <libk/str.h>
@@ -9,8 +10,7 @@
 static struct block_device *g__block_devices_root_ = 0;
 struct slab_cache          *block_device_cache     = 0;
 
-void
-block_install()
+INIT(block)
 {
     slab_cache_create(&block_device_cache, "block_device", sizeof(struct block_device), 0, 0);
 }

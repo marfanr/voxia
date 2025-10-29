@@ -188,7 +188,7 @@ kalloc(size_t size)
     size_t allocate_size = ALIGN_UP(size, BLOCK_SIZE) / BLOCK_SIZE;
     serial_trace("allocate more than 2kb, %d page\n", allocate_size);
 
-    uintptr_t phys_addr = (uintptr_t)phys_base_alloc(200);
+    uintptr_t phys_addr = (uintptr_t)phys_base_alloc(allocate_size);
     serial_trace("phys addr 0x%x\n", phys_addr);
     uintptr_t vaddr = kalloc_next_addr;
     kalloc_next_addr += BLOCK_SIZE * allocate_size;

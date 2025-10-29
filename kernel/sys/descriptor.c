@@ -1,54 +1,47 @@
 #include "descriptor.h"
+#include "init/init.h"
+#include "vfs/dentry.h"
 
-#include "memory/buddy_allocator.h"
-#include "memory/memory_utils.h"
-#include "memory/phys_base_allocator.h"
-#include <libk/debug/debug.h>
 #include <libk/serial.h>
-#include <memory/memory_utils.h>
+#include <libk/str.h>
+#include <libk/vector.h>
+#include <memory/slab.h>
 
-struct file_descriptor **g__descriptor_       = 0;
-struct buddy_allocator  *descriptor_allocator = 0;
+define_vector(file_descriptor_ptr);
+static vector(file_descriptor_ptr) descriptors = {0};
+static struct slab_cache *descriptor_cache     = 0;
 
 #define MAX_FD_NUMBER 512
 
-void descriptor_install() {
-    // TO DO: iplemnt vec tor for dynamic size
-    size_t estimated_size = 1024 * 1024 * 4;
-    descriptor_allocator  = buddy_allocator_install(
-         (void *)(phys_base_alloc(1 + (estimated_size / 4096))),
-         (1 + (estimated_size / 4096)) * 4096);
-    g__descriptor_ = (struct file_descriptor *)buddy_alloc(
-        descriptor_allocator, MAX_FD_NUMBER * sizeof(uintptr_t));
-    serial_trace("descriptor installed : 0x%x\n", g__descriptor_);
+INIT(descriptor)
+{
+    vector_init(&descriptors);
+    serial_trace("descriptor installed at %x\n", (uintptr_t)&descriptors);
+    slab_cache_create(&descriptor_cache, "descriptor", sizeof(file_descriptor_t), 64, 0);
 }
 
-int descriptor_add(int inode, struct vfs_entry *file, uintptr_t addr, uint64_t offset, uint8_t flags) {
-    for (int i = 0; i < MAX_FD_NUMBER; i++) {
-        if (g__descriptor_[i] == 0) {
-            struct file_descriptor *fd = (struct file_descriptor *)buddy_alloc(
-                descriptor_allocator,
-                sizeof(struct file_descriptor));
-            serial_trace("descriptor added : %x\n", fd);
-            fd->addr          = addr;
-            fd->flags         = flags;
-            fd->inode         = inode;
-            fd->offset        = offset;
-            fd->file          = file;
-            g__descriptor_[i] = fd;
-            return i;
-        }
-    }
+int
+descriptor_add(vfs_inode_t *inode, dentry_ptr dentry, uint8_t flags)
+{
+    file_descriptor_t *fd = (file_descriptor_t *)slab_alloc(descriptor_cache);
+    fd->inode             = inode;
+    fd->dentry            = dentry;
+    fd->flags             = flags;
+    fd->offset            = inode->offset;
+    fd->addr              = inode->block->bar;
+    vector_push_back(&descriptors, fd);
+    return descriptors.size - 1;
 }
 
-struct file_descripor *
-descriptor_get(int fd) {
-    return g__descriptor_[fd];
+file_descriptor_t *
+descriptor_get(int id)
+{
+    // need o check maybe causing PF
+    file_descriptor_t *fd = (file_descriptor_t *)descriptors.data[id];
+    return fd;
 }
 
-void descriptor_free(int fd) {
-    if (g__descriptor_[fd] != 0) {
-        phys_base_free((void *)(uint64_t)g__descriptor_[fd], 1);
-        g__descriptor_[fd] = 0;
-    }
+void
+descriptor_free(int fd)
+{
 }

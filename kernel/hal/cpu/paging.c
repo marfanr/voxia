@@ -1,4 +1,5 @@
 #include "paging.h"
+#include "init/init.h"
 #include "libk/type.h"
 #include <config.h>
 #include <libk/serial.h>
@@ -8,13 +9,16 @@
 #include <memory/phys_window.h>
 #include <memory/vm_manager.h>
 
-#define PHYS_BASE_METADATA_ADDR 0xffffffe000000000
+static uintptr_t PHYS_BASE_METADATA_ADDR = 0xffffffe000000000;
+
+#define EXPORT_SYMBOL(sym) __attribute__((used, visibility("default"))) void *__export_##sym = &sym
 
 boolean_t paging_has_been_set = false;
 
-extern uint8_t *bitmap_base_;
-extern uint64_t metadata_size;
-
+extern uint8_t            *bitmap_base_;
+extern uint8_t            *dma_bitmap_base_;
+extern uint64_t            metadata_size;
+extern size_t              dma_bitmap_size;
 typedef struct paging_page paging_page;
 struct paging_page
 {
@@ -22,7 +26,7 @@ struct paging_page
     paging_page *next;
 } __attribute__((aligned(32)));
 
-page_t
+KERNEL_API page_t
 paging_create_page_directory()
 {
     page_t    page                    = (page_t)phys_base_alloc(1);
@@ -33,9 +37,10 @@ paging_create_page_directory()
         mem_create_physwindow((uintptr_t)page, &virtual_physwindow_addr, 0);
     }
 
-    memset((void *)virtual_physwindow_addr, 0, VMM_PAGE_SIZE);
+    memset((void *)virtual_physwindow_addr, 0, PAGE_SIZE);
     return page;
 }
+// EXPORT_SYMBOL(paging_create_page_directory);
 
 page_t                      pml4;
 static dma_memory_mapping_t mapping_data[CONFIG_PAGING_MAX_MAPPED_DATA_COUNT];
@@ -97,23 +102,37 @@ initialize_physical_paging_window()
     physwindow_pt = (page_t)mem_vma_phys_window_pt;
 }
 
-void
-paging_install()
+extern void __r();
+
+INIT(paging)
 {
     pml4 = VMM_PAGE;
-    LOG_INFO("PAGING", "PML4: 0x%", ((uint64_t)pml4));
+    LOG_INFO("PAGING", "PML4: 0x%x", ((uint64_t)pml4));
 
     paging_setup(pml4);
 
-    LOG_INFO("PAGING", "dma mapping count %", mapping_data_count);
+    LOG_INFO("PAGING", "dma mapping count %x", mapping_data_count);
 
     initialize_physical_paging_window();
 
     paging_mmap_fill(pml4, PHYS_BASE_METADATA_ADDR, (uint64_t)bitmap_base_,
-                     metadata_size / VMM_PAGE_SIZE, 0b11);
-    paging_reload(pml4);
-    LOG_INFO("PAGING", "paging setup done");
+                     metadata_size / PAGE_SIZE, 0b11);
     bitmap_base_ = (uint8_t *)PHYS_BASE_METADATA_ADDR;
+    PHYS_BASE_METADATA_ADDR += metadata_size;
+
+    paging_mmap_fill(pml4, (uint64_t)PHYS_BASE_METADATA_ADDR, (uint64_t)dma_bitmap_base_,
+                     dma_bitmap_size / PAGE_SIZE, 0b11);
+    dma_bitmap_base_ = (uint8_t *)PHYS_BASE_METADATA_ADDR;
+
+    paging_reload(pml4);
+
+    //  mapping 0x0240000000 to __r
+    // uintptr_t __r_addr = vma_
+    // void *a = (void *)(phys_base_alloc(1));
+    // paging_mmap(pml4, 0x240000000, (uint64_t)a, 0b111);
+    // // memcopy((void *)0x240000000, (void *)__r, 0x1000);
+
+    LOG_INFO("PAGING", "paging setup done");
 
     paging_has_been_set = 1;
 }
@@ -129,8 +148,6 @@ paging_fork(page_t parent_pml4, page_t child_pml4)
         }
     }
 }
-
-extern void __r();
 
 void
 paging_debug(page_t pml4, uint64_t virt)
@@ -209,11 +226,6 @@ paging_setup(page_t pml4)
         paging_mmap_fill(pml4, mapping_data[i].virt, mapping_data[i].phys, mapping_data[i].size,
                          0b111);
     }
-
-    //  mapping 0x0240000000 to __r
-    void *a = (void *)(phys_base_alloc(1 + 0x1000 / 4096));
-    memcopy(a, (void *)__r, 0x1000);
-    paging_mmap(pml4, 0x0240000000, VIRT2PHYS((uint64_t)a), 0b1);
 }
 
 void
@@ -262,7 +274,7 @@ paging_mmap(page_t page_dir, uint64_t virt, uint64_t phys, int flags)
                                   PHYS_WINDOW_FLAG_READ | PHYS_WINDOW_FLAG_WRITE |
                                       PHYS_WINDOW_FLAG_LOCK);
         }
-        memset((void *)pdpt_virt_addr, 0, VMM_PAGE_SIZE);
+        memset((void *)pdpt_virt_addr, 0, PAGE_SIZE);
         pdpt         = (page_t)pdpt_virt_addr;
         pml4[index4] = (uint64_t)pdpt_phys_addr | flags;
     }
@@ -291,7 +303,7 @@ paging_mmap(page_t page_dir, uint64_t virt, uint64_t phys, int flags)
                                   PHYS_WINDOW_FLAG_READ | PHYS_WINDOW_FLAG_WRITE |
                                       PHYS_WINDOW_FLAG_LOCK);
         }
-        memset((void *)pdp_virt_addr, 0, VMM_PAGE_SIZE);
+        memset((void *)pdp_virt_addr, 0, PAGE_SIZE);
         pdp          = (page_t)pdp_virt_addr;
         pdpt[index3] = (uint64_t)pdp_phys_addr | flags;
     }
@@ -318,7 +330,7 @@ paging_mmap(page_t page_dir, uint64_t virt, uint64_t phys, int flags)
                                   PHYS_WINDOW_FLAG_READ | PHYS_WINDOW_FLAG_WRITE |
                                       PHYS_WINDOW_FLAG_LOCK);
         }
-        memset((void *)pt_virt_addr, 0, VMM_PAGE_SIZE);
+        memset((void *)pt_virt_addr, 0, PAGE_SIZE);
         pt = (page_t)pt_virt_addr;
 
         pdp[index2] = (uint64_t)pt_phys_addr | flags;

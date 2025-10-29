@@ -3,7 +3,7 @@
 
 #include <libk/type.h>
 
-#define VMM_PAGE_SIZE 0x1000
+#define PAGE_SIZE 0x1000
 
 #define GB 0x40000000UL // 1GB
 #define MB 0x1000

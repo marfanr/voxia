@@ -13,25 +13,6 @@ enum MEMORY_ENTRY_TYPE
     USABLE,
 } __attribute__((__enum_extensibility__(closed)));
 
-// @deprecated.
-// consume much ram
-typedef struct memory_4k_block memory_4k_block;
-struct memory_4k_block
-{
-    uintptr_t address;
-    boolean_t used;
-    // memory_4k_block *next;
-    // memory_4k_block *prev;
-} __attribute__((aligned(64)));
-
-typedef struct
-{
-    uint64_t         base;
-    uint64_t         length;
-    int              type;
-    memory_4k_block *block;
-} memory_entry;
-
 typedef struct
 {
 
@@ -44,6 +25,8 @@ void     phys_base_free(void *page, uint64_t length);
 void     pmm_log_usage();
 uint64_t pys_base_get_free_block_count();
 void    *phys_base_alloc_on_top(uint64_t block);
+
+void *dma_alloc(uint64_t block);
 
 extern uint64_t bitmap_size_;
 
