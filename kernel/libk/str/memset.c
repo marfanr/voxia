@@ -19,10 +19,24 @@ memset(void *ptr, uint8_t value, size_t num)
     if (!simd_enabled)
     {
         uint8_t *ptr_ = (uint8_t *)ptr;
-        for (size_t i = 0; i < num; i++)
+
+        uint64_t fill = 0;
+        for (size_t i = 0; i < 8; i++)
         {
-            *(ptr_ + i) = value;
+            fill <<= 8;
+            fill |= value;
         }
+
+        size_t blocks = num / 8;
+        size_t tail   = num % 8;
+
+        uint64_t *p64 = (uint64_t *)ptr_;
+        for (size_t i = 0; i < blocks; i++)
+            p64[i] = fill;
+
+        ptr_ += blocks * 8;
+        for (size_t i = 0; i < tail; i++)
+            ptr_[i] = value;
     }
 
     // check is ptr alignmen 32
