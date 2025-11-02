@@ -1,4 +1,9 @@
+#include "libk/type.h"
 #include <libk/str.h>
+
+extern void      __fast_memset__(void *dst, int val, size_t len);
+extern void      __fast_memset_aligned__(void *dst, int val, size_t len);
+extern boolean_t simd_enabled;
 
 /**
  * Mengatur setiap byte dalam blok memori ke nilai yang ditentukan.
@@ -11,9 +16,19 @@
 void
 memset(void *ptr, uint8_t value, size_t num)
 {
-    uint8_t *ptr_ = (uint8_t *)ptr;
-    for (size_t i = 0; i < num; i++)
+    if (!simd_enabled)
     {
-        *(ptr_ + i) = value;
+        uint8_t *ptr_ = (uint8_t *)ptr;
+        for (size_t i = 0; i < num; i++)
+        {
+            *(ptr_ + i) = value;
+        }
     }
+
+    // check is ptr alignmen 32
+    if (((uintptr_t)ptr & 31) == 0)
+
+        __fast_memset_aligned__(ptr, value, num);
+    else
+        __fast_memset__(ptr, value, num);
 }
