@@ -1,38 +1,114 @@
-.PHONY: all modules
-all: iso
+# Variabel umum
+QEMU=qemu-system-x86_64
+QEMU_FLAGS=-m 4G -cpu host -M q35,hpet=on -smp 8  -enable-kvm -rtc base=localtime
+QEMU_USB=-device usb-ehci,id=ehci -device usb-kbd,bus=ehci.0,port=1,id=kbd
+ISO=naya.iso
+HDD=barebones.hdd
+BIOS_OVMF=ovmf-x64/OVMF.fd
+ROOT:=$(realpath .)
+export ROOT
 
-.PHONY: modules
-modules:
-	make -C ./modules/flui all
+.PHONY: all modules all-hdd rust kernel lib iso
 
-.PHONY: all-hdd
-all-hdd: barebones.hdd
+all: lib kernel lib modules iso 
 
-.PHONY: run
-run: iso
-	qemu-system-x86_64 -M q35 -m 4G -cdrom naya.iso -boot d  -s -serial stdio -enable-kvm  -device usb-ehci,id=ehci \
-	 -device usb-kbd,bus=ehci.0,port=1,id=kbd -device ati-vga  \
-	-rtc base=localtime	-device e1000-82544gc,netdev=nic1,id=e1000 -netdev bridge,id=nic1,br=br0
-	# -usb -device usb-host,vendorid=0x1a2c,productid=0x0b2a
+modules: lib
+	$(MAKE) -C ./modules/ehci
+	$(MAKE) -C ./modules/usb-hid
+	$(MAKE) -C ./modules/e1000
+# 	$(MAKE) -C ./modules/runtimeinit all
 
-.PHONY: run-gdb
+lib:
+	echo "aaa"
+	$(MAKE) -C ./library/ioforge
+
+lib-clean:
+	$(MAKE) -C ./library/ioforge clean
+
+
+all-hdd: $(HDD)
+
+# Jalankan dengan QEMU
+.PHONY: run run-host run-debug run-gdb run-uefi run-hdd run-hdd-uefi
+
+run:
+	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) -vga std -device virtio-serial-pci -s \
+	-d int -D qemu.log -serial stdio
+
+run-gpu: 
+	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) -vga none  -device virtio-serial-pci -s \
+	-d int -D qemu.log  \
+  	-display sdl,gl=on -device virtio-vga-gl \
+	 -serial stdio
+
+run-gpu2: 
+	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) -vga none  -device virtio-serial-pci -s \
+  	-display sdl,gl=on \
+	-device virtio-vga-gl \
+	-machine accel=kvm \
+	-monitor stdio -serial file:qemu.log -d trace:usb_ehci_opreg* -D aqemu.log 
+
+run-efi: ovmf-x64
+	$(QEMU) $(QEMU_FLAGS)  -bios $(BIOS_OVMF) -cdrom $(ISO) -boot d $(QEMU_USB) -vga none  -device virtio-serial-pci -s \
+  	-display sdl,gl=on \
+	-device virtio-vga-gl \
+	-machine accel=kvm \
+	-monitor stdio -serial file:qemu.log -d trace:usb_ehci_opreg* -D aqemu.log 
+
+
+TPM_STATE_DIR = /tmp/tpmstate
+TPM_SOCKET    = /tmp/mytpm-sock
+
+run-tpm: stop clean_tpm start_tpm
+	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) -vga none  -device virtio-serial-pci -s \
+	-d int -D qemu.log  \
+  	-display sdl,gl=on \
+	-device virtio-vga-gl \
+	-chardev socket,id=chrtpm,path=$(TPM_SOCKET) \
+	-tpmdev emulator,id=tpm0,chardev=chrtpm \
+	-device tpm-tis,tpmdev=tpm0 \
+	-monitor stdio -serial file:qemu.log
+
+start_tpm:
+	@echo "[SWTPM] Starting TPM emulator..."
+	@mkdir -p $(TPM_STATE_DIR)
+	@chmod 777 $(TPM_STATE_DIR)
+	@swtpm socket --tpm2 \
+		--ctrl type=unixio,path=$(TPM_SOCKET) \
+		--tpmstate dir=$(TPM_STATE_DIR) \
+		--log level=20 & \
+	sleep 1
+	@echo "[SWTPM] Ready."
+
+stop:
+	@echo "[SWTPM] Stopping existing swtpm..."
+	@-pkill swtpm || true
+
+clean_tpm:
+	@echo "[CLEAN] Removing old TPM state..."
+	@rm -rf $(TPM_STATE_DIR) $(TPM_SOCKET)
+
+run-host: 
+	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) -vga std -device virtio-serial-pci -cpu host -d int,cpu_reset,guest_errors
+
+run-debug: 
+	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d -S -s $(QEMU_USB) -vga std -device virtio-serial-pci
+
 run-gdb: iso
-	qemu-system-x86_64 -M q35 -m 2G -rtc base=localtime -cdrom naya.iso -boot d -enable-kvm -s -S -serial stdio -d trace:usb_ehci_opreg* -device usb-ehci,id=ehci -device usb-kbd,bus=ehci.0,port=2,id=kbd \
-	-device e1000-82544gc,netdev=nic1,id=e1000 -netdev bridge,id=nic1,br=br0
+	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d -s $(QEMU_USB) -device e1000-82544gc,netdev=nic1,id=e1000 -netdev bridge,id=nic1,br=br0 -d int,cpu_reset -no-reboot -S
 
-.PHONY: run-uefi
 run-uefi: ovmf-x64 iso
-	qemu-system-x86_64 -M q35 -m 2G -bios ovmf-x64/OVMF.fd -cdrom iso -boot d
+	$(QEMU) $(QEMU_FLAGS) -bios $(BIOS_OVMF) -cdrom $(ISO) -boot d
 
-.PHONY: run-hdd
 run-hdd: iso
-	qemu-system-x86_64 -M q35 -m 4G -accel kvm -hda naya.iso -smp 2 \
-	-s -serial stdio -device usb-ehci,id=ehci -device usb-mouse,bus=ehci.0,port=1,id=mouse -device ati-vga -device secondary-vga \
-	-boot order=a
+	$(QEMU) $(QEMU_FLAGS) -hda $(ISO) -boot order=a -accel kvm
 
-.PHONY: run-hdd-uefi
-run-hdd-uefi: ovmf-x64 barebones.hdd
-	qemu-system-x86_64 -M q35 -m 2G -bios ovmf-x64/OVMF.fd -hda barebones.hdd
+run-hdd-uefi: ovmf-x64 $(HDD)
+	$(QEMU) $(QEMU_FLAGS) -bios $(BIOS_OVMF) -hda $(HDD)
+
+# Build dependencies
+rust:
+	$(MAKE) -C rust
 
 ovmf-x64:
 	mkdir -p ovmf-x64
@@ -40,28 +116,28 @@ ovmf-x64:
 
 limine:
 	git clone https://github.com/limine-bootloader/limine.git --branch=v2.0-branch-binary --depth=1
-	make -C limine
+	$(MAKE) -C limine
 
-.PHONY: sources
-sources:
-	mkdir -p build/sources
-	$(MAKE) -C sources	
+kernel:
+	mkdir -p build/kernel
+	$(MAKE) -C kernel	
 
-iso: limine sources modules
+# Build ISO
+iso: limine 
 	rm -rf iso_root
 	mkdir -p iso_root
-	cp -r build/modules ./initrd
-	cd initrd;tar -F ustar -cvf ../iso_root/initrd.tar *;cd ..
-	cp build/sources.elf \
-		limine.cfg limine/limine.sys limine/limine-cd.bin limine/limine-eltorito-efi.bin iso_root/
+# 	cp -r build/modules ./initrd
+	cd initrd; tar -F ustar -cvf ../iso_root/initrd.tar *; cd ..
+	cp build/kernel.elf limine.cfg limine/limine.sys limine/limine-cd.bin limine/limine-eltorito-efi.bin iso_root/
 	xorriso -as mkisofs -b limine-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
 		--efi-boot limine-eltorito-efi.bin \
 		-efi-boot-part --efi-boot-image --protective-msdos-label \
-		iso_root -o naya.iso
-	limine/limine-install naya.iso	
+		iso_root -o $(ISO)
+	limine/limine-install $(ISO)
 
-barebones.hdd: limine sources
+# Build HDD image
+$(HDD):
 	rm -f elysia.hdd
 	dd if=/dev/zero bs=1M count=0 seek=64 of=elysia.hdd
 	parted -s elysia.hdd mklabel gpt
@@ -73,19 +149,46 @@ barebones.hdd: limine sources
 	mkdir -p img_mount
 	sudo mount `cat loopback_dev`p1 img_mount
 	sudo mkdir -p img_mount/EFI/BOOT
-	sudo cp -v build/sources.elf limine.cfg limine/limine.sys img_mount/
+	sudo cp -v build/kernel.elf limine.cfg limine/limine.sys img_mount/
 	sudo cp -v limine/BOOTX64.EFI img_mount/EFI/BOOT/
 	sync
 	sudo umount img_mount
 	sudo losetup -d `cat loopback_dev`
 	sudo rm -rf loopback_dev img_mount
 
-.PHONY: clean
-clean:
-	rm -rf iso_root iso naya.hdd build naya.iso
-	$(MAKE) -C sources clean	
+# Flashdisk setup
+.PHONY: flashdisk run-flashdisk
+flashdisk:
+	echo "\n🚨 WARNING: This will erase /dev/sdb. Press Ctrl+C to cancel!" && sleep 5
+	sudo parted -s /dev/sdb mklabel gpt
+	sudo parted -s /dev/sdb mkpart ESP fat32 2048s 100%
+	sudo parted -s /dev/sdb set 1 esp on
+	sudo limine/limine-install /dev/sdb
+	sudo mkfs.fat -F 32 /dev/sdb1
+	mkdir -p usb_mount
+	cp -r build/modules ./initrd
+	sudo mount /dev/sdb1 usb_mount
+	cd initrd; tar -F ustar -cvf ../usb_mount/initrd.tar *; cd ..
+	sudo mkdir -p usb_mount/EFI/BOOT
+	sudo cp -v build/kernel.elf limine.cfg limine/limine.sys usb_mount/
+	sudo cp -v limine/BOOTX64.EFI usb_mount/EFI/BOOT/
+	sync
+	sudo umount usb_mount
+	sudo rm -rf usb_mount
+	echo "✅ Flashdisk bootable selesai dibuat di /dev/sdb!"
 
-.PHONY: distclean
+run-flashdisk:
+	$(QEMU) $(QEMU_FLAGS) -hda /dev/sdb $(QEMU_USB) -vga std -device virtio-serial-pci
+
+# Cleanup
+.PHONY: clean distclean
+clean: lib-clean
+	rm -rf iso_root $(ISO) build
+	$(MAKE) -C kernel clean	
+	$(MAKE) -C modules/ehci clean
+	$(MAKE) -C modules/usb-hid clean
+	$(MAKE) -C modules/e1000 clean
+
 distclean: clean
 	rm -rf limine ovmf-x64
-	$(MAKE) -C souce distclean
+	$(MAKE) -C kernel distclean
