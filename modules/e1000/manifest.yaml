@@ -1,0 +1,11 @@
+name: E1000
+description: Ethernet Driver
+license: MIT
+version: 0.2
+author: mohammad arfan
+
+main: e1000.elf
+
+cap:
+  - pci
+  - interrupt
