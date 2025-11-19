@@ -45,15 +45,10 @@ typedef struct
 
 typedef struct
 {
-    uint64_t rax, rbx, rcx, rdx, rbp, rsi, rdi, r8, r9, r10, r11, r12, r13, r14, r15, int_no,
+    uint8_t fpu_state[512] __attribute__((aligned(16)));
+    uint64_t rax, rbx,   rcx, rdx, rbp, rsi, rdi, r8, r9, r10, r11, r12, r13, r14, r15, int_no,
         err_code, rip, cs, rflags, rsp, ss;
 } __attribute__((packed)) interrupt_stack_frame_t;
-
-// register interrupt ISR
-void interrupt_register(uint8_t n, void *handler, uint16_t selector, uint8_t ist,
-                        uint8_t type_attr);
-// register interrupt handler with default ISR
-void interrupt_register_handler(uint8_t n, void *handler);
 
 typedef struct
 {
@@ -62,7 +57,15 @@ typedef struct
     void     *handler;
 } irq_entry_t;
 
-void irq_register(uint8_t n, void *handler, boolean_t use_default_isr, uint16_t selector,
-                  uint8_t ist, uint8_t type_attr);
+typedef struct
+{
+    irq_entry_t          irq_entries[MAX_INTERRUPTS];
+    interrupt_entry_t    interrupt_entries[MAX_INTERRUPTS];
+    interrupt_pointers_t interrupt_pointers;
+} interrupt_per_core_data_t;
+
+void irq_register(uint8_t core, uint8_t n, void *handler, boolean_t use_default_isr,
+                  uint16_t selector, uint8_t ist, uint8_t type_attr);
+void irq_setup(uint16_t core);
 
 #endif // __HAL__CPU__INTERRUPT_H__
