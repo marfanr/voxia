@@ -14,8 +14,6 @@ uint64_t usable_total             = 0;
 uint64_t smallest_free_entry_base = (uint64_t)-1;
 size_t   dma_bitmap_count         = 0;
 
-// extern void vma_setup_zone();
-
 uint8_t                           *bitmap_base_      = 0;
 uint8_t                           *dma_bitmap_base_  = 0;
 size_t                             dma_bitmap_size   = 0;
@@ -23,8 +21,10 @@ uint64_t                           metadata_count    = 0;
 uint64_t                           metadata_size     = 0;
 struct stivale2_struct_tag_memmap *saved_memmap_info = 0;
 
+extern size_t __fast_phys_base_find_free_block__(uint64_t *bitmap, size_t num_words);
+
 static const char *
-memory_type(uint32_t type)
+pMemoryType(uint32_t type)
 {
     switch (type)
     {
@@ -44,6 +44,8 @@ memory_type(uint32_t type)
             return "KERNEL_AND_MODULES";
         case ENTRY_MMAP_FRAMEBUFFER:
             return "FRAMEBUFFER";
+        case 0x7373:
+            return "DMA";
         default:
             return "UNKNOWN";
     }
@@ -140,15 +142,15 @@ INIT(phys_base_allocator)
         }
     }
 
-    {
-        smallest_entry->type    = ENTRY_MMAP_RESERVED;
-        uint64_t metadata_index = smallest_entry->base / 0x1000;
-        uint64_t metadata_end   = smallest_entry->length / 0x1000;
-        for (uint64_t j = metadata_index; j < (metadata_index + metadata_end); j++)
-        {
-            bitmap_base_[j / 8] |= (1 << (j % 8));
-        }
-    }
+    // {
+    //     smallest_entry->type    = 0x7373;
+    //     uint64_t metadata_index = smallest_entry->base / 0x1000;
+    //     uint64_t metadata_end   = smallest_entry->length / 0x1000;
+    //     for (uint64_t j = metadata_index; j < (metadata_index + metadata_end); j++)
+    //     {
+    //         bitmap_base_[j / 8] |= (1 << (j % 8));
+    //     }
+    // }
 
     // find first smallest entry
     for (uint64_t i = 0; i < higher_base_length_ / BLOCK_SIZE; i++)
@@ -165,59 +167,76 @@ INIT(phys_base_allocator)
     for (uint64_t i = 0; i < ctx->memory.memory_entries; i++)
     {
         memory_entry_t *entry = &ctx->memory.memory_map[i];
-        LOG_INFO("MEMORY", "entry %d base 0x%x length %d type %s", i, entry->base, entry->length,
-                 memory_type(entry->type));
+        LOG_INFO("MEMORY", "entry %d base 0x%x -- 0x%x length %d (%d Kb) type %s", i, entry->base,
+                 entry->base + entry->length, entry->length, entry->length / 1024,
+                 pMemoryType(entry->type));
     }
 
     // dma allocator
-    dma_bitmap_count = smallest_entry->length / BLOCK_SIZE / 8;
-    dma_bitmap_size  = ALIGN_UP(dma_bitmap_count * sizeof(uint8_t), BLOCK_SIZE);
+    // dma_bitmap_count = smallest_entry->length / BLOCK_SIZE / 8;
+    // dma_bitmap_size  = ALIGN_UP(dma_bitmap_count * sizeof(uint8_t), BLOCK_SIZE);
 
-    dma_bitmap_base_ = (uint8_t *)(smallest_entry->base);
-    memset(dma_bitmap_base_, 0, dma_bitmap_size);
+    // dma_bitmap_base_ = (uint8_t *)(smallest_entry->base);
+    // memset(dma_bitmap_base_, 0, dma_bitmap_size);
 }
 
 void *
-phys_base_alloc(uint64_t block)
+vxPhysBaseAlloc(uint64_t block)
 {
     uint64_t total_blocks = higher_base_length_ / BLOCK_SIZE;
     uint64_t consecutive  = 0;
     uint64_t start        = 0;
 
-    for (uint64_t i = 0; i < total_blocks; i++)
+    uint64_t i = 0;
+
+    while (i < total_blocks)
     {
-        bool used = bitmap_base_[i / 8] & (1 << (i % 8));
+        uint64_t word_idx = i / 64;
+        uint64_t bit_idx  = i % 64;
 
-        if (!used)
+        uint64_t word = *((uint64_t *)&bitmap_base_[word_idx * 8]);
+
+        // Geser word sesuai posisi bit_idx
+        word >>= bit_idx;
+
+        // Kalau semua bit dipakai skip chunk
+        if (word == (uint64_t)-1)
         {
-            if (consecutive == 0)
-                start = i;
-
-            consecutive++;
-
-            // ditemukan blok kosong yang cukup
-            if (consecutive == block)
-            {
-                for (uint64_t j = start; j < start + block; j++)
-                    bitmap_base_[j / 8] |= (1 << (j % 8));
-
-                // serial_trace("allocated %llu blocks starting at %llu\n", block, start);
-                return (void *)(start * BLOCK_SIZE);
-            }
-        }
-        else
-        {
-            // reset kalau ketemu blok yang sudah terpakai
+            i += 64 - bit_idx;
             consecutive = 0;
+            continue;
+        }
+
+        // Scan bit berturut-turut
+        for (uint64_t b = bit_idx; b < 64 && i < total_blocks; b++, i++)
+        {
+            bool used = (bitmap_base_[i / 8] >> (i % 8)) & 1;
+            if (!used)
+            {
+                if (consecutive == 0)
+                    start = i;
+                consecutive++;
+                if (consecutive == block)
+                {
+                    // Set bit berturut-turut
+                    for (uint64_t j = start; j < start + block; j++)
+                        bitmap_base_[j / 8] |= (1 << (j % 8));
+
+                    return (void *)(start * BLOCK_SIZE);
+                }
+            }
+            else
+            {
+                consecutive = 0;
+            }
         }
     }
 
-    // tidak ditemukan blok kosong
-    return 0;
+    return NULL;
 }
 
 void *
-dma_alloc(uint64_t block)
+pDMAalloc(uint64_t block)
 {
     uint64_t consecutive = 0;
     uint64_t start       = 0;
@@ -276,12 +295,22 @@ pys_base_get_free_block_count()
 }
 
 void
-phys_base_free(void *ptr, uint64_t size)
+vxPhysBaseFree(void *ptr, uint64_t size)
 {
     uint64_t index = (uint64_t)ptr / BLOCK_SIZE;
     for (uint64_t i = index; i < index + size; i++)
     {
         bitmap_base_[i / 8] &= ~(1 << (i % 8));
+    }
+}
+
+void
+dma_free(void *ptr, uint64_t size)
+{
+    uint64_t index = (uint64_t)ptr / BLOCK_SIZE;
+    for (uint64_t i = index; i < index + size; i++)
+    {
+        dma_bitmap_base_[i / 8] &= ~(1 << (i % 8));
     }
 }
 

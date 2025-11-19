@@ -1,7 +1,6 @@
 #ifndef __MEMORY__ALLOCATOR_H__
 #define __MEMORY__ALLOCATOR_H__
 
-#include <hal/cpu/paging.h>
 #include <libk/stivale2.h>
 #include <libk/type.h>
 
@@ -19,14 +18,15 @@ typedef struct
 } memory_region;
 
 void     phys_base_allocator_install(struct stivale2_struct_tag_memmap *stivale_memmap);
-void    *phys_base_alloc(uint64_t size);
+void    *vxPhysBaseAlloc(uint64_t size);
 void    *phys_base_alloc_aligned(uint64_t block, uint64_t align);
-void     phys_base_free(void *page, uint64_t length);
+void     vxPhysBaseFree(void *page, uint64_t length);
 void     pmm_log_usage();
 uint64_t pys_base_get_free_block_count();
 void    *phys_base_alloc_on_top(uint64_t block);
 
-void *dma_alloc(uint64_t block);
+void *pDMAalloc(uint64_t block);
+void  dma_free(void *ptr, uint64_t size);
 
 extern uint64_t bitmap_size_;
 
