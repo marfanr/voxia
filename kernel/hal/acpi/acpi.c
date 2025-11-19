@@ -1,8 +1,11 @@
+// #include "hal/acpi/bytestream.h"
 #include "hal/apic/apic.h"
 #include "hal/apic/ioapic.h"
 #include "hal/cpu/paging.h"
 #include "hal/pci/pcie.h"
 #include "init/init.h"
+#include "libk/debug/debug.h"
+#include "libk/io.h"
 #include "libk/serial.h"
 #include "libk/type.h"
 #include "memory/memory_utils.h"
@@ -12,10 +15,11 @@
 #include <hal/acpi/hpet.h>
 #include <libk/str.h>
 
-struct cpu_core *cpu_list = 0;
+static struct cpu_core *cpu_list = 0;
+extern void             apicSetBaseAddr(uintptr_t addr);
 
 static void
-add_core(uint8_t apicid, uint8_t cpuid, uint32_t flag)
+vxACPIRegisterNewCore(uint8_t apicid, uint8_t cpuid, uint32_t flag)
 {
     struct cpu_core *core = (struct cpu_core *)kalloc(sizeof(struct cpu_core));
     core->apicid          = apicid;
@@ -23,6 +27,19 @@ add_core(uint8_t apicid, uint8_t cpuid, uint32_t flag)
     core->flag            = flag;
     core->next            = cpu_list;
     cpu_list              = core;
+}
+
+uint16_t
+vxGetNumberOfCores()
+{
+    uint16_t         count = 0;
+    struct cpu_core *core  = cpu_list;
+    while (core)
+    {
+        count++;
+        core = core->next;
+    }
+    return count;
 }
 
 uintptr_t
@@ -35,8 +52,8 @@ acpi_map_phys_page(uintptr_t phys_addr, size_t len)
 
     vma_register(aligned_phys, vaddr, len * BLOCK_SIZE);
 
-    paging_mmap_fill(paging_get_highest_page_map(), vaddr, aligned_phys, len,
-                     PAGE_PRESENT | PAGE_WRITABLE);
+    vxMultipleMmap(paging_get_highest_page_map(), vaddr, aligned_phys, len,
+                   PAGE_PRESENT | PAGE_WRITABLE);
     paging_reload(paging_get_highest_page_map());
 
     return (uintptr_t)(vaddr + offset);
@@ -51,10 +68,84 @@ acpi_phys_page_unmap(uintptr_t addr)
 }
 
 static void
+parsing_dsdt(uintptr_t dsdt_addr)
+{
+    // uintptr_t   ddsdt = acpi_map_phys_page(dsdt_addr, 1);
+    // struct SDT *sdt   = (struct SDT *)ddsdt;
+    // LOG_INFO("ACPI", "DSDT header length %d", sdt->Length);
+    // uintptr_t new_dsdt = acpi_map_phys_page(dsdt_addr, (BLOCK_SIZE + sdt->Length - 1) /
+    // BLOCK_SIZE); acpi_phys_page_unmap(ddsdt); sdt           = (struct SDT *)new_dsdt; uint8_t
+    // *dsdt = (uint8_t *)new_dsdt;
+
+    // uint32_t slp_typa = 0;
+    // uint32_t slp_typb = 0;
+
+    // for (size_t i = 0; i < sdt->Length; i++)
+    // {
+    //     if (dsdt[i] == NAME_OP)
+    //     { // NameOp
+    //         if (strncmp((char *)((uintptr_t)dsdt + i + 1), "_S5_", 4) == 0)
+    //         {
+    //             LOG_INFO("ACPI", "found _S5_ at %d", i);
+    //             for (size_t j = i + 5; j < sdt->Length; j++)
+    //             {
+    //                 if (dsdt[j] == PACKAGE_OP)
+    //                 {
+    //                     LOG_INFO("ACPI", "found Package at %d", j);
+
+    //                     for (size_t l = j + 1; l < sdt->Length; l++)
+    //                     {
+    //                         if (dsdt[l] == BYTE_PREFIX)
+    //                         {
+    //                             LOG_INFO("ACPI", "found byte prefix first at %d", l);
+    //                             break;
+    //                         }
+    //                     }
+    //                     // break;
+    //                     break;
+    //                 }
+    //                 i = j;
+    //             }
+
+    //             // break;
+    //             // if (*data == 0x12)
+    //             // {                               // PackageOp
+    //             //     data++;                     // skip opcode
+    //             //     size_t  pkg_size = *data++; // asumsi kecil, 1 byte
+    //             //     uint8_t num_elem = *data++;
+    //             //     // ambil SLP_TYP_A
+    //             //     slp_typa = *data; // simplifikasi, bisa 1/2/4 bytes
+    //             //     // ambil SLP_TYP_B
+    //             //     slp_typb = *(data + 1); // jika ada
+    //             // }
+    //         }
+    //     }
+    // }
+
+    // LOG_INFO("ACPI", "slp_typa %x slptypb %x", slp_typa, slp_typb);
+}
+
+static void
+parsing_fadt(uintptr_t fadt_addr)
+{
+    // struct FADT *fadt = (struct FADT *)fadt_addr;
+    // LOG_INFO("ACPI", "FADT header length %d", fadt->header.Length);
+    // LOG_INFO("ACPI", "FADT PM1a cblk 0x%x", fadt->PM1aControlBlock);
+    // LOG_INFO("ACPI", "FADT  DSDT 0x%x", fadt->Dsdt);
+    // parsing_dsdt(fadt->Dsdt);
+
+    // outw(fadt->PM1aControlBlock, (0x1 << 10) | 1);
+    // outw(fadt->PM1bControlBlock, (0x1 << 10) | 1);
+    // outw(0x604, 0x2000);
+}
+
+static void
 parsing_madt(struct MADT *madt)
 {
     LOG_INFO("ACPI", "APIC addr 0x%x", madt->localApicAddress);
-    apic_initialize(acpi_map_phys_page(madt->localApicAddress, 1));
+    uintptr_t apic_addr = acpi_map_phys_page(madt->localApicAddress, 1);
+    apicSetBaseAddr(apic_addr);
+    apicInitialize();
 
     uint8_t *ptr     = (uint8_t *)&madt->table;
     uint8_t *ptr_end = (uint8_t *)madt + madt->header.Length;
@@ -63,8 +154,7 @@ parsing_madt(struct MADT *madt)
     // uint8_t bspid = cpuid_get_bsp_id();
     // LOG_INFO("ACPI", "current bsp id : %d", bspid);
 
-    madt_record_table_entry_t *a = (madt_record_table_entry_t *)((uintptr_t)madt + 0x2C);
-    // LOG_INFO("MADT", " a type %d, len %d", a->entry_type, a->record_length);
+    // madt_record_table_entry_t *a = (madt_record_table_entry_t *)((uintptr_t)madt + 0x2C);
 
     while (ptr < ptr_end)
     {
@@ -81,7 +171,7 @@ parsing_madt(struct MADT *madt)
                 uint32_t flags   = *(uint32_t *)(ptr + 0x4);
 
                 LOG_INFO("ACPI", "found APIC Id %d CPU Id %d", apic_id, cpu_id);
-                add_core(apic_id, cpu_id, flags);
+                vxACPIRegisterNewCore(apic_id, cpu_id, flags);
 
                 break;
             }
@@ -126,6 +216,7 @@ parsing_madt(struct MADT *madt)
 #define WAET_SIGNATURE 0x54454157
 #define FACP_SIGNATURE 0x50434146
 #define TPM2_SIGNATURE 0x324D5054
+#define DSDT_SIGNATURE 0x54445344
 
 INIT(acpi)
 {
@@ -161,7 +252,7 @@ INIT(acpi)
                 parsing_madt((struct MADT *)addr);
                 break;
             case HPET_SIGNATURE:
-                hpet_initialize(addr);
+                vxHPETInitialize(addr);
                 break;
             case MCFG_SIGNATURE:
                 mcfg_parse(addr);
@@ -169,6 +260,7 @@ INIT(acpi)
             case WAET_SIGNATURE:
                 break;
             case FACP_SIGNATURE:
+                parsing_fadt(addr);
                 break;
             case TPM2_SIGNATURE:
                 break;
@@ -179,5 +271,5 @@ INIT(acpi)
     LOG_INFO("ACPI", "end search at rsdt");
 
     // kita tidak butuh lagi setelah semua dibaca
-    acpi_phys_page_unmap((uintptr_t)rsdp_ptr);
+    // acpi_phys_page_unmap((uintptr_t)rsdp_ptr);
 }
