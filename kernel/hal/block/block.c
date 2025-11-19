@@ -8,7 +8,7 @@
 #include <memory/slab.h>
 
 static struct block_device *g__block_devices_root_ = 0;
-struct slab_cache          *block_device_cache     = 0;
+static struct slab_cache   *block_device_cache     = 0;
 
 INIT(block)
 {
@@ -27,6 +27,7 @@ block_register_device(const char *name, block_device_operations_t *ops, void *id
     device->next           = g__block_devices_root_;
     g__block_devices_root_ = device;
     LOG_INFO("BLOCK", "[bLOCK] block device registered %s", name);
+    // TODO: add block to vfs
 }
 
 block_device *
