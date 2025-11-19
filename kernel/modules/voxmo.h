@@ -1,6 +1,9 @@
 #ifndef __MODULES__VOXMO_H__
 #define __MODULES__VOXMO_H__
 
+#include "libk/string.h"
+#include "libk/vector.h"
+#include "procc/workqueue.h"
 #include <libk/type.h>
 
 #pragma pack(push, 1)
@@ -31,6 +34,7 @@ struct voxmo_metadata_header
     struct voxmo_metadata_string main_file;
 
     struct voxmo_metadata_list capability;
+    struct voxmo_metadata_list dependency;
 };
 
 struct voxmo_metadata_file
@@ -43,6 +47,19 @@ struct voxmo_metadata_file
 
 #pragma pack(pop)
 
-void voxmo_register(const char *path);
+typedef struct
+{
+    string name;
+    vector(string) capability;
+    vector(string) dependency;
+    uintptr_t    main_data;
+    string       path;
+    boolean_t    loaded;
+    workqueue_t *queue;
+} voxmo_loaded_module_t __attribute__((aligned(64)));
+
+void vxVoxmoInstall(const char *path);
+void vxSetDefaultVoxmoPath(const char *path);
+void vxVoxmoReload();
 
 #endif // __MODULES__VOXMO_H__
