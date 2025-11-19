@@ -11,5 +11,6 @@ struct irq_gsi_map
 
 void ioapic_setup(uintptr_t ioapic_base_addr);
 void ioapic_add_irq_gsi_map(uint8_t irq, uint32_t gsi, uint16_t flags);
+void vxIOAPICMapISR(uint8_t irq, uint8_t vector, uint8_t apic_id);
 
 #endif // __HAL__APIC__IOAPIC_H__
