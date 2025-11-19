@@ -1,6 +1,8 @@
 #ifndef __LIBK_EXECUTABLE_ELF_H__
 #define __LIBK_EXECUTABLE_ELF_H__
 
+#include "libk/symbols.h"
+#include "libk/vector.h"
 #include <libk/type.h>
 
 typedef struct Elf64_Ehdr
@@ -85,6 +87,25 @@ enum Elf_Ptype : uint32_t
     PT_PHDR    = 6,
     PT_LOPROC  = 0x70000000,
     PT_HIPROC  = 0x7fffffff
+};
+
+enum Elf_Shdr_Flags
+{
+    SHF_WRITE            = 0x1,        // Section dapat ditulis
+    SHF_ALLOC            = 0x2,        // Harus dimuat ke memori saat eksekusi
+    SHF_EXECINSTR        = 0x4,        // Berisi instruksi yang dapat dieksekusi
+    SHF_MERGE            = 0x10,       // Dapat digabungkan (biasanya untuk konstanta string)
+    SHF_STRINGS          = 0x20,       // Berisi string null-terminated
+    SHF_INFO_LINK        = 0x40,       // sh_info berisi index ke section lain
+    SHF_LINK_ORDER       = 0x80,       // Urutan section harus mengikuti section lain
+    SHF_OS_NONCONFORMING = 0x100,      // Butuh penanganan khusus oleh OS
+    SHF_GROUP            = 0x200,      // Bagian dari group section
+    SHF_TLS              = 0x400,      // Berisi data Thread-Local Storage
+    SHF_COMPRESSED       = 0x800,      // Data section dikompresi (ELF modern)
+    SHF_MASKOS           = 0x0FF00000, // Flag khusus OS
+    SHF_MASKPROC         = 0xF0000000, // Flag khusus arsitektur prosesor
+    SHF_ORDERED          = 0x4000000,  // Section memiliki urutan eksplisit (non-standard)
+    SHF_EXCLUDE          = 0x8000000,  // Jangan dimuat (biasanya untuk debug info)
 };
 
 enum Elf_Dtag
@@ -239,16 +260,20 @@ enum Elf64_RelType
 
 // dynamic
 Elf64_Dyn *elf_get_phdr_dynamic(uint8_t *data);
+define_vector(uint64_t);
 
 typedef struct
 {
-    uint8_t    *strtab;
-    uint64_t    needed;
+    uint8_t *strtab;
+    vector(uint64_t) needed;
     Elf64_Sym  *symbols;
-    uint32_t    symcount;
-    uint32_t    relasz;
+    uint64_t    symcount;
     uint64_t    pltgot; // virt addr, need to be mapping
     Elf64_Rela *jmprel;
+    uint64_t    pltrelsz;
+    Elf64_Rela *rel;
+    uint64_t    relasz;
+    uint64_t    relaent;
 } elf_dynamic_map;
 
 typedef struct
@@ -257,16 +282,45 @@ typedef struct
     Elf64_Shdr *strtab;
     Elf64_Shdr *gotplt;
     Elf64_Shdr *got;
+    Elf64_Shdr *gnuhash;
+    Elf64_Shdr *init_aray;
+    Elf64_Shdr *fini_aray;
 } elf_section_map;
 
-uintptr_t  elf_find_base_addr(uint8_t *data);
-uint8_t   *elf_dyn_find(Elf64_Dyn *dyn, uint8_t *data, uint64_t tag);
-void       elf_dyn_map_all(Elf64_Dyn *dyn, uint8_t *data, elf_dynamic_map *map);
-void       elf_section_map_all(uint8_t *data, elf_section_map *map);
-void       elf_mmap_got(elf_section_map *map);
-Elf64_Sym *elf_dyn_find_symtab(uint8_t *data);
+uintptr_t elf_find_base_addr(uint8_t *data);
+uint8_t  *elf_dyn_find(Elf64_Dyn *dyn, uint8_t *data, uint64_t tag);
+void      elf_dyn_map_all(Elf64_Dyn *dyn, uint8_t *data, elf_dynamic_map *map);
+void      elf_section_map_all(uint8_t *data, elf_section_map *map);
+void      elf_mmap_got(elf_section_map *map, uintptr_t base);
+size_t    elf_load(uint8_t *data, uintptr_t base);
+uintptr_t elf_get_entry(uint8_t *data, uintptr_t base);
 
-void      elf_load(uint8_t *data);
-uintptr_t elf_get_entry(uint8_t *data);
+typedef struct
+{
+    uint32_t nbuckets;    // jumlah bucket
+    uint32_t symoffset;   // index simbol pertama di .dynsym
+    uint32_t bloom_size;  // jumlah elemen di bloom filter
+    uint32_t bloom_shift; // shift hash
+
+    // pointer dinamis (semua dialokasikan berdasarkan offset)
+    uintptr_t *bloom;   // bloom filter array
+    uint32_t  *buckets; // tabel bucket
+    uint32_t  *chains;  // tabel chain
+} GnuHashHeader;
+
+Elf64_Sym *elf_gnu_lookup(const char *name, GnuHashHeader *gh, Elf64_Sym *symtab,
+                          const char *strtab);
+void       elf_gnu_hash_parse(GnuHashHeader *gnu_hash, Elf64_Shdr *gnu_hash_sym, uint8_t *data);
+
+void elf_relocate_dyn(elf_dynamic_map *map, uintptr_t base, GnuHashHeader *gnu_hash,
+                      symbols_ptr_vector_t *external_syms);
+void elf_get_symbol(const char *sym_name, uintptr_t base, elf_section_map *map, uint8_t *data,
+                    symbols_ptr_vector_t *syms, boolean_t skip_empty_val);
+
+typedef void (*ctor_t)(void);
+void      elf_call_init_array(elf_section_map *map, uintptr_t base);
+uintptr_t elf_find_symbol(const char *name, GnuHashHeader *gnuhash, uintptr_t base,
+                          elf_section_map *map, uint8_t *data);
+uintptr_t elf_count_load_size(uint8_t *data);
 
 #endif // __LIBK_EXECUTABLE_ELF_H__
