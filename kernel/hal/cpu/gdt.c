@@ -9,7 +9,7 @@
 extern void reloadGDT(int cs, int ds);
 
 static gdt_entry_t gdt_entries[14];
-static gdt_ptr_t   gdt_ptr;
+gdt_ptr_t          gdt_ptr;
 static lm_tss_t    tss;
 
 #define TSS_LOW 0x28ULL
@@ -35,7 +35,7 @@ uint8_t stack[4096] __attribute__((aligned(16)));
 // | 12  |   &tss (high)   | sizeof(tss) (high)|       0x00      |       0x00      |
 // +----+-----------------+-------------------+-----------------+-----------------+
 
-INIT(gdt)
+INIT(Gdt)
 {
     gdt_entries[0] = gdt_make_entry(0, 0, 0, 0); // 0x00 null segment
     //   16 bit
@@ -98,7 +98,7 @@ INIT(gdt)
     __asm__ volatile("ltr %%ax" : : "a"(0x58));
     reloadGDT(0x28, 0x30);
 
-    LOG_INFO("GDT", "GDT initialized");
+    // LOG_INFO("GDT", "GDT initialized");
 }
 
 gdt_entry_t
