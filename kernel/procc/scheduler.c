@@ -1,131 +1,269 @@
 #include "./scheduler.h"
-#include "./task.h"
+
+#include "hal/acpi/hpet.h"
+#include "hal/apic/apic.h"
+#include "hal/cpu/core.h"
+#include "hal/cpu/interrupt.h"
 #include "hal/cpu/register.h"
-#include <hal/cpu/paging.h>
-#include <libk/serial.h>
-#include <memory/memory_utils.h>
-#include <memory/phys_base_allocator.h>
+#include "init/init.h"
+#include "libk/debug/debug.h"
+#include "libk/serial.h"
+#include "libk/str.h"
+#include "memory/memory_utils.h"
+#include "memory/slab.h"
+#include "procc/thread.h"
 
-boolean_t   g__scheduler__is__running = 0;
-extern void jump_usermode(uintptr_t addr, uintptr_t stack);
+static struct slab_cache *scheduler_cache           = nullptr;
+static scheduler_core_t   scheduler[VOXIA_MAX_CORE] = {0};
 
-static uint32_t  g__scheduler__tick           = 0;
-static boolean_t g__scheduler_tick_is_running = 0;
-static int       g__cur_runnig_process        = -1;
-static uint32_t  delay_ticks                  = 0;
+boolean_t g__scheduler__is__running = 0;
+
+static int       g__cur_runnig_process = -1;
 extern boolean_t is_running_program;
 
-int
-scheduler_get_current_process_pid()
+scheduler_core_t *
+vxGetSchedulerCore(uint16_t core)
 {
-    return g__cur_runnig_process;
+    return &scheduler[core];
 }
 
-struct task *current_task = 0;
-
-void
-scheduler_init()
+INIT(Scheduler)
 {
-    serial_trace("scheduler init\n");
-
-    // run process pertama
-    current_task = task_get(1);
-
-    if (current_task == 0)
-        return;
-
-    current_task->state = TASK_SUSPENDED;
-    // g__scheduler__tick = apic_read(0x390);
-    // g__cur_runnig_process = current_task->pid;
-    // delay_ticks = apic_read(0x390);
-    paging_reload(current_task->page_root);
-    serial_trace("current task page root : 0x%x\n", current_task->page_root);
-    // paging_debug(PHYS2VIRT(current_task->page_root), 0x1000);
-    // paging_debug(PHYS2VIRT(current_task->page_root), 0x1033);
-    serial_trace("\nscheduler init done\n");
-    g__scheduler_tick_is_running = 0;
-    is_running_program           = 0;
-    g__scheduler__is__running    = 0;
-    // set rdi and rsi from task para
-
-    jump_usermode(current_task->entry, current_task->stack);
+    slab_cache_create(&scheduler_cache, "scheduler", sizeof(scheduler_queue_t), 0, 0);
 }
 
-extern void user_switch(task_cpu_state_t *reg);
+scheduler_queue_t *
+vxSchedulerGetCurrentQueue(uint16_t core)
+{
+    return scheduler[core].current;
+}
 
-#define SEC 1000000
-#define MS 1000
+static void
+vxDeatachFromScheduler(scheduler_queue_t *current)
+{
+    const uint16_t core_id = current->thread->core_affinity;
+    spin_acquire(&scheduler[current->thread->core_affinity].lock);
+
+    if (current->next_queue == current)
+        current->next_queue = 0;
+
+    scheduler[core_id].current = current->next_queue;
+
+    if (current->prev_queue)
+        current->prev_queue->next_queue = current->next_queue;
+
+    if (current == scheduler[core_id].last)
+        scheduler[core_id].last = current->next_queue;
+
+    scheduler[core_id].run_queue_head = current->next_queue;
+
+    current->next_queue = nullptr;
+    current->prev_queue = nullptr;
+    spin_release(&scheduler[current->thread->core_affinity].lock);
+}
+
+static void
+vxSaveRegister(interrupt_stack_frame_t *stack, cpu_register_t *reg)
+{
+    reg->rip    = stack->rip;
+    reg->cs     = stack->cs;
+    reg->rflags = stack->rflags;
+    reg->rsp    = stack->rsp;
+    reg->ss     = stack->ss;
+    memcopy(reg->fpu_state, stack->fpu_state, sizeof(reg->fpu_state));
+    reg->rax = stack->rax;
+    reg->rbx = stack->rbx;
+    reg->rcx = stack->rcx;
+    reg->rdx = stack->rdx;
+    reg->rbp = stack->rbp;
+    reg->rsi = stack->rsi;
+    reg->rdi = stack->rdi;
+    reg->r8  = stack->r8;
+    reg->r9  = stack->r9;
+    reg->r10 = stack->r10;
+    reg->r11 = stack->r11;
+    reg->r12 = stack->r12;
+    reg->r13 = stack->r13;
+    reg->r14 = stack->r14;
+    reg->r15 = stack->r15;
+    // memcopy((void *)reg, (void *)stack, sizeof(cpu_register_t));
+}
+
+static void
+vxRestoreRegister(interrupt_stack_frame_t *stack, cpu_register_t *reg)
+{
+    stack->rip    = reg->rip;
+    stack->cs     = reg->cs;
+    stack->rflags = reg->rflags;
+    stack->rsp    = reg->rsp;
+    stack->ss     = reg->ss;
+    memcopy(stack->fpu_state, reg->fpu_state, sizeof(stack->fpu_state));
+    stack->rax = reg->rax;
+    stack->rbx = reg->rbx;
+    stack->rcx = reg->rcx;
+    stack->rdx = reg->rdx;
+    stack->rbp = reg->rbp;
+    stack->rsi = reg->rsi;
+    stack->rdi = reg->rdi;
+    stack->r8  = reg->r8;
+    stack->r9  = reg->r9;
+    stack->r10 = reg->r10;
+    stack->r11 = reg->r11;
+    stack->r12 = reg->r12;
+    stack->r13 = reg->r13;
+    stack->r14 = reg->r14;
+    stack->r15 = reg->r15;
+    // memcopy((void *)stack, (void *)reg, sizeof(cpu_register_t));
+}
 
 void
-scheduler_tick(cpu_register_t *reg)
+vxSchedulerTick(interrupt_stack_frame_t *reg)
 {
-    if (!g__scheduler__is__running)
+
+    uint64_t       tick    = vxHPETGetMainCount();
+    const uint16_t core_id = coreGetCpuID();
+    if (!scheduler[core_id].run_queue_head)
         return;
-    // serial_trace("scheduler tick %d\n", g__cur_runnig_process);
 
-    // if ((apic_read(0x390) - delay_ticks) < 100 * MS)
-    //     return;
+    if (!scheduler[core_id].current)
+        scheduler[core_id].current = scheduler[core_id].run_queue_head;
 
-    // if ((apic_read(0x390) - g__scheduler__tick) < 4 * MS)
-    //     return;
+    scheduler_queue_t *current = scheduler[core_id].current;
+    // LOG_INFO("SCHEDULER", "on core id %d tick %d thread %d", core_id, tick, current->thread->id);
 
-    // backup register
-    current_task->state           = TASK_SUSPENDED;
-    current_task->cpu_state.rax   = reg->rax;
-    current_task->cpu_state.rbx   = reg->rbx;
-    current_task->cpu_state.rcx   = reg->rcx;
-    current_task->cpu_state.rdx   = reg->rdx;
-    current_task->cpu_state.rsi   = reg->rsi;
-    current_task->cpu_state.rdi   = reg->rdi;
-    current_task->cpu_state.rbp   = reg->rbp;
-    current_task->cpu_state.rsp   = reg->rsp;
-    current_task->cpu_state.rip   = reg->rip;
-    current_task->cpu_state.rflag = reg->rflags;
+    thread_t *thread = current->thread;
 
-    // get next process
-    struct task *next_task = current_task->next;
-    if (next_task == 0)
+    if (!thread->has_update_run_time)
     {
-        next_task = task_get(1);
+        thread->last_run_time       = tick;
+        thread->has_update_run_time = true;
     }
 
-    // restore register
-    paging_reload((page_t)(uint64_t)next_task->page_root);
-    if (next_task->state == TASK_TERMINATED)
+    switch (thread->state)
     {
-        // task_free (next_task->pid);
-        next_task = task_get(1);
+        case THREAD_STATE_CREATE:
+        {
+            LOG_DEBUG("SCHEDULER", "thread create at core %d (%d)", core_id, thread->id);
+            break;
+        }
+        case THREAD_STATE_READY:
+        {
+            // thread->state = THREAD_STATE_READY;
+            // if (!thread->stack)
+            thread->stack = (uintptr_t)kalloc(0x1000);
+
+            // if (tick - thread->)
+            thread->state = THREAD_STATE_RUNNING;
+            if (thread->flags & THREAD_USER)
+            {
+                LOG_DEBUG("SCHEDULER", "core %d ready to run user mode", core_id);
+            }
+            else
+            {
+                LOG_DEBUG("SCHEDULER", "core %d ready to run kernel mode", core_id);
+                LOG_DEBUG("SCHEDULER", "core %d aaddr %x", core_id, thread->entry_addr);
+                // ((void (*)())thread->entry_addr)();
+                reg->rip = thread->entry_addr;
+                reg->rsp = ((thread->stack + 0x1000) & ~0xFULL) - 8;
+                LOG_DEBUG("SCHEDULER", "core %d rsp %x", core_id, reg->rsp);
+                reg->rbp = 0;
+            }
+            // vxSaveRegister(reg, &thread->reg);
+            break;
+        }
+        case THREAD_STATE_RUNNING:
+        {
+            // vxRestoreRegister(reg, &thread->reg);
+            break;
+        }
+        case THREAD_STATE_TERMINATED:
+        {
+            current->thread->state = THREAD_STATE_HAL;
+            LOG_DEBUG("SCHEDULER", "core %d  terminated, thread id %d", core_id, thread->id);
+            vxDeatachFromScheduler(current);
+            LOG_DEBUG("SCHEDULER", "TERMINATED");
+            return;
+            break;
+        }
+
+        default:
     }
 
-    if (next_task->state == TASK_SUSPENDED)
+    if (current->thread->flags & THREAD_PREEMPT_ENABLE)
     {
-        next_task->state      = TASK_RUNNING;
-        g__cur_runnig_process = next_task->pid;
-        is_running_program    = 1;
-
-        reg->rax    = next_task->cpu_state.rax;
-        reg->rbx    = next_task->cpu_state.rbx;
-        reg->rcx    = next_task->cpu_state.rcx;
-        reg->rdx    = next_task->cpu_state.rdx;
-        reg->rsi    = next_task->cpu_state.rsi;
-        reg->rdi    = next_task->cpu_state.rdi;
-        reg->rbp    = next_task->cpu_state.rbp;
-        reg->rsp    = next_task->cpu_state.rsp;
-        reg->rip    = next_task->cpu_state.rip;
-        reg->rflags = next_task->cpu_state.rflag;
-    }
-    else if (next_task->state == TASK_READY)
-    {
-        g__cur_runnig_process = next_task->pid;
-        is_running_program    = 1;
-        next_task->state      = TASK_RUNNING;
-        reg->rip              = next_task->entry;
-        reg->rsp              = next_task->stack;
+        // context switching enable
     }
 
-    current_task = next_task;
+    // TODO: handle non preamable threadm
 
-    // serial_trace("scheduler tick\n");
+    if (ns2ms(thread->last_run_time - vxHPETGetMainCount()) > VOXIA_MAX_SCHEDULER_TIME_MS)
+    {
+        // LOG_DEBUG("SCHEDULER", "timout");
+        if (current->next_queue != current)
+        {
+            vxSaveRegister(reg, &thread->reg);
+            if (current->next_queue->thread->state == THREAD_STATE_RUNNING)
+            {
+                vxRestoreRegister(reg, &current->next_queue->thread->reg);
+                // LOG_DEBUG("SCHEDULER", "restore thread %d", current->next_queue->thread->id);
+            }
+        }
 
-    // g__scheduler__tick = apic_read(0x390);
+        thread->has_update_run_time = false;
+        thread->last_run_time       = vxHPETGetMainCount();
+        scheduler[core_id].current  = current->next_queue;
+    }
+}
+
+static scheduler_queue_t *
+vxAllocScheduler(const uint16_t core)
+{
+    spin_acquire(&scheduler[core].lock);
+    const auto queue  = (scheduler_queue_t *)slab_alloc(scheduler_cache);
+    queue->next_queue = scheduler[core].run_queue_head;
+
+    if (!queue->next_queue)
+    {
+        queue->next_queue = queue;
+    }
+
+    if (!scheduler[core].last)
+    {
+        scheduler[core].last = queue;
+    }
+
+    scheduler[core].run_queue_head   = queue;
+    scheduler[core].last->next_queue = queue;
+    spin_release(&scheduler[core].lock);
+    return queue;
+}
+
+extern uintptr_t lapic_base_addr;
+
+void
+vxAttachScheduler(thread_t *new_thread)
+{
+    if (!new_thread)
+        return;
+
+    // TODO: cari core dengan beban terendah
+    uint16_t starting_core = 1;
+    if (new_thread->core_affinity != (uint16_t)-1)
+        starting_core = new_thread->core_affinity;
+
+    scheduler_queue_t *queue = vxAllocScheduler(starting_core);
+    queue->thread            = new_thread;
+
+    LOG_DEBUG("SCHED", "ATTACH thread id %d", new_thread->id);
+    new_thread->state = THREAD_STATE_READY;
+}
+
+void
+vxStartScheduler()
+{
+    const uint16_t core_id = coreGetCpuID();
+    serial_trace("scheduler init on core %d\n", core_id);
+    irq_register(core_id, 0x45, (void *)vxSchedulerTick, true, 0x28, 0, INTERRUPT_ATTR_KERNEL);
+    vxAPICCreateTimer(APIC_TIMER_PERIOD, 5, 0x45);
+    // KDEBUG(DEBUG_LEVEL_INFO, "Scheduler started on core %d \n", core_id);
 }
