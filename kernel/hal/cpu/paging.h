@@ -46,14 +46,14 @@ enum
     PAGE_NO_EXECUTE    = 1U << 63,
 } __attribute__((enum_extensibility(closed)));
 
-void     paging_mmap(page_t page_dir, uint64_t virt, uint64_t phys, int flags);
+void     vxMmap(page_t page_dir, uint64_t virt, uint64_t phys, int flags);
 void     paging_reload(page_t pml4);
 page_t   paging_get_highest_page_map(void);
 void     paging_unmap_page(page_t page_dir, uint64_t virt);
 void     paging_unmap_fill(page_t page_dir, uint64_t virt, size_t size);
 void     paging_setup(page_t pml4);
 void     paging_fork(page_t parent_pml4, page_t child_pml4);
-void     paging_mmap_fill(page_t page_dir, uint64_t virt, uint64_t phys, uint64_t size, int flags);
+void     vxMultipleMmap(page_t page_dir, uint64_t virt, uint64_t phys, uint64_t size, int flags);
 uint64_t vaddr_to_paddr(page_t pml4, uint64_t vaddr);
 void     paging_add_dma_mapping(uintptr_t phys, uintptr_t virt, uint64_t size);
 void     paging_debug(page_t pml4, uint64_t virt);
