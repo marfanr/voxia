@@ -3,8 +3,9 @@
 
 #include <libk/type.h>
 
-typedef struct spinlock {
-    volatile boolean_t locked;
+typedef struct spinlock
+{
+    volatile int locked;
 } spinlock_t;
 
 void spin_acquire(spinlock_t *lock);
