@@ -72,6 +72,13 @@ stivale2_mem_entry_type_converter(uint32_t type)
     }
 }
 
+static void
+print_guid(struct stivale2_guid *g)
+{
+    LOG_INFO("KERNEL", "GUID %.8x-%.4x-%.4x-%.2x%.2x-%.2x%.2x%.2x%.2x%.2x%.2x", g->a, g->b, g->c,
+             g->d[0], g->d[1], g->d[2], g->d[3], g->d[4], g->d[5], g->d[6], g->d[7]);
+}
+
 void
 build_context_from_stivale2(struct stivale2_struct *stivale2_struct, init_context_t *ctx)
 {
@@ -151,12 +158,20 @@ build_context_from_stivale2(struct stivale2_struct *stivale2_struct, init_contex
         ctx->kernel_raw_addr = VIRT2PHYS(kernel_info->kernel_file);
         ctx->kernel_raw_size = kernel_info->kernel_size;
     }
+
+    // boot device
+    {
+        struct stivale2_struct_tag_boot_volume *boot_info =
+            (struct stivale2_struct_tag_boot_volume *)stivale2_get_tag(
+                stivale2_struct, STIVALE2_STRUCT_TAG_BOOT_VOLUME_ID);
+
+        print_guid(&boot_info->guid);
+        print_guid(&boot_info->part_guid);
+    }
 }
 
-extern initcall_t __start_initcalls[];
-extern initcall_t __stop_initcalls[];
-// extern initcall_t __start_initcalls_priority[];
-// extern initcall_t __stop_initcalls_priority[];
+extern initcall_t __init_early_start[];
+extern initcall_t __init_early_end[];
 
 void
 run_all_init_calls(init_context_t *ctx)
@@ -164,10 +179,8 @@ run_all_init_calls(init_context_t *ctx)
     LOG_INFO("INIT", "run all init");
     size_t i = 0;
 
-    for (initcall_t *fn = __start_initcalls; fn < __stop_initcalls; ++fn)
-    {
-        i++;
+    for (initcall_t *fn = __init_early_start; fn < __init_early_end; ++fn, i++)
         (*fn)(ctx);
-    }
+
     LOG_INFO("INIT", "called %d init function", i);
 }
