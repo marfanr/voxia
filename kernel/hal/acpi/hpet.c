@@ -1,4 +1,5 @@
 #include "hal/acpi/acpi.h"
+#include "hal/cpu/cpuid.h"
 #include "libk/io.h"
 #include "libk/serial.h"
 #include "libk/type.h"
@@ -8,6 +9,12 @@
 static uintptr_t hpet_address   = 0;
 static uint64_t  min_tick_ns    = 0;
 boolean_t        hpet_available = 0;
+
+boolean_t
+vxHPETIsAvailable()
+{
+    return hpet_available;
+}
 
 void
 hpet_write(uint32_t reg, uint64_t value)
@@ -24,23 +31,23 @@ hpet_read(uint32_t reg)
 void
 hpet_enable()
 {
-    hpet_write(HPET_GENERAL_CONFIG, 1);
-    LOG_DEBUG("HPET", "enable HPET");
+    uint64_t cfg = hpet_read(HPET_GENERAL_CONFIG);
+    cfg |= 1; // bit enable
+    hpet_write(HPET_GENERAL_CONFIG, cfg);
 }
 
 void
 hpet_disable()
 {
     hpet_write(HPET_GENERAL_CONFIG, 0);
-    LOG_DEBUG("HPET", "disable HPET");
 }
 
 uint64_t
-hpet_min_tick_ns(void)
+vxHPETMinTickNs(void)
 {
-    uint64_t min_tick = (hpet_read(HPET_GENERAL_CAP_ID) >> 32);
-    min_tick_ns       = min_tick / 1000000.0;
-    return min_tick_ns;
+    uint64_t min_tick    = (hpet_read(HPET_GENERAL_CAP_ID) >> 32);
+    double   ns_per_tick = min_tick / 1e6;
+    return ns_per_tick;
 }
 
 void
@@ -58,7 +65,7 @@ hpet_level_timer_setup(int n, uint64_t tick_count, int irq)
 }
 
 void
-hpet_initialize(uintptr_t addr)
+vxHPETInitialize(uintptr_t addr)
 {
     struct hpet *hpet = (struct hpet *)addr;
     LOG_INFO("HPET", "signature %s", hpet->header.signature);
@@ -81,6 +88,19 @@ hpet_initialize(uintptr_t addr)
     hpet_disable();
     hpet_write(HPET_MAIN_COUNT, 0);
     hpet_enable();
+}
 
-    // hpet_level_timer_setup(0, ms2ns(1) / min_tick_ns, 2);
+uint64_t
+vxHPETGetMainCount()
+{
+    return hpet_read(HPET_MAIN_COUNT);
+}
+
+void
+vxHPETSleep(uint64_t ns)
+{
+    uint64_t ticks = ns / min_tick_ns;
+    uint64_t start = vxHPETGetMainCount();
+    while ((vxHPETGetMainCount() - start) < ticks)
+        ;
 }

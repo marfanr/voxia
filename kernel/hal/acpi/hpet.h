@@ -9,7 +9,9 @@
 #define HPET_MAIN_COUNT 0x0F0
 #define HPET_TIMER_CONFIG(N) 0x100 + N * 0x20
 #define HPET_TIMER_COMPARATOR(N) 0x108 + N * 0x20
-#define ms2ns(x) (x) * 1000000
+#define ms2ns(ms) ((uint64_t)(ms) * 1000000ULL)
+#define us2ns(us) ((uint64_t)(us) * 1000ULL)
+#define ns2ms(x) (x) / 1000000
 
 struct address_structure
 {
@@ -48,12 +50,15 @@ struct hpet
     uint8_t                         page_protection;
 } __attribute__((packed));
 
-void     hpet_initialize(uintptr_t addr);
-void     hpet_write(uint32_t reg, uint64_t value);
-uint64_t hpet_read(uint32_t reg);
-void     hpet_level_timer_setup(int n, uint64_t tick_count, int irq);
-uint64_t hpet_min_tick_ns(void);
-void     hpet_enable();
-void     hpet_disable();
+void      vxHPETInitialize(uintptr_t addr);
+void      hpet_write(uint32_t reg, uint64_t value);
+uint64_t  hpet_read(uint32_t reg);
+void      hpet_level_timer_setup(int n, uint64_t tick_count, int irq);
+uint64_t  vxHPETMinTickNs(void);
+void      hpet_enable();
+void      hpet_disable();
+uint64_t  vxHPETGetMainCount();
+void      vxHPETSleep(uint64_t ns);
+boolean_t vxHPETIsAvailable();
 
 #endif // __HAL__ACPI__HPET_H__
