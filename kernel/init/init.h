@@ -27,12 +27,12 @@ typedef struct
 typedef void (*initcall_t)(init_context_t *ctx);
 
 #define INIT(fn)                                                                                   \
-    static void       fn(init_context_t *ctx);                                                     \
-    static initcall_t __init_##fn __attribute__((used, section(".initcalls." #fn))) = fn;          \
-    static void       fn(init_context_t *ctx)
+    void              init##fn(init_context_t *ctx);                                               \
+    static initcall_t __init_##fn __attribute__((used, section(".init_early." #fn))) = init##fn;   \
+    void              init##fn(init_context_t *ctx)
 
 #define INFLOOP                                                                                    \
     for (;;)                                                                                       \
-        ;
+        __asm__ volatile("hlt");
 
 #endif // __INIT__INIT_H
