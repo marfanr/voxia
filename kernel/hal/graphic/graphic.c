@@ -2,8 +2,10 @@
 #include "framebuffer.h"
 #include "hal/cpu/paging.h"
 #include "init/init.h"
+#include "libk/debug/debug.h"
 #include "memory/entry.h"
 #include "memory/vm_manager.h"
+#include "vfs/vfs.h"
 #include <libk/serial.h>
 
 #define SSFN_CONSOLEBITMAP_1COLOR
@@ -17,15 +19,17 @@ INIT(graphic)
     g__fb = &ctx->framebuffer;
 
     // loading font
-    int                   font_fd = vfs_open("/dev/initrd/fonts/unifont.sfn", OPEN_MODE_R);
+    file_t *font_file = vxFileInternalOpen("/dev/initrd/fonts/unifont.sfn", OPEN_MODE_R);
+    LOG_DEBUG("GRAPHIC", "font file_t at 0x%x", font_file);
+
     struct vfs_file_stats stats;
-    vfs_fstat(font_fd, &stats);
+    vxVFSFileStat(font_file, &stats);
     serial_trace("(init) font size : %d\n", stats.size);
     serial_trace("(init) font size :%dMb\n", stats.size / 1024 / 1024);
 
     uint8_t *font = (uint8_t *)kalloc(stats.size);
     serial_trace("font address : 0x%x\n", font);
-    vfs_read(font_fd, font, stats.size);
+    vxVFSRead(font_file, font, stats.size);
     serial_trace("read font success\n");
 
     // overide fb addr
@@ -34,10 +38,10 @@ INIT(graphic)
         memory_entry_t *entry = &ctx->memory.memory_map[i];
         if (entry->type == ENTRY_MMAP_FRAMEBUFFER)
         {
-            paging_mmap_fill(paging_get_highest_page_map(), 0xFFFFFA0000000000, entry->base,
-                             entry->length / PAGE_SIZE, 0b111);
+            vxMultipleMmap(paging_get_highest_page_map(), 0xFFFFFA0000000000, entry->base,
+                           entry->length / PAGE_SIZE, 0b111);
             vma_register(entry->base, 0xFFFFFA0000000000, entry->length / PAGE_SIZE);
-            vma_tree_add(VMA_REGION_A, 0xFFFFFA0000000000, 0xFFFFFA0000000000 + entry->length);
+            // vma_tree_add(VMA_REGION_A, 0xFFFFFA0000000000, 0xFFFFFA0000000000 +entry->length);
             g__fb->framebuffer_addr = 0xFFFFFA0000000000;
             break;
         }
@@ -52,10 +56,12 @@ INIT(graphic)
     ssfn_dst.x = ssfn_dst.y = 0;
     ssfn_dst.fg             = 0xFFFFFF;
     ssfn_dst.bg             = 0x000000;
+
+    KDEBUG(DEBUG_LEVEL_INFO, "graphic init done\n");
 }
 
 void
-putc(char c, int x, int y, uint32_t fg, uint32_t bg)
+vxPutc(char c, int x, int y, uint32_t fg, uint32_t bg)
 {
     ssfn_dst.fg = fg;
     ssfn_dst.bg = bg;
@@ -75,36 +81,87 @@ put_pixel(int x, int y, uint32_t color)
     pixel->a = (color >> 24) & 0xFF;
 }
 
+static inline uint8_t
+blend(uint8_t src, uint8_t dst, uint8_t a)
+{
+    // Gunakan multiply+shift yang lebih akurat
+    return ((src * a) + (dst * (255 - a)) + 128) >> 8;
+    // +128 untuk rounding yang lebih baik
+}
+
 void
 put_pixel_alpha(int x, int y, pixel_t src)
 {
+    // Bounds check
     if (x < 0 || y < 0 || x >= g__fb->framebuffer_width || y >= g__fb->framebuffer_height)
+        return;
+
+    // Early exit untuk fully transparent
+    if (src.a == 0)
         return;
 
     uint32_t *dst_ptr =
         (uint32_t *)((uint8_t *)g__fb->framebuffer_addr + y * g__fb->framebuffer_pitch + x * 4);
+
+    // Fast path untuk fully opaque
+    if (src.a == 255)
+    {
+        uint32_t r_val = (src.r * ((1 << g__fb->red_mask_size) - 1)) / 255;
+        uint32_t g_val = (src.g * ((1 << g__fb->green_mask_size) - 1)) / 255;
+        uint32_t b_val = (src.b * ((1 << g__fb->blue_mask_size) - 1)) / 255;
+
+        *dst_ptr = (r_val << g__fb->red_mask_shift) | (g_val << g__fb->green_mask_shift) |
+                   (b_val << g__fb->blue_mask_shift);
+        return;
+    }
+
+    // Alpha blending path
     uint32_t dst_color = *dst_ptr;
 
-    pixel_t dst = {.b = dst_color & 0xFF,
-                   .g = (dst_color >> 8) & 0xFF,
-                   .r = (dst_color >> 16) & 0xFF,
-                   .a = 0xFF};
+    // Extract langsung tanpa struct intermediate
+    uint8_t dst_b = dst_color & 0xFF;
+    uint8_t dst_g = (dst_color >> 8) & 0xFF;
+    uint8_t dst_r = (dst_color >> 16) & 0xFF;
 
-    uint8_t a = src.a;
+    // Blend
+    uint8_t r = blend(src.r, dst_r, src.a);
+    uint8_t g = blend(src.g, dst_g, src.a);
+    uint8_t b = blend(src.b, dst_b, src.a);
 
-    uint8_t r = (src.r * a + dst.r * (255 - a)) / 255;
-    uint8_t g = (src.g * a + dst.g * (255 - a)) / 255;
-    uint8_t b = (src.b * a + dst.b * (255 - a)) / 255;
-
-    uint32_t color = 0;
-
+    // Color packing - gunakan shift instead of division jika mask size standard (8-bit)
     uint32_t r_val = (r * ((1 << g__fb->red_mask_size) - 1)) / 255;
     uint32_t g_val = (g * ((1 << g__fb->green_mask_size) - 1)) / 255;
     uint32_t b_val = (b * ((1 << g__fb->blue_mask_size) - 1)) / 255;
 
-    color |= (r_val << g__fb->red_mask_shift);
-    color |= (g_val << g__fb->green_mask_shift);
-    color |= (b_val << g__fb->blue_mask_shift);
+    *dst_ptr = (r_val << g__fb->red_mask_shift) | (g_val << g__fb->green_mask_shift) |
+               (b_val << g__fb->blue_mask_shift);
+}
 
-    *dst_ptr = color;
+void
+put_pixel_alpha_fast(int x, int y, pixel_t src)
+{
+    if (x < 0 || y < 0 || x >= g__fb->framebuffer_width || y >= g__fb->framebuffer_height)
+        return;
+
+    if (src.a == 0)
+        return;
+
+    uint32_t *dst_ptr =
+        (uint32_t *)((uint8_t *)g__fb->framebuffer_addr + y * g__fb->framebuffer_pitch + x * 4);
+
+    if (src.a == 255)
+    {
+        *dst_ptr = (src.r << 16) | (src.g << 8) | src.b;
+        return;
+    }
+
+    uint32_t dst_color = *dst_ptr;
+    uint32_t inv_a     = 255 - src.a;
+
+    // Blend semua channel sekaligus dengan SIMD-like operations
+    uint32_t rb = (((src.r * src.a) + ((dst_color >> 16) & 0xFF) * inv_a) & 0xFF00) << 8 |
+                  (((src.b * src.a) + (dst_color & 0xFF) * inv_a) >> 8);
+    uint32_t g = ((src.g * src.a) + (((dst_color >> 8) & 0xFF) * inv_a)) & 0xFF00;
+
+    *dst_ptr = rb | g;
 }
