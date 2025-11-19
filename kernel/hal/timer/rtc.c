@@ -35,7 +35,6 @@ rtc_read_time(date_time *dt)
 {
     while (rtc_is_updating())
         ; // tunggu UIP clear
-
     uint8_t sec   = cmos_read(0x00);
     uint8_t min   = cmos_read(0x02);
     uint8_t hour  = cmos_read(0x04);
