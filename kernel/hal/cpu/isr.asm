@@ -35,21 +35,30 @@
     pop rax
 %endmacro
 
-extern interrupt_handler
+extern vxInterruptHandler
 int_common:
     mov qword [saved_rax], rax
     cmp qword [rsp + 24], 0x28
     je .next
-    swapgs
+    ; swapgs
     .next:
         pushall
+
+        sub rsp, 512
+        fxsave [rsp]           ; simpan semua FPU/SSE state ke stack
+
         mov rdi, rsp
-        call interrupt_handler
+        call vxInterruptHandler
+
+        fxrstor [rsp]
+        add rsp, 512
+
         popall
+
         add rsp, 16
         cmp qword [rsp + 8], 0x28
         je .next1
-        swapgs
+        ; swapgs
     .next1:
         iretq
 
