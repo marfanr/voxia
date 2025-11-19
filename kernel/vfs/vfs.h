@@ -4,10 +4,13 @@
 
 #include "libk/string.h"
 #include "vfs/dentry.h"
+#include "vfs/file.h"
 #include "vfs/filesystem.h"
 #include <hal/block/block.h>
 #include <libk/type.h>
 #include <libk/vector.h>
+
+#define OP_NOT_IMPLEMENTED 0
 
 typedef enum
 {
@@ -38,6 +41,7 @@ struct vfs_inode
     size_t               size;
     uint64_t             id;
     filesystem_t        *fs;
+    file_operations_t   *file_ops;
     struct block_device *block;
     vector(dentry_ptr) dentry_list;
     uint64_t offset;
@@ -79,71 +83,19 @@ struct vfs_inode *vfs_create_inode(filesystem_t *fs);
 int               vfs_mount(const char *path, const char *block, const char *fs);
 vfs_mount_error   vfs_umount(const char *path);
 
-/**
- * Membuka file atau perangkat yang ditentukan oleh path yang diberikan dengan
- * flag yang ditentukan.
- *
- * @param path path file yang ingin di buka
- * @param flags
- * @return The file descriptor dari file yang dibuka , VFS_ERR_NOT_FOUND jika
- * tidak ditemukan
- */
-int vfs_open(const char *path, uint8_t flags);
-
-typedef struct vfs_file_stats *vfs_file_stats_ptr;
+int     vxVFSOpen(const char *path, uint8_t flags);
+file_t *vxFileInternalOpen(const char *path, uint8_t flags);
 struct vfs_file_stats
 {
     string name;
     size_t size;
 };
-
-/**
- * Mendapatkan informasi file yang di tunjuk oleh file descriptor yang
- * diberikan.
- *
- * @param fd file descriptor yang ingin di dapatkan informasinya
- * @param buf buffer yang akan di isi dengan informasi file
- * @return 0 jika berhasil, VFS_ERR_INVALID_FD jika fd tidak valid
- */
-int vfs_fstat(int fd, vfs_file_stats_ptr buf);
-
-/**
- * Menutup file descriptor yang diberikan.
- *
- * @param fd file descriptor yang ingin di tutup
- * @return 0 jika berhasil, VFS_ERR_INVALID_FD jika fd tidak valid
- */
-int vfs_close(int fd);
-
-/**
- * Membaca file yang di tunjuk oleh file descriptor yang diberikan.
- *
- * @param fd file descriptor yang ingin di baca
- * @param buf buffer yang akan di isi dengan data yang di baca
- * @param count jumlah byte yang ingin di baca
- * @return jumlah byte yang berhasil di baca, VFS_ERR_INVALID_FD jika fd tidak
- * valid
- */
-int vfs_read(int fd, void *buf, size_t count);
-
-/**
- * Menulis data ke file yang di tunjuk oleh file descriptor yang diberikan.
- *
- * @param fd file descriptor yang ingin di tulis
- * @param buf buffer yang berisi data yang akan di tulis
- * @param count jumlah byte yang ingin di tulis
- * @return jumlah byte yang berhasil di tulis, VFS_ERR_INVALID_FD jika fd tidak
- * valid
- */
-int vfs_write(int fd, const void *buf, size_t count);
-
-/**
- * menutup file descriptor yang diberikan.
- *
- * @param fd file descriptor yang ingin di tutup
- * @return 0 jika berhasil, VFS_ERR_INVALID_FD jika fd tidak valid
- */
-int vfs_close(int fd);
+typedef struct vfs_file_stats *vfs_file_stats_ptr;
+int                            vxVFSFileStat(file_t *file, vfs_file_stats_ptr buf);
+int                            vxVFSClose(int fd);
+int                            vxVFSRead(file_t *file, void *buf, size_t count);
+int                            vfs_write(int fd, const void *buf, size_t count);
+int                            vxVFSClose(int fd);
 
 void vfs_caching_path(const char *path, vfs_inode_t *inode, struct vfs_entry *entry);
 

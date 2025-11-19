@@ -1,6 +1,10 @@
+#include "hal/cpu/paging.h"
 #include "init/init.h"
 #include "libk/string.h"
 #include "memory/kalloc.h"
+#include "memory/phys_base_allocator.h"
+#include "vfs/cache.h"
+#include "vfs/file.h"
 #include <libk/type.h>
 #include <vfs/vfs.h>
 
@@ -38,7 +42,7 @@ static struct slab_cache *rbt_node_cache;
 static struct slab_cache *vfs_inode_cache;
 static dentry_ptr         root_dentry;
 
-INIT(vfs)
+INIT(Vfs)
 {
     slab_cache_create(&rbt_node_cache, "rbt_node", sizeof(rbt_node), 64, 0);
     slab_cache_create(&vfs_inode_cache, "vfs_inode", sizeof(struct vfs_inode), 64, 0);
@@ -157,50 +161,57 @@ vfs_umount(const char *path)
     return -1;
 }
 
-KERNEL_API
-int
-vfs_open(const char *path, vfs_open_mode flags)
+static dentry_t *
+vxFindInode(const char *path)
 {
     // exploding path
     vector(string) exploded_path = {0};
     vector_init(&exploded_path);
+
     explode(path, '/', &exploded_path);
 
+    // todo: CACHE dirctory
     // TODO: implement mekanisme cache path biar ga usah explode terus
     // first find root block device
     dentry_t *curr_entry         = root_dentry;
     dentry_t *last_mounted_entry = root_dentry;
+    size_t    mounted_depth      = 0;
 
-    size_t mounted_depth = 0;
     for (size_t i = 0; i < exploded_path.size; i++)
     {
+        boolean_t found = false;
+
         if (curr_entry->children.size == 0)
         {
             break;
+        }
+
+        if (curr_entry->inode->is_mounted)
+        {
+            LOG_INFO("VFS", "found mounted at %s", curr_entry->name->c_str);
+            last_mounted_entry = curr_entry;
+            mounted_depth      = i - 1;
         }
 
         for (size_t j = 0; j < curr_entry->children.size; j++)
         {
             dentry_t *child = curr_entry->children.data[j];
 
-            if (child->inode->is_mounted)
-            {
-                LOG_INFO("VFS", "found mounted at %s", child->name->c_str);
-                last_mounted_entry = child;
-                mounted_depth      = i;
-            }
-
             if (stringcmp(child->name, exploded_path.data[i]))
             {
                 curr_entry = child;
+                found      = true;
                 break;
             }
         }
-    }
 
-    // coba lookup di FS aslinya
-    vfs_inode_t  *mounted_inode = last_mounted_entry->inode;
-    filesystem_t *fs            = mounted_inode->fs;
+        if (!found)
+        {
+            LOG_ERROR("VFS", "path %s not found", path);
+            vector_destroy(&exploded_path);
+            return nullptr;
+        }
+    }
 
     // get child entry
     dentry_t *first_entry = 0;
@@ -220,11 +231,11 @@ vfs_open(const char *path, vfs_open_mode flags)
         LOG_INFO("VFS", "first time mounted");
     }
 
-    // dentry_ptr prev_entry = last_mounted_entry;
     curr_entry = last_mounted_entry;
 
     for (size_t i = mounted_depth + 1; i < exploded_path.size; i++)
     {
+        boolean_t found = false;
         for (size_t j = 0; j < curr_entry->children.size; j++)
         {
             dentry_t *child = curr_entry->children.data[j];
@@ -232,68 +243,137 @@ vfs_open(const char *path, vfs_open_mode flags)
             if (stringcmp(child->name, exploded_path.data[i]))
             {
                 curr_entry = child;
+                found      = true;
             }
         }
+
+        if (!found)
+            goto fail;
     }
 
     vector_destroy(&exploded_path);
-    return descriptor_add(curr_entry->inode, curr_entry, flags);
+    return curr_entry;
+
+fail:
+    vector_destroy(&exploded_path);
+    return nullptr;
+}
+
+// TODO: implement flag
+//  not used now on initrd
+file_t *
+vxFileInternalOpen(const char *path, uint8_t flags)
+{
+    auto curr_entry = vxFindInode(path);
+    if (curr_entry == 0)
+    {
+        LOG_WARN("VFS", "internal open file %s not found", path);
+        return nullptr;
+    }
+
+    LOG_INFO("VFS", "file %s opened successfully", path);
+    file_t *file       = (file_t *)kalloc(sizeof(file_t));
+    file->ops          = curr_entry->inode->file_ops;
+    file->private_data = (void *)curr_entry;
+    return file;
+}
+
+int
+vxVFSOpen(const char *path, vfs_open_mode flags)
+{
+    vfs_inode_t *cache_inode = vxCacheLookup(str(path));
+    if (cache_inode)
+    {
+        // return descriptor_add(cache_inode, 0, flags);
+    }
+
+    auto inode = vxFindInode(path);
+    if (inode == 0)
+    {
+        LOG_WARN("VFS", "internal open file %s not found", path);
+        return nullptr;
+    }
+
+    // vxCacheNode(str(path), curr_entry->inode);
+    LOG_INFO("VFS", "file %s opened successfully", path);
+    // return descriptor_add(curr_entry->inode, curr_entry, flags);
+
+    return -1;
 }
 
 KERNEL_API
 int
-vfs_fstat(int fd, vfs_file_stats_ptr buf)
+vxVFSFileStat(file_t *file, vfs_file_stats_ptr buf)
 {
-    struct file_descriptor *descriptor = descriptor_get(fd);
-    if (descriptor == 0)
-        return 2;
-
-    buf->name = descriptor->dentry->name;
-    buf->size = descriptor->dentry->inode->size;
+    dentry_ptr curr_entry = (dentry_ptr)file->private_data;
+    buf->size             = curr_entry->inode->size;
+    buf->name             = curr_entry->name;
 
     return 0;
 }
 
 KERNEL_API
 int
-vfs_read(int fd, void *buf, size_t count)
+vxVFSRead(file_t *file, void *buf, size_t count)
 {
-    // serial_trace ("vfs read : %d\n", fd);
-    struct file_descriptor *descriptor = descriptor_get(fd);
-    if (descriptor == 0)
-    {
-        return -1;
-    }
-
     if (buf == 0)
     {
         return -2;
     }
-    // cek apakah fd nya puya akses read
-    if (!(descriptor->flags & FD_FLAG_READ))
+    if (!file->ops)
         return -3;
 
-    // descriptor->file->inode->fs->ops->read(
+    return file->ops->read(file, buf, count);
 
-    // )
-
-    uintptr_t addr = descriptor->addr;
-    serial_trace("open from addr 0x%x \n", addr + descriptor->offset);
-    serial_trace("copying to 0x%x until 0x%x\n", buf, buf + count);
-
-    memcopy(buf, (void *)(addr + descriptor->offset), count);
     return 0;
 }
 
 int
-vfs_close(int fd)
+vxVFSClose(int fd)
 {
-    struct file_descriptor *descriptor = descriptor_get(fd);
-    if (descriptor == 0)
-        return -1;
+    // struct file_descriptor *descriptor = descriptor_get(fd);
+    // if (descriptor == 0)
+    //     return -1;
 
-    descriptor_free(fd);
+    // descriptor_free(fd);
     return 0;
+}
+
+boolean_t
+vxVFSIsDirectory(const char *path)
+{
+    // exploding path
+    vector(string) exploded_path = {0};
+    vector_init(&exploded_path);
+    explode(path, '/', &exploded_path);
+
+    dentry_t *curr_entry = root_dentry;
+
+    for (size_t i = 0; i < exploded_path.size; i++)
+    {
+        boolean_t found = false;
+
+        for (size_t j = 0; j < curr_entry->children.size; j++)
+        {
+            dentry_t *child = curr_entry->children.data[j];
+
+            if (stringcmp(child->name, exploded_path.data[i]))
+            {
+                curr_entry = child;
+                found      = true;
+                break;
+            }
+        }
+
+        if (!found)
+        {
+            vector_destroy(&exploded_path);
+            return false;
+        }
+    }
+
+    vector_destroy(&exploded_path);
+    return curr_entry->inode->is_directory;
 }
 
 #undef RBT_ID_NAME
