@@ -70,10 +70,10 @@ get_vaddr(size_t count)
 static void *
 __alloc_4k(void)
 {
-    uintptr_t phys_addr = (uintptr_t)phys_base_alloc(1);
+    uintptr_t phys_addr = (uintptr_t)vxPhysBaseAlloc(1);
     uintptr_t virt_addr = get_vaddr(1);
-    paging_mmap(paging_get_highest_page_map(), virt_addr, phys_addr,
-                PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+    vxMmap(paging_get_highest_page_map(), virt_addr, phys_addr,
+           PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
     vma_register((uintptr_t)phys_addr, (uintptr_t)virt_addr, BLOCK_SIZE);
     void *ret = (void *)virt_addr;
     return ret;
@@ -186,14 +186,13 @@ kalloc(size_t size)
     }
 
     size_t allocate_size = ALIGN_UP(size, BLOCK_SIZE) / BLOCK_SIZE;
-    serial_trace("allocate more than 2kb, %d page\n", allocate_size);
 
-    uintptr_t phys_addr = (uintptr_t)phys_base_alloc(allocate_size);
-    serial_trace("phys addr 0x%x\n", phys_addr);
+    uintptr_t phys_addr = (uintptr_t)vxPhysBaseAlloc(allocate_size);
+    // serial_trace("phys addr 0x%x\n", phys_addr);
     uintptr_t vaddr = kalloc_next_addr;
     kalloc_next_addr += BLOCK_SIZE * allocate_size;
-    paging_mmap_fill(paging_get_highest_page_map(), vaddr, phys_addr, allocate_size,
-                     PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+    vxMultipleMmap(paging_get_highest_page_map(), vaddr, phys_addr, allocate_size,
+                   PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
     vma_register((uintptr_t)phys_addr, (uintptr_t)vaddr, allocate_size);
     void *ret = (void *)vaddr;
     return ret;
@@ -240,12 +239,12 @@ kfree(void *ptr, size_t size)
     else
     {
         // Free whole pages
-        virtual_memory *v = vma_find((uintptr_t)ptr);
+        virtual_memory_t *v = vma_find((uintptr_t)ptr);
         if (!v)
             return;
 
         size_t allocate_size = ALIGN_UP(size, BLOCK_SIZE) / BLOCK_SIZE;
-        phys_base_free((void *)v->phys_address, allocate_size);
+        vxPhysBaseFree((void *)v->phys_address, allocate_size);
         paging_unmap_fill(paging_get_highest_page_map(), (uintptr_t)ptr, allocate_size);
 
         vma_unregister((uintptr_t)ptr);

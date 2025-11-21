@@ -32,7 +32,7 @@ void
 slab_cache_create(struct slab_cache **cache, const char *name, const size_t obj_size,
                   size_t alignment, const uintptr_t virt_addr)
 {
-    uintptr_t phys_addr = (uintptr_t)phys_base_alloc(1);
+    uintptr_t phys_addr = (uintptr_t)vxPhysBaseAlloc(1);
     LOG_INFO("SLAB", "created new slab cache '%s' at phys 0x%x", name, phys_addr);
     uintptr_t vaddr = virt_addr;
 
@@ -42,7 +42,7 @@ slab_cache_create(struct slab_cache **cache, const char *name, const size_t obj_
     }
 
     // TODO: map to current active page table
-    paging_mmap(paging_get_highest_page_map(), (uintptr_t)vaddr, phys_addr, 0b11);
+    vxMmap(paging_get_highest_page_map(), (uintptr_t)vaddr, phys_addr, 0b11);
     *cache = (struct slab_cache *)vaddr;
     memset(*cache, 0, sizeof(struct slab_cache));
 
@@ -74,6 +74,7 @@ slab_alloc(struct slab_cache *cache)
 {
     if (cache == NULL)
     {
+        LOG_ERROR("SLAB", "slab cache is NULL");
         return NULL;
     }
 
@@ -86,7 +87,7 @@ slab_alloc(struct slab_cache *cache)
         if (slab == NULL)
         {
             // No free slab, create a new one
-            uintptr_t phys_addr = (uintptr_t)phys_base_alloc(1);
+            uintptr_t phys_addr = (uintptr_t)vxPhysBaseAlloc(1);
             uintptr_t vaddr     = cache->current_virt_addr;
 
             if (cache->default_virt_addr)
@@ -98,8 +99,7 @@ slab_alloc(struct slab_cache *cache)
                 cache->current_virt_addr += BLOCK_SIZE;
             }
 
-            paging_mmap(paging_get_highest_page_map(), (uintptr_t)vaddr, (uintptr_t)phys_addr,
-                        0b11);
+            vxMmap(paging_get_highest_page_map(), (uintptr_t)vaddr, (uintptr_t)phys_addr, 0b11);
 
             cache->total_slabs++;
             slab            = (struct slab *)vaddr;
@@ -137,6 +137,7 @@ slab_alloc(struct slab_cache *cache)
     void *obj = slab->free_list;
     if (obj == NULL)
     {
+        LOG_ERROR("SLAB", "slab '%s' has no free objects but in partial list!", cache->name);
         return NULL; // Should not happen
     }
     slab->free_list = *(void **)obj;
@@ -166,7 +167,7 @@ slab_cache_destroy(struct slab_cache **cache)
     {
         struct slab *next = slab->next;
         if (slab->phys_addr)
-            phys_base_free((void *)slab->phys_addr, 1);
+            vxPhysBaseFree((void *)slab->phys_addr, 1);
         paging_unmap_page(paging_get_highest_page_map(), (uintptr_t)slab);
 
         if ((*cache)->default_virt_addr && freed_vaddr_count < MAX_FREED_VADDRS)
@@ -180,7 +181,7 @@ slab_cache_destroy(struct slab_cache **cache)
     {
         struct slab *next = slab->next;
         if (slab->phys_addr)
-            phys_base_free((void *)slab->phys_addr, 1);
+            vxPhysBaseFree((void *)slab->phys_addr, 1);
         paging_unmap_page(paging_get_highest_page_map(), (uintptr_t)slab);
 
         if ((*cache)->default_virt_addr && freed_vaddr_count < MAX_FREED_VADDRS)
@@ -194,7 +195,7 @@ slab_cache_destroy(struct slab_cache **cache)
     {
         struct slab *next = slab->next;
         if (slab->phys_addr)
-            phys_base_free((void *)slab->phys_addr, 1);
+            vxPhysBaseFree((void *)slab->phys_addr, 1);
         paging_unmap_page(paging_get_highest_page_map(), (uintptr_t)slab);
 
         if ((*cache)->default_virt_addr && freed_vaddr_count < MAX_FREED_VADDRS)
@@ -205,7 +206,7 @@ slab_cache_destroy(struct slab_cache **cache)
 
     uintptr_t phys_addr               = (*cache)->phys_addr;
     freed_vaddrs[freed_vaddr_count++] = (uintptr_t)*cache;
-    phys_base_free((void *)phys_addr, 1);
+    vxPhysBaseFree((void *)phys_addr, 1);
     paging_unmap_page(paging_get_highest_page_map(), (uintptr_t)(*cache));
 
     // Finally, free the cache itself
