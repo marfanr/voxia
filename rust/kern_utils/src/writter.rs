@@ -12,7 +12,6 @@ fn putc(c: u8) {
     }
 }
 
-
 struct SerialWriter;
 
 impl Write for SerialWriter {
@@ -28,3 +27,11 @@ pub fn serial_print(args: fmt::Arguments) {
     use core::fmt::Write;
     SerialWriter.write_fmt(args).unwrap();
 }
+
+#[macro_export]
+macro_rules! serialfmt {
+    ($($args:tt)*) => {
+        $crate::writter::serial_print(core::format_args!($($args)*))
+    };
+}
+

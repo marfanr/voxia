@@ -1,10 +1,16 @@
-use kern_utils::writter::serial_print;
+use kern_utils::serialfmt;
 use phys_base_allocator::context::MemoryContext;
+
+use crate::mem::allocator::GLOBAL_ALLOC;
+
+// static GLOBAL_BITMAP: Global<BitMap> = Global(UnsafeCell::new(BitMap::init()));
 
 #[allow(unused)]
 #[no_mangle]
 pub extern "C" fn bitmap_setup(ctx: *mut MemoryContext) {
-    // BITMAP_STATE.setup(base, size);
-    let ctx = unsafe {&mut *ctx};
-    serial_print(core::format_args!("bitmap found mem entries {} \n", ctx.memory_entries));
+    unsafe {
+        let bm = &mut *GLOBAL_ALLOC.bitmap.get();
+        bm.setup(ctx);
+        serialfmt!("bitmap base at {:#p}\n", *bm.base.get());
+    }
 }

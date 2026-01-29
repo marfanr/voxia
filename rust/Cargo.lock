@@ -11,6 +11,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "kern_types"
+version = "0.1.0"
+
+[[package]]
 name = "kern_utils"
 version = "0.1.0"
 
@@ -18,5 +22,6 @@ version = "0.1.0"
 name = "phys_base_allocator"
 version = "0.1.0"
 dependencies = [
+ "kern_types",
  "kern_utils",
 ]

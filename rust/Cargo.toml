@@ -1,5 +1,5 @@
 [workspace]
-members = ["kern_core", "kern_utils", "phys_base_allocator"]
+members = ["kern_core", "kern_types", "kern_utils", "phys_base_allocator"]
 
 resolver = "2"
 

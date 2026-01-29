@@ -6,6 +6,9 @@ edition = "2021"
 [lib]
 crate-type = ["rlib"]
 
+[features]
+debug = []
 
 [dependencies]
-kern_utils = {path = "../kern_utils", version = "0.1.0"}
+kern_utils = { path = "../kern_utils", version = "0.1.0" }
+kern_types = { path = "../kern_types", version = "0.1.0" }
