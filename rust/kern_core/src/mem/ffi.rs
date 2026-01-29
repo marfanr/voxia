@@ -1,5 +1,5 @@
+use kern_allocator::context::MemoryContext;
 use kern_utils::serialfmt;
-use phys_base_allocator::context::MemoryContext;
 
 use crate::mem::allocator::GLOBAL_ALLOC;
 

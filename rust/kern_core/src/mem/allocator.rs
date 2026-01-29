@@ -4,7 +4,7 @@ use core::{
     ptr::null_mut,
 };
 
-use phys_base_allocator::phys::bitmap::BitMap;
+use kern_allocator::phys::bitmap::BitMap;
 
 pub struct KernelAllocator {
     pub bitmap: UnsafeCell<BitMap>,

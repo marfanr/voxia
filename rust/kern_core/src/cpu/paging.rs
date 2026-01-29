@@ -1,11 +1,10 @@
 use core::{
-    cell::UnsafeCell,
     ptr::NonNull,
     sync::atomic::{AtomicBool, Ordering},
     usize,
 };
 
-use kern_utils::{serialfmt, Global};
+use kern_utils::{ceil_div, debug, serialfmt, Global};
 
 use crate::mem::{allocator::GLOBAL_ALLOC, phys_window};
 
@@ -13,26 +12,28 @@ pub type PageT = *mut u64;
 
 #[doc = "PML4 PHYS MEMORY"]
 static PAGE_ROOT: Global<PageT> = Global::new(core::ptr::null_mut());
-static PAGING_HAS_BEEN_SET: AtomicBool = AtomicBool::new(false);
 static PHYS_WINDOW_PT: Global<Option<u64>> = Global::new(None);
+static PAGING_HAS_BEEN_SET: AtomicBool = AtomicBool::new(false);
+
+const PAGE_SIZE: usize = 0x1000;
+
+// TODO: create struct that contain page root and phys window PT
 
 pub fn create_page_directory() -> NonNull<u64> {
+    let paging_has_set = PAGING_HAS_BEEN_SET.load(Ordering::Acquire);
     unsafe {
         let bitmap = &mut *GLOBAL_ALLOC.bitmap.get();
         let page = bitmap.alloc(1) as *mut u64;
 
-        let paging_has_set = PAGING_HAS_BEEN_SET.load(Ordering::Relaxed);
         if paging_has_set {
             serialfmt!("paging has been set\n");
-            let window = phys_window::create_window(0x1000u64, 0b11, false);
-            // let vaddr = window.virt as *mut u64;
-            // core::ptr::write_bytes(vaddr, 0, 4096);
-
-            //     return NonNull::new(vaddr).expect("page ptr null");
-            // phys_window::create_window(2u64, 0b11, false);
+            let window = phys_window::create_window(page as u64, 0b11, false)
+                .expect("phys window is available");
+            serialfmt!("window created on {:#x}\n", window.virt);
+            core::ptr::write_bytes(window.virt as *mut u64, 0, 4096);
+        } else {
+            core::ptr::write_bytes(page, 0, 4096);
         }
-
-        core::ptr::write_bytes(page, 0, 4096);
 
         NonNull::new(page).expect("page ptr null")
     }
@@ -57,7 +58,7 @@ pub fn get_active_page_root() -> PageT {
 // TODO! will be move later
 const PHYS_WINDOW_START: usize = 0xFFFF_B000_0000_0000;
 const PHYS_WINDOW_PT_ADDR: usize = 0xFFFF_B000_0F00_0000;
-const BITMAP_ADDR: usize = 0xFFFF_FFE0_0000_0000;
+const BITMAP_ADDR: usize = 0xFFFF_FE00_0000_0000;
 
 pub unsafe fn write_cr3(cr3: u64) {
     core::arch::asm!(
@@ -109,11 +110,6 @@ pub unsafe fn paging_phys_window(pml4: *mut u64, virt: usize, phys: usize, flags
         *phys_window_pt = Some(pt as u64);
     };
 
-    serialfmt!(
-        "phys window pt {:#X}\n",
-        phys_window_pt.expect("phys window pt not set")
-    );
-
     let pt_ptr = phys_window_pt.expect("phys window pt not set") as *mut u64;
 
     let pte = pt_ptr.add(index1);
@@ -162,16 +158,35 @@ pub unsafe fn paging_setup() {
 
     initialize_physical_paging_window();
 
-    for i in (0usize..0x8000_0000usize).step_by(0x1000) {
+    for i in (0usize..0x8000_0000usize).step_by(PAGE_SIZE) {
         mmap(*pml4, i + 0xffff_ffff_8000_0000usize, i, 0b11);
     }
 
     // change bitmap base
     {
         let bitmap = &mut *GLOBAL_ALLOC.bitmap.get();
-        let bitmap_base = bitmap.base.get();
-        mmap(*pml4, BITMAP_ADDR, bitmap_base as usize, 0b11);
-        bitmap.base = UnsafeCell::new(BITMAP_ADDR as *mut u64);
+        let base = *bitmap.base.get() as usize;
+
+        debug_assert!(base != 0);
+
+        let offset = base & 0xfff;
+        debug!("offset {:#x}\n", offset);
+        let phys_base = base & !0xfff;
+        debug!("phys base {:#x}\n", phys_base);
+
+        let len_bytes = bitmap.bitmap_count * 8;
+        let total_len = offset + len_bytes;
+        let bitmap_pages = ceil_div(total_len, PAGE_SIZE);
+        debug!("bitmap pages {}\n", bitmap_pages);
+        debug!(
+            "bitmap addr {:#x} after align {:#x}\n",
+            BITMAP_ADDR,
+            BITMAP_ADDR & !0xfff
+        );
+
+        mmap_fill(*pml4, BITMAP_ADDR & !0xfff, phys_base, bitmap_pages, 0b11);
+
+        bitmap.update_base((BITMAP_ADDR + offset) as *mut u64);
     }
 
     // reload
@@ -179,38 +194,71 @@ pub unsafe fn paging_setup() {
 
     PAGING_HAS_BEEN_SET.store(true, Ordering::Relaxed);
 
-    // test
-    let window = phys_window::create_window(0x1000u64, 0b11, false).expect("give a valid vaddr");
-    serialfmt!("window created on {:#x}\n", window.virt);
+    // test alloc after mmap
+    {
+        let b = &mut *GLOBAL_ALLOC.bitmap.get();
+        serialfmt!("bitmap new base {:#X}\n", *b.base.get() as u64);
+        serialfmt!("total blocks {}\n", b.total_blocks);
+        b.alloc_debug(3);
+    }
+
+    // test mmap
+    let np = create_page_directory().as_ptr();
+    debug!("np {:#x}\n", np as u64);
 }
 
+// pml4 input must be physial address
 pub unsafe fn mmap(pml4: *mut u64, virt: usize, phys: usize, flags: u64) {
     let idx1 = (virt >> 12) & 0x1ff;
     let idx2 = (virt >> 21) & 0x1ff;
     let idx3 = (virt >> 30) & 0x1ff;
     let idx4 = (virt >> 39) & 0x1ff;
 
-    // PML4
-    // let pml4_virt: u64 = if *PAGING_HAS_BEEN_SET.as_ptr() {
-    //     let window = phys_window::create_window(pml4 as u64, flags, false)
-    //         .expect("phys window is available");
-    //     window.virt
-    // } else {
-    //     pml4 as u64
-    // };
+    let paging_has_set = PAGING_HAS_BEEN_SET.load(Ordering::Relaxed);
 
-    let pml4e = pml4.add(idx4);
+    // PML4
+    let pml4_window: Option<&phys_window::PhysMapWindow> = if paging_has_set {
+        let window = phys_window::create_window(pml4 as u64, flags, true).unwrap();
+        debug!("pml4_virt {:#X}\n", window.virt);
+        Some(window)
+    } else {
+        None
+    };
+
+    let pml4_virt: *mut u64 = if let Some(window) = pml4_window {
+        window.virt as *mut u64
+    } else {
+        pml4
+    };
+
+    let pml4e = pml4_virt.add(idx4);
 
     let pdpt = if (*pml4e & 1) != 0 {
         (*pml4e & 0x000f_ffff_ffff_f000) as *mut u64
     } else {
+        if paging_has_set {
+            debug!("ok\n");
+        }
         let p = create_page_directory().as_ptr();
         *pml4e = (p as u64) | flags;
         p
     };
+    let pdpt_window: Option<&phys_window::PhysMapWindow> = if paging_has_set {
+        debug!("pdpt_virt {:#X}\n", pdpt as u64);
+        let window = phys_window::create_window(pdpt as u64, flags, true).unwrap();
+        Some(window)
+    } else {
+        None
+    };
+
+    let pdpt_virt: *mut u64 = if let Some(window) = pdpt_window {
+        window.virt as *mut u64
+    } else {
+        pdpt
+    };
 
     // PDPT
-    let pdpte = pdpt.add(idx3);
+    let pdpte = pdpt_virt.add(idx3);
     let pd = if (*pdpte & 1) != 0 {
         (*pdpte & 0x000f_ffff_ffff_f000) as *mut u64
     } else {
@@ -219,8 +267,23 @@ pub unsafe fn mmap(pml4: *mut u64, virt: usize, phys: usize, flags: u64) {
         p
     };
 
+    let pd_window: Option<&phys_window::PhysMapWindow> = if paging_has_set {
+        let window =
+            phys_window::create_window(pd as u64, 0b11, true).expect("phys window is available");
+        debug!("pd_virt {:#X}\n", window.virt);
+        Some(window)
+    } else {
+        None
+    };
+
+    let pd_virt: *mut u64 = if let Some(window) = pd_window {
+        window.virt as *mut u64
+    } else {
+        pd
+    };
+
     // PD
-    let pde = pd.add(idx2);
+    let pde = pd_virt.add(idx2);
     let pt = if (*pde & 1) != 0 {
         (*pde & 0x000f_ffff_ffff_f000) as *mut u64
     } else {
@@ -229,9 +292,45 @@ pub unsafe fn mmap(pml4: *mut u64, virt: usize, phys: usize, flags: u64) {
         p
     };
 
+    let pt_window: Option<&phys_window::PhysMapWindow> = if paging_has_set {
+        let window =
+            phys_window::create_window(pt as u64, 0b11, true).expect("phys window is available");
+        Some(window)
+    } else {
+        None
+    };
+
+    let pt_virt: *mut u64 = if let Some(window) = pt_window {
+        window.virt as *mut u64
+    } else {
+        pt
+    };
+
     // PTE
-    let pte = pt.add(idx1);
-    *pte = (phys as u64 & 0x000f_ffff_ffff_f000) | flags | 1;
+    let pte = pt_virt.add(idx1);
+    *pte = phys as u64 | flags | 1;
+
+    // clear
+    paging_flush(virt);
+
+    if let Some(window) = pml4_window {
+        window.mark_unreserved();
+    }
+    if let Some(window) = pdpt_window {
+        window.mark_unreserved();
+    }
+    if let Some(window) = pd_window {
+        window.mark_unreserved();
+    }
+    if let Some(window) = pt_window {
+        window.mark_unreserved();
+    }
+}
+
+pub unsafe fn mmap_fill(pml4: *mut u64, virt: usize, phys: usize, len: usize, flags: u64) {
+    for i in 0..len {
+        mmap(pml4, virt + (i * 0x1000), phys + (i * 0x1000), flags);
+    }
 }
 
 pub unsafe fn paging_init_mmap(page: PageT, virt: usize, phys: usize, flags: u64) {

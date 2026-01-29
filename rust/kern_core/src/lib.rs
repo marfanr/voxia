@@ -3,7 +3,7 @@ pub mod cpu;
 pub mod mem;
 
 use crate::cpu::{gdt::gdt_init, interrupt::interrupt_setup, paging};
-use kern_utils::{debug, error, serialfmt};
+use kern_utils::{error, serialfmt};
 
 extern crate alloc;
 
@@ -32,7 +32,7 @@ extern "C" fn rust_init() {
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    error!("KERNEL PANIC!\n");
+    error!("RUST KERNEL PANIC!\n");
     if let Some(location) = info.location() {
         error!("at {}:{} : ", location.file(), location.line());
     }

@@ -10,7 +10,7 @@ test = false
 bench = false
 
 [dependencies]
-"phys_base_allocator" = { path = "../phys_base_allocator", version = "0.1.0" }
+"kern_allocator" = { path = "../kern_allocator", version = "0.1.0" }
 "kern_utils" = { path = "../kern_utils", version = "*" }
 
 [features]
