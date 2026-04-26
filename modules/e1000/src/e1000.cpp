@@ -177,15 +177,15 @@ E1000Module::initReceiverX()
     struct e1000_rx_desc *descs;
 
     uintptr_t paddr;
-    ptr = (uint8_t *)(IOUtils::dma_alloc(sizeof(struct e1000_rx_desc) * E1000_NUM_RX_DESC + 16,
-                                         &paddr));
+    ptr = (uint8_t *)(IOUtils::DMAAlloc(sizeof(struct e1000_rx_desc) * E1000_NUM_RX_DESC + 16,
+                                        &paddr));
 
     descs = (struct e1000_rx_desc *)ptr;
     for (int i = 0; i < E1000_NUM_RX_DESC; i++)
     {
         rx_descs[i] = (struct e1000_rx_desc *)((uintptr_t)descs + i * 16);
         uintptr_t a_paddr;
-        auto      a         = IOUtils::dma_alloc(8192 + 16, &a_paddr);
+        auto      a         = IOUtils::DMAAlloc(8192 + 16, &a_paddr);
         rx_descs[i]->addr   = (uint64_t)(uint8_t *)a_paddr;
         rx_comp[i].paddr    = a_paddr;
         rx_comp[i].addr     = (uint64_t)a;
@@ -219,8 +219,8 @@ E1000Module::initTransmitterX()
     // handle virtual and physical addresses as the addresses passed to the NIC should be physical
     // ones
     uintptr_t paddr;
-    ptr = (uint8_t *)(IOUtils::dma_alloc(sizeof(struct e1000_tx_desc) * E1000_NUM_TX_DESC + 16,
-                                         &paddr));
+    ptr = (uint8_t *)(IOUtils::DMAAlloc(sizeof(struct e1000_tx_desc) * E1000_NUM_TX_DESC + 16,
+                                        &paddr));
 
     descs = (struct e1000_tx_desc *)ptr;
     for (int i = 0; i < E1000_NUM_TX_DESC; i++)
