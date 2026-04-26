@@ -1,0 +1,19 @@
+# Format:
+# subsystem: short summary (<= 72 chars)
+#
+# Body:
+# - What problem?
+# - Why this solution?
+# - Side effects?
+#
+# Example:
+# net: fix race condition in RX path
+#
+# The RX path could overwrite unread data when multiple cores...
+#
+
+subsystem: <short summary>
+
+<detailed explanation why this change is needed>
+
+Signed-off-by: Your Name <your@email.com>
