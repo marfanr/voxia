@@ -1,22 +1,10 @@
----
-Language: Cpp
-IndentWidth: 4
-TabWidth: 4
-UseTab: Never
-ColumnLimit: 100
-BreakBeforeBraces: Allman
-AlignAfterOpenBracket: Align
-AlignConsecutiveAssignments: true
-AlignConsecutiveDeclarations: true
-AlignTrailingComments: true
-IndentCaseLabels: true
-IndentPPDirectives: None
-SpaceBeforeAssignmentOperators: true
+BasedOnStyle: LLVM
+
+UseTab: ForIndentation
+TabWidth: 8
+IndentWidth: 8
+
+BreakBeforeBraces: Attach
 SpaceBeforeParens: ControlStatements
-SpaceAfterCStyleCast: false
-PointerAlignment: Right
-AllowShortFunctionsOnASingleLine: None
-AlwaysBreakAfterReturnType: AllDefinitions
-SortIncludes: true
-MaxEmptyLinesToKeep: 1
-BreakBeforeTernaryOperators: true
+PointerAlignment: Left
+ColumnLimit: 80
