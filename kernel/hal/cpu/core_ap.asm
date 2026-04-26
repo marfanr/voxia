@@ -9,6 +9,7 @@ data: dq 0
 
 jmp cpu_trampoline
 
+; init bertahap 16 bit -> 32 bit -> 64 bit
 cpu_trampoline:
     cli
     xor ax, ax
@@ -16,23 +17,26 @@ cpu_trampoline:
     mov es, ax
     mov ss, ax
     
-    ; Check signature
+    ; cek signature
+    ; memastikan tidak ada corrupt
     mov eax, [signature]
     mov ebx, 0x00EEDDAB
     cmp ebx, eax
     je .signature_ok
+    ; ngehang
     hlt
     jmp $
 
 .signature_ok:
     ; Enable A20 line
+    ; biar bisa pakai ram > 1mb
     in al, 0x92
     or al, 2
     out 0x92, al
 
     lgdt [gdt_descriptor]
 
-    ; Enable protected mode
+    ; Enable protected mode (32bit)
     mov eax, cr0
     or eax, 1
     mov cr0, eax
@@ -47,6 +51,8 @@ core_ap_32:
     mov ss, ax
     mov gs, ax
     mov fs, ax
+
+    ; stack sementara
     mov esp, 0x9F00
 
     ; Set up PAE paging
@@ -73,7 +79,7 @@ core_ap_32:
     jmp 0x08:core_ap_64
 
 
-extern cpu_trampoline_phase_2
+; extern cpu_trampoline_phase_2
 bits 64
 core_ap_64:
     mov ax, 0x10
@@ -88,33 +94,20 @@ core_ap_64:
     mov rsp, rax
     and rsp, ~0xF
 
+    ; respon handshake
+    mov word [rbx + 24], 1
+
     cld
     mov rax, [pml4_addr]
     mov cr3, rax
-
     
     cli
     mov rbx, [data + 0]
     mov rax, [rbx]
+    mov rdi, [rbx + 16]
     call rax 
     jmp $
 
-reloadGDT:     
-    push 0x28
-    lea rax, [rel .reload_cs]
-    push rax
-    retfq
-.reload_cs:
-    mov rax, 0x30
-    mov ds, rax
-    mov es, rax
-    mov fs, rax
-    mov gs, rax
-    mov ss, rax
-    ret
-
-
-; 32-bit GDT
 gdt_start:
     dq 0x0000000000000000    ; Null
     dq 0x00CF9A000000FFFF    ; Code32
@@ -125,7 +118,7 @@ gdt_descriptor:
     dw gdt_end - gdt_start - 1
     dd gdt_start
 
-; 64-bit GDT
+; Dummy GDT 64 bit
 gdt64_start:
     dq 0x0000000000000000    ; Null
     dq 0x00209A0000000000    ; Code64
@@ -134,4 +127,4 @@ gdt64_end:
 
 gdt64_descriptor:
     dw gdt64_end - gdt64_start - 1
-    dd gdt64_start
+    dq gdt64_start

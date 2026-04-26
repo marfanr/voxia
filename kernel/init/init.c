@@ -1,19 +1,17 @@
 #include "init/init.h"
+#include "hal/apic/apic.h"
+#include "hal/cpu/interrupt.h"
 #include "hal/graphic/framebuffer.h"
 #include "hal/graphic/graphic.h"
 #include "init/loader.h"
 #include "libk/serial.h"
 #include "procc/proccess.h"
 #include "procc/thread.h"
-
-// call from rust
-extern void rust_init();
-extern void bitmap_setup(memory_context_t* ctx);
+#include "vfs/enum.h"
+#include "vfs/vnode.h"
+#include <libk/debug/debug.h>
 
 static init_context_t ctx = {};
-extern const char* pMemoryType(uint32_t type);
-extern void framebuffer_setup(framebuffer_t* fb);
-
 void render_bmp32_with_alpha(uint8_t* pixels, int width, int height, int new_w,
                              int new_h, int posx, int posy);
 
@@ -28,18 +26,20 @@ extern void _start(struct stivale2_struct* stivale2_struct) {
 	serial_setup();
 	build_context_from_stivale2(stivale2_struct, &ctx);
 
-	LOG_INFO("INIT", "run all init");
-	// bitmap_setup(&ctx.memory);
-	// framebuffer_setup(&ctx.framebuffer);
-	// rust_init();
-	// bitmap_setup(ctx.memory.memory_entries, size_t size)
-
+	// LOG_INFO("INIT", "run all init");
 	run_all_init_calls(&ctx);
 
+	// for logger
+	// irq_register(0, 0x45, (void*)serial2_flush, true, 0x28, 0,
+	//              INTERRUPT_ATTR_KERNEL);
+	// vxAPICCreateTimer(APIC_TIMER_PERIOD, 5, 0x45);
 
-	// KDEBUG(DEBUG_LEVEL_INFO, "init done \n");
+	// LOG_INFO("INIT", "Hello from serial2_printf! Value: %d, okokok %x\n",
+	//          42, 0x76);
 
-	// // task_initialize();
+	serial2_flush();
+
+	// task_initialize();
 
 	// //  --- will be moved
 	// //

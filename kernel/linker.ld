@@ -14,6 +14,7 @@ PHDRS
 
 SECTIONS
 {
+
     . = 0xffffffff80200000;
 
     .text : {
@@ -32,7 +33,7 @@ SECTIONS
     } :text
 
 
-    /* Move to the next memory page for .rodata */
+    /* adding a space */
     . = . + 0x1000;
 
 
@@ -44,26 +45,57 @@ SECTIONS
         *(.rodata .rodata.*)
     } :rodata
 
-    .initcalls : ALIGN(8) 
+    .init_early : ALIGN(8) 
     {
-        __start_initcalls = .;
-        /* SEQUENCE */
-        KEEP(*(.initcalls.simd))
-        KEEP(*(.initcalls.gdt))
-        KEEP(*(.initcalls.interrupt))
-        KEEP(*(.initcalls.phys_base_allocator))
-        KEEP(*(.initcalls.paging))
-        KEEP(*(.initcalls.vma))
-        KEEP(*(.initcalls.block))
-        KEEP(*(.initcalls.descriptor))
-        KEEP(*(.initcalls.vfs))
-        KEEP(*(.initcalls.initrd))
-        KEEP(*(.initcalls.graphic))
-        KEEP(*(.initcalls.acpi))
-        KEEP(*(.initcalls.apic_timer))
-        /* end sequence */
-        KEEP(*(.initcalls.*))
-        __stop_initcalls = .;
+        __init_early_start = .;
+        /* SEQUENCE MATTER */
+        KEEP(*(.init_early.SIMD))
+        KEEP(*(.init_early.Gdt))
+        KEEP(*(.init_early.Interrupt))
+        KEEP(*(.init_early.phys_base_allocator))
+        KEEP(*(.init_early.paging))
+        KEEP(*(.init_early.vma))
+        KEEP(*(.init_early.Proccess))
+        KEEP(*(.init_early.descriptor))
+        KEEP(*(.init_early.acpi))
+        KEEP(*(.init_early.Timer))
+        KEEP(*(.init_early.Rand))
+        KEEP(*(.init_early.Vnode))
+        KEEP(*(.init_early.VfsCache))
+        KEEP(*(.init_early.Vfs))
+        KEEP(*(.init_early.Dev))
+        KEEP(*(.init_early.Mount))
+        KEEP(*(.init_early.initrd))
+        KEEP(*(.init_early.graphic))
+        KEEP(*(.init_early.ioforge))
+        /* scheduler thread core urutannya jangan terbalik */
+        KEEP(*(.init_early.Scheduler))
+        KEEP(*(.init_early.Thread))
+        KEEP(*(.init_early.Core))
+        KEEP(*(.init_early.Workqueue))
+        KEEP(*(.init_early.KernelReader))
+        KEEP(*(.init_early.ModuleRegister))
+        /*
+        KEEP(*(.init_early.Virtio))
+        KEEP(*(.init_early.ProccessRegister))
+        KEEP(*(.init_early.*))
+        KEEP(*(.init_early.Task))
+        */
+        __init_early_end = .;
+    } :rodata
+
+    .cpu_trampoline : ALIGN(8)
+    {
+        __cpu_trampoline_start = .;
+        KEEP(*(.cpu_trampoline.*))
+        __cpu_trampoline_end = .;
+    } :rodata
+
+    .per_core : ALIGN(8)
+    {
+        __per_core_start = .;
+        KEEP(*(.per_core.*))
+        __per_core_end = .;
     } :rodata
 
     . = . + 0x1000;

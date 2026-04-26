@@ -5,8 +5,9 @@
 #include <libk/type.h>
 #include <libk/vector.h>
 
-void memcopy(void *dest, void *src, size_t size);
-void memset(void *ptr, uint8_t value, size_t num);
+void memcopy(void* dest, void* src, size_t size);
+void* memmove(void* dest, const void* src, size_t n);
+void memset(void* ptr, uint8_t value, size_t num);
 
 /**
  * @brief Menghitung panjang string.
@@ -16,7 +17,7 @@ void memset(void *ptr, uint8_t value, size_t num);
  * @param s Pointer ke string.
  * @return Panjang string.
  */
-size_t strlen(const char *s);
+size_t strlen(const char* s);
 
 /**
  * @brief Membandingkan dua string secara leksikografis hingga n karakter.
@@ -27,12 +28,40 @@ size_t strlen(const char *s);
  * @return Nilai negatif jika s1 < s2, nilai positif jika s1 > s2, dan 0 jika s1
  * = s2.
  */
-int strncmp(const char *s1, const char *s2, size_t n);
+int strncmp(const char* s1, const char* s2, size_t n);
+int strcmp(const char* s1, const char* s2);
+void strcpy(char* dest, const char* src);
+char* strncpy(char* dest, const char* src, size_t n);
+void strcat(char* dest, const char* src);
+const char* strsep(char** str, const char delim);
+char* strchr(const char* s, int c);
+size_t strspn(const char* s, const char* accept);
+size_t strcspn(const char* s, const char* reject);
+char* strtok_r(char* str, const char* delim, char** saveptr);
 
-void strcpy(char *dest, const char *src);
+typedef const char* __str;
+char* rtrim(char* str);
+char* itoa(int value, char* str, int base);
 
-typedef const char *__str;
-define_vector(string);
-void  explode(const char *path, const char delim, vector(string) * out);
-char *rtrim(char *str);
+static inline void explode(const char* path, const char delim,
+                           vector(string) * out) {
+	size_t len = strlen(path);
+	// serial_trace("exploding path len %d \n", len);
+
+	char* buf = (char*)kalloc(len + 1);
+	strcpy(buf, path);
+	buf[len] = 0;
+
+	char* rest = buf;
+	const char* token;
+
+	while ((token = strsep(&rest, delim)) != 0) {
+		// serial_trace("%s \n", rest);
+		if (strlen(token) > 0) {
+			string tmp = str(token);
+			vector_push_back(out, tmp);
+		}
+	}
+	kfree(buf, len + 1);
+}
 #endif // __LIBK__STR_H__

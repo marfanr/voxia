@@ -1,4 +1,5 @@
 #include "hal/cpu/paging.h"
+#include "ioforge/ioforge_pci.h"
 #include "libk/io.h"
 #include "libk/type.h"
 #include "memory/kalloc.h"
@@ -233,7 +234,7 @@ virt_to_phys(void *virt_addr)
 
 // ---------------- PCI Capability Discovery ----------------
 static struct virtio_pci_cap *
-find_virtio_capability(struct IoForgePCI *pci_device, uint8_t cfg_type)
+find_virtio_capability(struct ioforge_pci_service *pci_device, uint8_t cfg_type)
 {
     // Start from capability pointer
     uint8_t cap_ptr = pci_device->capability_ptr;
@@ -630,9 +631,9 @@ virtio_gpu_send_command(struct virtio_gpu_device *dev, void *cmd, uint32_t cmd_s
 int
 virtio_gpu_get_display_info(struct virtio_gpu_device *dev)
 {
-    struct virtio_gpu_ctrl_hdr *cmd = (struct virtio_gpu_ctrl_hdr *)dma_alloc(1);
-    paging_mmap_fill(paging_get_highest_page_map(), (uintptr_t)cmd, (uintptr_t)cmd, 1,
-                     PAGE_PRESENT | PAGE_WRITABLE);
+    struct virtio_gpu_ctrl_hdr *cmd = (struct virtio_gpu_ctrl_hdr *)pDMAalloc(1);
+    vxMultipleMmap(paging_get_highest_page_map(), (uintptr_t)cmd, (uintptr_t)cmd, 1,
+                   PAGE_PRESENT | PAGE_WRITABLE);
 
     cmd->ctx_id   = 0;
     cmd->type     = VIRTIO_GPU_CMD_GET_DISPLAY_INFO;
@@ -640,9 +641,9 @@ virtio_gpu_get_display_info(struct virtio_gpu_device *dev)
     cmd->fence_id = 0;
     cmd->padding  = 0;
 
-    struct virtio_gpu_resp_display_info *resp = (struct virtio_gpu_resp_display_info *)dma_alloc(1);
-    paging_mmap_fill(paging_get_highest_page_map(), (uintptr_t)resp, (uintptr_t)resp, 1,
-                     PAGE_PRESENT | PAGE_WRITABLE);
+    struct virtio_gpu_resp_display_info *resp = (struct virtio_gpu_resp_display_info *)pDMAalloc(1);
+    vxMultipleMmap(paging_get_highest_page_map(), (uintptr_t)resp, (uintptr_t)resp, 1,
+                   PAGE_PRESENT | PAGE_WRITABLE);
 
     memset(resp, 0, sizeof(*resp));
 
@@ -685,9 +686,9 @@ virtio_gpu_create_resource(struct virtio_gpu_device *dev, uint32_t resource_id, 
                            uint32_t height)
 {
     struct virtio_gpu_resource_create_2d *cmd =
-        (struct virtio_gpu_resource_create_2d *)dma_alloc(1);
-    paging_mmap_fill(paging_get_highest_page_map(), (uintptr_t)cmd, (uintptr_t)cmd, 1,
-                     PAGE_PRESENT | PAGE_WRITABLE);
+        (struct virtio_gpu_resource_create_2d *)pDMAalloc(1);
+    vxMultipleMmap(paging_get_highest_page_map(), (uintptr_t)cmd, (uintptr_t)cmd, 1,
+                   PAGE_PRESENT | PAGE_WRITABLE);
     cmd->hdr.type     = VIRTIO_GPU_CMD_RESOURCE_CREATE_2D;
     cmd->hdr.flags    = 0;
     cmd->hdr.fence_id = 0;
@@ -698,9 +699,9 @@ virtio_gpu_create_resource(struct virtio_gpu_device *dev, uint32_t resource_id, 
     cmd->width        = width;
     cmd->height       = height;
 
-    struct virtio_gpu_ctrl_hdr *resp = (struct virtio_gpu_ctrl_hdr *)dma_alloc(1);
-    paging_mmap_fill(paging_get_highest_page_map(), (uintptr_t)resp, (uintptr_t)resp, 1,
-                     PAGE_PRESENT | PAGE_WRITABLE);
+    struct virtio_gpu_ctrl_hdr *resp = (struct virtio_gpu_ctrl_hdr *)pDMAalloc(1);
+    vxMultipleMmap(paging_get_highest_page_map(), (uintptr_t)resp, (uintptr_t)resp, 1,
+                   PAGE_PRESENT | PAGE_WRITABLE);
 
     memset(resp, 0, sizeof(*resp));
 
@@ -723,7 +724,7 @@ virtio_gpu_create_resource(struct virtio_gpu_device *dev, uint32_t resource_id, 
 
 // ---------------- Main Initialization ----------------
 void
-virtio_gpu_init(struct IoForgePCI *pci_device)
+virtio_gpu_init(struct ioforge_pci_service *pci_device)
 {
     memset(&gpu_dev, 0, sizeof(gpu_dev));
 
@@ -757,14 +758,14 @@ virtio_gpu_init(struct IoForgePCI *pci_device)
     uintptr_t common_phys =
         (pci_device->bar[3].address << 32 | (pci_device->bar[2].address & ~0xF)) +
         common_cfg->offset;
-    gpu_dev.common_cfg = (struct virtio_pci_common_cfg *)dma_alloc(1);
+    gpu_dev.common_cfg = (struct virtio_pci_common_cfg *)pDMAalloc(1);
     if (!gpu_dev.common_cfg)
     {
         LOG_ERROR("VIRTIO", "Failed to allocate memory for common config");
         return;
     }
-    paging_mmap_fill(paging_get_highest_page_map(), (uintptr_t)gpu_dev.common_cfg, common_phys,
-                     BLOCK_SIZE, PAGE_PRESENT | PAGE_WRITABLE);
+    vxMultipleMmap(paging_get_highest_page_map(), (uintptr_t)gpu_dev.common_cfg, common_phys,
+                   BLOCK_SIZE, PAGE_PRESENT | PAGE_WRITABLE);
 
     // Map notify region
     uint8_t notify_bar = notify_cfg->bar & 0x7;
@@ -778,14 +779,14 @@ virtio_gpu_init(struct IoForgePCI *pci_device)
         (pci_device->bar[3].address << 32 | (pci_device->bar[2].address & ~0xF)) +
         notify_cfg->offset;
     // uintptr_t notify_phys = pci_device->bar[notify_bar].address + notify_cfg->offset;
-    gpu_dev.notify_base = (volatile uint32_t *)dma_alloc(3);
+    gpu_dev.notify_base = (volatile uint32_t *)pDMAalloc(3);
     if (!gpu_dev.notify_base)
     {
         LOG_ERROR("VIRTIO", "Failed to allocate memory for notify region");
         return;
     }
-    paging_mmap_fill(paging_get_highest_page_map(), (uintptr_t)gpu_dev.notify_base, notify_phys, 3,
-                     PAGE_PRESENT | PAGE_WRITABLE);
+    vxMultipleMmap(paging_get_highest_page_map(), (uintptr_t)gpu_dev.notify_base, notify_phys, 3,
+                   PAGE_PRESENT | PAGE_WRITABLE);
     gpu_dev.notify_multiplier = notify_cfg->length;
 
     // Map ISR region
@@ -801,14 +802,14 @@ virtio_gpu_init(struct IoForgePCI *pci_device)
     uintptr_t isr_phys =
         (pci_device->bar[3].address << 32 | (pci_device->bar[2].address & ~0xF)) + isr_cfg->offset;
     // uintptr_t isr_phys = pci_device->bar[isr_bar].address + isr_cfg->offset;
-    gpu_dev.isr = (volatile uint8_t *)dma_alloc(3);
+    gpu_dev.isr = (volatile uint8_t *)pDMAalloc(3);
     if (!gpu_dev.isr)
     {
         LOG_ERROR("VIRTIO", "Failed to allocate memory for ISR region");
         return;
     }
-    paging_mmap_fill(paging_get_highest_page_map(), (uintptr_t)gpu_dev.isr, isr_phys, 3,
-                     PAGE_PRESENT | PAGE_WRITABLE);
+    vxMultipleMmap(paging_get_highest_page_map(), (uintptr_t)gpu_dev.isr, isr_phys, 3,
+                   PAGE_PRESENT | PAGE_WRITABLE);
 
     paging_reload(paging_get_highest_page_map());
 
@@ -860,10 +861,9 @@ virtio_gpu_init(struct IoForgePCI *pci_device)
                            sizeof(struct virtq_used_elem) * queue_size;
     vq_total_size = ALIGN_UP(vq_total_size, VIRTIO_GPU_QUEUE_ALIGN);
 
-    void *vq_mem = dma_alloc(1 + (vq_total_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
-    paging_mmap_fill(paging_get_highest_page_map(), (uintptr_t)vq_mem, (uintptr_t)vq_mem,
-                     1 + (vq_total_size + BLOCK_SIZE - 1) / BLOCK_SIZE,
-                     PAGE_PRESENT | PAGE_WRITABLE);
+    void *vq_mem = pDMAalloc(1 + (vq_total_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    vxMultipleMmap(paging_get_highest_page_map(), (uintptr_t)vq_mem, (uintptr_t)vq_mem,
+                   1 + (vq_total_size + BLOCK_SIZE - 1) / BLOCK_SIZE, PAGE_PRESENT | PAGE_WRITABLE);
     paging_get_highest_page_map();
     if (!vq_mem)
     {
@@ -907,15 +907,15 @@ virtio_gpu_init(struct IoForgePCI *pci_device)
     LOG_INFO("VIRTIO", "VirtIO GPU initialized successfully");
 
     // Allocate buffers untuk test
-    struct virtio_gpu_ctrl_hdr          *test_cmd = (struct virtio_gpu_ctrl_hdr *)dma_alloc(1);
+    struct virtio_gpu_ctrl_hdr          *test_cmd = (struct virtio_gpu_ctrl_hdr *)pDMAalloc(1);
     struct virtio_gpu_resp_display_info *test_resp =
-        (struct virtio_gpu_resp_display_info *)dma_alloc(1);
+        (struct virtio_gpu_resp_display_info *)pDMAalloc(1);
 
-    paging_mmap_fill(paging_get_highest_page_map(), (uintptr_t)test_cmd, (uintptr_t)test_cmd, 1,
-                     PAGE_PRESENT | PAGE_WRITABLE);
+    vxMultipleMmap(paging_get_highest_page_map(), (uintptr_t)test_cmd, (uintptr_t)test_cmd, 1,
+                   PAGE_PRESENT | PAGE_WRITABLE);
 
-    paging_mmap_fill(paging_get_highest_page_map(), (uintptr_t)test_resp, (uintptr_t)test_resp, 1,
-                     PAGE_PRESENT | PAGE_WRITABLE);
+    vxMultipleMmap(paging_get_highest_page_map(), (uintptr_t)test_resp, (uintptr_t)test_resp, 1,
+                   PAGE_PRESENT | PAGE_WRITABLE);
 
     paging_reload(paging_get_highest_page_map());
 

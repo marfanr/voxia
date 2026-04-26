@@ -1,4 +1,5 @@
 #include "console.h"
+#include "hal/cpu/spinlock.h"
 #include <hal/graphic/graphic.h>
 #include <libk/serial.h>
 #include <libk/type.h>
@@ -6,6 +7,8 @@
 static int      pos_x   = 0;
 static int      pos_y   = 0;
 static uint32_t fgcolor = 0xFFEFFF;
+
+static spinlock_t console_lock;
 
 int
 console_get_pos_x()
@@ -22,6 +25,7 @@ console_get_pos_y()
 void
 console_println(const char *str)
 {
+    spin_acquire(&console_lock);
     // serial_send_number(pos_y, 10);
     while (*str != '\0')
     {
@@ -30,11 +34,13 @@ console_println(const char *str)
     }
     pos_y += 1;
     pos_x = 0;
+    spin_release(&console_lock);
 }
 
 void
 console_print(const char *str, uint64_t len)
 {
+    spin_acquire(&console_lock);
     for (uint64_t i = 0; i < len; i++)
     {
         if (str[i] == '\n')
@@ -46,6 +52,7 @@ console_print(const char *str, uint64_t len)
         // putc(str[i], pos_x, pos_y, fgcolor, FB_COLOR_BLACK);
         pos_x += 1;
     }
+    spin_release(&console_lock);
 }
 
 // convert number to string
@@ -82,6 +89,7 @@ val_to_str(uint64_t val, int base)
 void
 console_printf(const char *fmt, ...)
 {
+    spin_acquire(&console_lock);
     __builtin_va_list args;
     __builtin_va_start(args, fmt);
     while (*fmt != '\0')
@@ -103,7 +111,7 @@ console_printf(const char *fmt, ...)
                     char *str = __builtin_va_arg(args, char *);
                     while (*str != '\0')
                     {
-                        // putc(*str, pos_x, pos_y, fgcolor, FB_COLOR_BLACK);
+                        vxPutc(*str, pos_x, pos_y, fgcolor, BLACK);
                         str++;
                         pos_x += 1;
                     }
@@ -115,7 +123,7 @@ console_printf(const char *fmt, ...)
                     char *str = val_to_str(num, 10);
                     while (*str != '\0')
                     {
-                        // putc(*str++, pos_x, pos_y, fgcolor, FB_COLOR_BLACK);
+                        vxPutc(*str++, pos_x, pos_y, fgcolor, BLACK);
                         pos_x += 1;
                     }
                     break;
@@ -126,7 +134,7 @@ console_printf(const char *fmt, ...)
                     char *str = val_to_str(num, 2);
                     while (*str != '\0')
                     {
-                        // putc(*str++, pos_x, pos_y, fgcolor, FB_COLOR_BLACK);
+                        vxPutc(*str++, pos_x, pos_y, fgcolor, BLACK);
                         pos_x += 1;
                     }
                     break;
@@ -136,18 +144,20 @@ console_printf(const char *fmt, ...)
         }
         else
         {
-            // putc(*fmt, pos_x, pos_y, fgcolor, FB_COLOR_BLACK);
+            vxPutc(*fmt, pos_x, pos_y, fgcolor, BLACK);
             pos_x += 1;
         }
         fmt++;
     }
 
     __builtin_va_end(args);
+    spin_release(&console_lock);
 }
 
 void
 console_vaprintf(const char *fmt, __builtin_va_list args)
 {
+    spin_acquire(&console_lock);
     while (*fmt != '\0')
     {
         if (*fmt == '\n')
@@ -172,7 +182,7 @@ console_vaprintf(const char *fmt, __builtin_va_list args)
                     char *str = __builtin_va_arg(args, char *);
                     while (*str != '\0')
                     {
-                        putc(*str, pos_x, pos_y, fgcolor, BLACK);
+                        vxPutc(*str, pos_x, pos_y, fgcolor, BLACK);
                         str++;
                         pos_x += 1;
                     }
@@ -184,7 +194,7 @@ console_vaprintf(const char *fmt, __builtin_va_list args)
                     char *str = val_to_str(num, 10);
                     while (*str != '\0')
                     {
-                        putc(*str++, pos_x, pos_y, fgcolor, BLACK);
+                        vxPutc(*str++, pos_x, pos_y, fgcolor, BLACK);
                         pos_x += 1;
                     }
                     break;
@@ -195,7 +205,7 @@ console_vaprintf(const char *fmt, __builtin_va_list args)
                     char    *str = val_to_str(num, 16);
                     while (*str != '\0')
                     {
-                        putc(*str, pos_x, pos_y, fgcolor, BLACK);
+                        vxPutc(*str, pos_x, pos_y, fgcolor, BLACK);
                         pos_x += 1;
                         str++;
                     }
@@ -207,7 +217,7 @@ console_vaprintf(const char *fmt, __builtin_va_list args)
                     char *str = val_to_str(num, 2);
                     while (*str != '\0')
                     {
-                        putc(*str++, pos_x, pos_y, fgcolor, BLACK);
+                        vxPutc(*str++, pos_x, pos_y, fgcolor, BLACK);
                         pos_x += 1;
                     }
                     break;
@@ -216,11 +226,12 @@ console_vaprintf(const char *fmt, __builtin_va_list args)
         }
         else
         {
-            putc(*fmt, pos_x, pos_y, fgcolor, BLACK);
+            vxPutc(*fmt, pos_x, pos_y, fgcolor, BLACK);
             pos_x += 1;
         }
         fmt++;
     }
+    spin_release(&console_lock);
 }
 
 void

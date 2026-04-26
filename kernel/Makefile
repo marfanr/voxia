@@ -1,9 +1,10 @@
 C_FILES := $(shell find . -type f -name '*.c')
-S_FILES := $(shell find . -type f -name '*.asm')
+S_FILES := $(shell find . -type f -name '*.asm' ! -path './hal/cpu/core_ap.asm')
 DFILES  := $(C_FILES:.c=.d)
 FONT_OBJ := ../resources/fonts/default.o 
 OBJ := $(C_FILES:.c=.o) $(S_FILES:.asm=_asm.o)
 KERNEL := ../build/kernel.elf
+ROOT?=../
 
 # Verbosity control
 V ?= 0
@@ -21,7 +22,7 @@ CFLAGS := -Wall -Wextra -O0 -pipe -ggdb -g \
 					-mno-80387 -mno-3dnow \
 					-mfpmath=sse -msse -msse2  -mmmx \
 					-mno-red-zone \
-					-I . -nostdlib -nostartfiles \
+					-I . -I ../include -nostdlib -nostartfiles -I $(ROOT)/generated \
 					-nodefaultlibs -nostdinc -fno-builtin \
 			-mcmodel=kernel -Wdeprecated-declarations -fvisibility=hidden 
 
@@ -29,12 +30,18 @@ LDFLAGS := -nostdlib -static \
 					 -z max-page-size=0x1000 \
 					 -T linker.ld --no-dynamic-linker
 
-RUST_KERNEL := ../rust/target/x86_64-unknown-none/release/libkernel.a
+# RUST_KERNEL := ../rust/target/x86_64-unknown-none/release/libkernel.a
 
 .PHONY: all
 all: $(OBJ)
 	$(E) "  LD     $(notdir $(KERNEL))"
-	$(Q)ld.lld $(LDFLAGS) $(OBJ) -o $(KERNEL)
+	nasm -f bin ./hal/cpu/core_ap.asm -o ./hal/cpu/core_ap.bin
+	objcopy --input-target=binary \
+        --output-target=elf64-x86-64 \
+        --binary-architecture=i386 \
+        hal/cpu/core_ap.bin hal/cpu/core_ap.o
+	rm -f hal/cpu/core_ap.bin
+	ld $(LDFLAGS) $(OBJ) hal/cpu/core_ap.o -o $(KERNEL)
 	objdump -t $(KERNEL) | grep '\.export' | awk '{print $$6}' > keep.txt
 	objcopy --strip-unneeded --keep-symbols=keep.txt  $(KERNEL) $(KERNEL)
 # 	nm -S --defined-only $(KERNEL) | grep '\.export' >> keep.txt

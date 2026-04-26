@@ -1,5 +1,5 @@
-#ifndef __LIBK__TYPE_H__
-#define __LIBK__TYPE_H__
+#ifndef __TYPE_H__
+#define __TYPE_H__
 
 #ifdef __UINT8_TYPE__
 typedef __UINT8_TYPE__ uint8_t;
@@ -74,10 +74,10 @@ typedef unsigned long uintptr_t;
 #endif
 
 #define NULL 0
+#define nullptr 0
 
-typedef struct
-{
-    int counter;
+typedef struct {
+	int counter;
 } atomic_t;
 
 // boolean
@@ -89,6 +89,7 @@ typedef __BOOL_TYPE__ boolean_t;
 typedef uint8_t boolean_t;
 #endif
 
-#define KERNEL_API __attribute__((used, visibility("default"), section(".export")))
+#define KERNEL_API                                                             \
+	__attribute__((used, visibility("default"), section(".export")))
 
-#endif // __LIBK__TYPE_H__
+#endif // __TYPE_H__

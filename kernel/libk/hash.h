@@ -3,15 +3,21 @@
 
 #include "libk/type.h"
 
-static unsigned long
+static uint64_t
 hash(const char *str, size_t max_size)
 {
-    unsigned long hash = 3141592653L;
+    uint64_t hash = 0xcbf29ce484222325ULL;
 
     size_t i = 0;
     while (*str)
     {
-        hash = (((i++ + hash) << i) + (hash << 8 * i)) + (*str++ >> 8 * i);
+        hash *= 0xa0761d6478bd642fULL;
+        hash ^= hash >> 32;
+        hash *= 0x9e3779b97f4a7c15ULL;
+        hash ^= hash >> 32;
+        hash *= 0x9e3779b97f4a7c15ULL;
+        hash ^= hash >> 32;
+        hash ^= *str++;
     }
     if (max_size == 0)
         return hash;

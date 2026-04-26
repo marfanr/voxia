@@ -218,7 +218,7 @@ paging_setup(page_t pml4)
 
     for (uint64_t i = 0; i < 0x80000000; i += 0x1000)
     {
-        vxMmap(pml4, (uint64_t)i + 0xffffffff80000000, i, 0b11);
+    vxMmap(pml4, (uint64_t)i + 0xffffffff80000000, i, 0b11);
     }
 
     for (int i = 0; i < mapping_data_count; i++)

@@ -23,7 +23,7 @@ typedef struct
     uintptr_t        kernel_raw_addr;
     size_t           kernel_raw_size;
 } init_context_t;
-
+    
 typedef void (*initcall_t)(init_context_t *ctx);
 
 #define INIT(fn)                                                                                   \

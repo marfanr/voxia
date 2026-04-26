@@ -22,7 +22,7 @@ void
 task_add(char *name, uintptr_t entry, task_state_t state, task_priority_t priority,
          page_t page_root, uintptr_t stack, struct program_paramater param)
 {
-    struct task *task = (struct task *)phys_base_alloc(1);
+    struct task *task = (struct task *)vxPhysBaseAlloc(1);
     serial_trace("task address : 0x%x\n", task);
     task->name      = name;
     task->state     = state;
@@ -76,5 +76,5 @@ task_free(int pid)
     prev->next = current->next;
 
     // TODO: freeing memory has been allocated for loading
-    phys_base_free(current, 1);
+    vxPhysBaseFree(current, 1);
 }

@@ -9,7 +9,7 @@ jump_usermode:
     mov gs, ax               
 
     ; Set up stack frame untuk IRET    
-    mov rsp, rsi
+    ; mov rax, rsi
     mov rax, rsp       ; Alamat stack user (pre-allocated) 
     push (0x40) | 3           ; Ring 3 data segment selector
     push rax                  ; ESP (stack pointer untuk user mode)

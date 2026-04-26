@@ -1,224 +1,197 @@
-#include "initrd.h"
-#include "hal/block/block.h"
-#include "hal/cpu/paging.h"
-#include "init/init.h"
-#include "libk/type.h"
-#include "libk/vector.h"
-#include "memory/kalloc.h"
-#include "memory/memory_utils.h"
-#include "memory/phys_base_allocator.h"
-#include "vfs/dentry.h"
-#include "vfs/filesystem.h"
-#include <libk/fs/tar.h>
+// Copyright (c) 2025 Mohammad Arfan
 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+#include "initrd.h"
+#include "hal/cpu/paging.h"
+#include "hal/cpu/spinlock.h"
+#include "init/init.h"
+#include "libk/oct2bin.h"
+#include "libk/vector.h"
+
+#include "vfs/dentry.h"
+#include "vfs/enum.h"
+#include "vfs/filesystem.h"
+#include <vfs/vfs.h>
+#include <vfs/vnode.h>
+
+#include <libk/fs/tar.h>
 #include <libk/serial.h>
 #include <libk/str.h>
+
 #include <memory/kalloc.h>
+#include <memory/memory_utils.h>
+#include <memory/phys_base_allocator.h>
 #include <memory/slab.h>
 #include <memory/vm_manager.h>
+
 #include <sys/descriptor.h>
-#include <vfs/vfs.h>
+
+struct initrd_internal_data {
+	uint64_t raw_addr;
+	uintptr_t virt_addr;
+	size_t size;
+	spinlock_t lock;
+};
+
+struct initrd_internal_vnode_data {
+	uint64_t offset;
+};
+struct slab_cache* initrd_internal_vnode_data_cache = 0;
 
 // local use
-static initrd_module_t *initrd_module = 0;
+static struct initrd_internal_data __initrd_data;
 
-static int
-initrd_oct2bin(unsigned char *str, int len)
-{
-    int            n = 0;
-    unsigned char *c = str;
-    while (len-- > 0)
-    {
-        n *= 8;
-        n += *c - '0';
-        c++;
-    }
-    return n;
+static void LoadIntoVfs(dentry_ptr dentry);
+filesystem_t* initrd_fs_impl();
+
+INIT(initrd) {
+	initrd_module_t* initrd_module = &ctx->initrd_module;
+	uint64_t paddr = VIRT2PHYS(initrd_module->start);
+	uint64_t paddr_alligned = (uint64_t)(paddr & ~(BLOCK_SIZE - 1));
+	uint64_t offset = paddr - paddr_alligned;
+	uint64_t page_count =
+	    (initrd_module->size + offset + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
+	vxMultipleMmap(paging_get_highest_page_map(), 0xFFFFE00000000000,
+	               paddr_alligned, page_count, 0b111);
+	paging_reload(paging_get_highest_page_map());
+	__initrd_data.virt_addr = 0xFFFFE00000000000 + offset;
+
+	LOG_INFO("INITRD", "paddr 0x%x aligned to 0x%x off 0x%x", paddr, paddr,
+	         paddr_alligned - paddr);
+
+	LOG_INFO("INITRD",
+	         "initrd module found at 0x%x (size %d kb), alligned to %d kb",
+	         __initrd_data.virt_addr, initrd_module->size / 1024,
+	         page_count * BLOCK_SIZE / 1024);
+
+	__initrd_data.raw_addr = initrd_module->start;
+	__initrd_data.size = initrd_module->size;
+
+	// We dont need to create a cdev cause initrd already on memory
+	// create init directory
+	vxCreateFilesystem("initfs", initrd_fs_impl());
+	dentry_ptr init_dentry = 0;
+	{
+		vxNamei("/init", &init_dentry);
+		auto inode = vxCreateAndAttachVnode();
+		init_dentry->vnode = inode;
+		vector_push_back(&inode->dentry_list, init_dentry);
+		vxMakeDirectory(vxGetRootDirectory(), init_dentry, 440);
+		LOG_DEBUG("INITRD", "entry name %s", init_dentry->name->c_str);
+	}
+
+	LoadIntoVfs(init_dentry);
+
+	LOG_INFO("INITRD", "initrd registered");
 }
 
-// /**
-//  * @brief load file from initrd
-//  *
-//  * @param module initrd module
-//  * @param name file name
-//  * @return char* file data
-//  */
-// char *
-// initrd_load(initrd_module_t module, const char *name)
-// {
-//     uint8_t   *addr   = (uint8_t *)module.start;
-//     TarHeader *header = (TarHeader *)addr;
+int initrd_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
+	auto data = (struct initrd_internal_vnode_data*)vnode->private;
+	if (!data)
+		return -1;
 
-//     if (strncmp(name, "/", 1) == 0)
-//     {
-//         name++;
-//     }
-
-//     while (strncmp(header->ustar, "ustar", 5) == 0)
-//     {
-//         int size = initrd_oct2bin(header->size, 11);
-//         if (strncmp(header->filename, name, sizeof(name)) == 0)
-//         {
-//             serial_trace("\nfile %s found\n", header->filename);
-//             if (header->typeflag == '5')
-//             { // directory
-//                 uint8_t *subaddr = addr + 512;
-//                 header           = (TarHeader *)subaddr;
-//                 serial_trace("file %s loaded from subdir\n", header->filename);
-//                 // continue;
-//                 char *out = subaddr + 512;
-//                 return out;
-//             }
-
-//             header    = (TarHeader *)addr;
-//             char *out = addr + 512;
-//             serial_trace("file %s loaded\n", header->filename);
-//             serial_trace("file size : %d\n", size);
-//             serial_trace("file gid : 0x%x\n", initrd_oct2bin(header->gid, 8));
-//             return out;
-//         }
-//         addr += (((size + 511) / 512) + 1) * 512;
-//         header = (TarHeader *)addr;
-//     }
-//     return 0;
-// }`
-
-INIT(initrd)
-{
-    initrd_module = &ctx->initrd_module;
-    paging_mmap_fill(paging_get_highest_page_map(), 0xFFFFD00000000000,
-                     VIRT2PHYS(initrd_module->start), initrd_module->size / BLOCK_SIZE, 0b111);
-    initrd_module->start = 0xFFFFD00000000000;
-    LOG_INFO("INITRD", "initrd module found at 0x%x", initrd_module->start);
-
-    // registering initrd
-    block_register_device("/block/initrd", initrd_block_impl(), 0);
-    filesystem_register("initrd", initrd_fs_impl());
-    vfs_mount("/dev/initrd", "/block/initrd", "initrd");
-    LOG_INFO("INITRD", "initrd registered");
+	auto off = data->offset;
+	uint8_t* addr = (uint8_t*)__initrd_data.virt_addr + off + offset;
+	memcopy(buf, addr, len);
+	return len;
 }
 
-static uint8_t *
-initrd_block_read(uint64_t offset, size_t _count)
-{
-    // we dont need copy the whole file, just return the address
-    // because the initrd is read-only
-    uint8_t *addr = (uint8_t *)(initrd_module->start + offset);
-    return addr;
+void LoadIntoVfs(dentry_ptr dentry) {
+	uint8_t* addr = (uint8_t*)__initrd_data.virt_addr;
+	TarHeader* header = (TarHeader*)addr;
+
+	vops_file_t* initrd_file_ops =
+	    (vops_file_t*)kalloc(sizeof(vops_file_t));
+	initrd_file_ops->read = initrd_read;
+
+	uint64_t offset = 0;
+	while (strncmp(header->ustar, "ustar", 5) == 0) {
+		int size = oct2bin((unsigned char*)header->size, 11);
+		auto root = dentry->name->c_str;
+
+		dentry_ptr last_dentry = 0;
+		if (vxResolveDentry(header->filename, dentry, &last_dentry,
+		                    CREATE_MISSING_ENTRY) != VFS_OK) {
+			LOG_ERROR("VFS", "failed create dentry for %s",
+			          header->filename);
+		}
+
+		// if dentry was successfuly created
+		if (last_dentry) {
+			auto vnode = vxCreateAndAttachVnode();
+			vxAttachDentryToVnode(last_dentry, vnode);
+			vnode->permission =
+			    oct2bin((unsigned char*)header->mode, 8);
+			vnode->size = size;
+			vnode->ops = (vops_file_t*)initrd_file_ops;
+
+			switch (header->typeflag) {
+			case '5':
+				vnode->type = VNODE_TYPE_DIR;
+				break;
+			case '0':
+				vnode->type = VNODE_TYPE_FILE;
+				struct initrd_internal_vnode_data* data =
+				    (struct initrd_internal_vnode_data*)kalloc(
+				        sizeof(
+				            struct initrd_internal_vnode_data));
+				data->offset = offset + 512;
+				vnode->private = (void*)data;
+				break;
+			default:
+			}
+
+			// LOG_DEBUG("INITRD", "entry name %s vnode type %d",
+			//           last_dentry->name->c_str, vnode->type);
+		}
+
+		// LOG_DEBUG("INITRD", "file name %s/%s, size : %d", root,
+		//   header->filename, size);
+
+		offset += 512 + ((size + 511) & ~511);
+		header = (TarHeader*)((uint8_t*)addr + offset);
+	}
 }
 
-int
-initrd_block_write(uint64_t offset, size_t count, uint8_t *data)
-{
-    return BLOCK_OPT_NOT_IMPLEMENTED;
+filesystem_t* initrd_fs_impl() {
+	filesystem_t* fs = (filesystem_t*)kalloc(sizeof(filesystem_t));
+	fs->ops = (fs_operations_t*)kalloc(sizeof(fs_operations_t));
+	return fs;
 }
 
-open_response_code
-initrd_block_open(fmode_t mode)
-{
-    return OPEN_SUCCESS;
-}
+// JANGAN dihapus dulu buat contoh saat implement real fs nanti
+// int initrdOpenImpl(void* vdata, int op_mode, thread_t* thread) {
+// 	auto internal_data = (struct initrd_internal_data*)vdata;
 
-block_device_operations_t *
-initrd_block_impl()
-{
+// 	// TODO: check user who access
+// 	if (thread) {
+// 		// TODO: check permission
+// 		auto uuid = thread->uuid;
+// 	}
+// 	spin_acquire(&internal_data->lock);
+// 	return DEV_OK;
+// }
 
-    block_device_operations_t *ops =
-        (block_device_operations_t *)kalloc(sizeof(block_device_operations_t));
-    ops->read = initrd_block_read;
-    ops->open = initrd_block_open;
-    // ops->write = initrd_block_write;
-    return ops;
-}
-
-int
-initrd_lookup(vfs_inode_t *dir, dentry_ptr dentry)
-{
-    // ini tidk diperlukan karena semua file sudah di inde dari awal
-    return 0;
-}
-
-void
-initrd_mount(vfs_inode_t *inode, dentry_ptr dentry)
-{
-    block_device *dev    = inode->block;
-    uint64_t      offset = 0;
-    uint8_t      *addr   = (uint8_t *)dev->ops->read(offset, 0);
-    TarHeader    *header = (TarHeader *)addr;
-
-    // serial_trace("header at 0x%x\n", header);
-
-    while (strncmp(header->ustar, "ustar", 5) == 0)
-    {
-        dentry_ptr curr_entry = dentry;
-
-        size_t l = strlen(header->filename);
-        if (header->filename[l - 1] == '\n')
-            l--;
-
-        int size = initrd_oct2bin(header->size, 11);
-        // serial_trace("file name %s, size : %d\n", header->filename, size);
-
-        // exploding path
-        vector(string) exploded_path = {0};
-        vector_init(&exploded_path);
-        explode(header->filename, '/', &exploded_path);
-
-        for (size_t i = 0; i < exploded_path.size; i++)
-        {
-            // serial_trace("      path %d = %s \n", i, exploded_path.data[i]->c_str);
-
-            boolean_t found = false;
-            for (size_t j = 0; j < curr_entry->children.size; j++)
-            {
-                dentry_t *child = curr_entry->children.data[j];
-
-                if (stringcmp(child->name, exploded_path.data[i]))
-                {
-                    curr_entry = child;
-                    found      = true;
-                    break;
-                }
-            }
-
-            if (!found)
-            {
-                vfs_inode_t *child_inode = vfs_create_inode(inode->fs);
-                child_inode->block       = dev;
-                // child_inode->is_directory = true;
-
-                // if (i == exploded_path.size - 1)
-                // {
-                child_inode->is_directory = header->typeflag == '5';
-                child_inode->permission   = initrd_oct2bin(header->mode, 8);
-                child_inode->size         = size;
-                child_inode->offset       = offset + 512;
-                child_inode->block->bar   = (uintptr_t)initrd_module->start;
-                // child_inode->
-                // }
-
-                dentry_ptr new_entry =
-                    create_directory_entry(exploded_path.data[i], child_inode, curr_entry);
-                curr_entry = new_entry;
-                // serial_trace("      | created new entry\n");
-            }
-        }
-
-        vector_destroy(&exploded_path);
-
-        offset += (((size + 511) / 512) + 1) * 512;
-        header = (TarHeader *)dev->ops->read(offset, 0);
-    }
-}
-
-filesystem_t *
-initrd_fs_impl()
-{
-    filesystem_t *fs = (filesystem_t *)kalloc(sizeof(filesystem_t));
-    strcpy((char *)fs->name, "initrd");
-    fs->ops         = (vfs_operations_t *)kalloc(sizeof(vfs_operations_t));
-    fs->ops->lookup = initrd_lookup;
-    fs->ops->mount  = initrd_mount;
-
-    return fs;
-}
+// int initrdCloseImpl(void* data) {
+// 	auto internal_data = (struct initrd_internal_data*)data;
+// 	spin_release(&internal_data->lock);
+// 	return DEV_OK;
+// }
