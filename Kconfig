@@ -1,0 +1,88 @@
+menu "General Configuration"
+
+config VERSION
+    string "Voxia version"
+    default "0.1.0"
+
+config LOG_VERBOSE
+    bool "Enable verbose logging"
+    default y
+
+endmenu
+
+menu "Memory Configuration"
+
+config PHYS_MAX_WINDOW_COUNT
+    int "Maximum physical window count"
+    default 8
+    range 1 256
+
+config PAGING_MAX_MAPPED_DATA_COUNT
+    int "Maximum mapped data count for paging"
+    default 512
+    range 1 65536
+
+endmenu
+
+menu "Thread Configuration"
+
+config MAX_CORE
+    int "Maximum number of cores"
+    default 8
+    range 1 64
+
+config MAX_NUMBER_THREAD
+    int "Maximum number of threads"
+    default 65536
+    range 1 131072
+
+config THREAD_MAX_BLOB
+    int "Maximum thread blob size"
+    default 4096
+    range 1 65536
+
+endmenu
+
+menu "Scheduler Configuration"
+config MAX_SCHEDULER_TIME_MS
+    int "Maximum scheduler time in ms"
+    default 100
+    range 1 10000
+
+config MAX_WORKQUEUE_EACH_CORE
+    int "Maximum workqueue per core"
+    default 256
+    range 1 1024
+
+endmenu
+
+menu "Voxmo Configuration"
+config DEFAULT_VOXMO_PATH
+    string "Default Voxmo path"
+    default "/dev/initrd/modules/"
+
+endmenu
+
+menu "Initrd Configuration"
+config  INITRD_MOUNT_PATH
+    string "Initrd mount path"
+    default "/dev/initrd"
+
+endmenu
+
+menu "VFS Configuration"
+config VFS_CACHE_BLOB_SIZE
+    int "VFS cache blob size"
+    default 4096
+    range 1 65536
+
+config VFS_CACHE_TTL_MS
+    int "VFS cache TTL in ms"
+    default 5000
+    range 1 60000
+
+endmenu
+
+# menu "Kernel Modules"
+# config EHCI
+# endmenu
