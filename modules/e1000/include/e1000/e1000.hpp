@@ -42,6 +42,9 @@ class E1000Module : public IOforgePCI {
 	void unload() override;
 	int sendPacket(const void* data, size_t len);
 	int receivePacket(void** buffer, size_t* size);
+	inline void setNIC(struct ioforge_nic_service* nic) {
+		this->nic = nic;
+	}
 
 	boolean_t detectEeprom();
 	uint32_t readEeprom(uint32_t addr);

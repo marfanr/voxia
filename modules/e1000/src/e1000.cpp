@@ -318,13 +318,12 @@ void E1000Module::linkup() {
 }
 
 void E1000Module::fireHandler() {
-	log("E1000 IRQ", "msuk");
 	E1000Module* module = E1000Module::getInstance();
-	// log("E1000 IRQ", "module at 0x%x", module);
 	if (!module)
 		return;
 	uint32_t status = module->read(0xc0);
-	log("E100 IRQ", "status 0x%x", status);
+	// log("E100 IRQ", "status 0x%x", status);
+
 	if (status & 0x04) {
 		log("E100 IRQ", "link up");
 		module->linkup();
@@ -332,7 +331,7 @@ void E1000Module::fireHandler() {
 		log("E100 IRQ", "good threshold");
 		// good threshold
 	} else if (status & 0x80) {
-		log("E100 IRQ", "receive");
+		// log("E100 IRQ", "receive");
 		module->receiveHandle();
 	} else {
 		log("E100 IRQ", "unknown");
@@ -342,10 +341,6 @@ void E1000Module::fireHandler() {
 void E1000Module::receiveHandle() {
 	uint16_t old_cur;
 	got_packet = false;
-
-	if (!nic) {
-		nic = IOforgeNICFindByName((char*) mod);
-	}
 
 	while ((rx_descs[rx_cur]->status & 0x1)) {
 		got_packet = true;
@@ -362,6 +357,7 @@ void E1000Module::receiveHandle() {
 			.data = (uint8_t*) rx_comp[rx_cur].addr,
 			.len = latest_packet_size,
 		};
+
 		// send back to kernel
 		IOForgeNICRx(nic, &packet);
 
@@ -371,6 +367,7 @@ void E1000Module::receiveHandle() {
 		old_cur = rx_cur;
 		rx_cur = (rx_cur + 1) % E1000_NUM_RX_DESC;
 		write(REG_RXDESCTAIL, old_cur);
+		write(REG_RDTR, rx_cur);
 	}
 }
 
