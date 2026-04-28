@@ -1,4 +1,3 @@
-TARGET      := libioforge.so
 SRC_DIR     := src
 BUILD_DIR   := build
 INCLUDE_DIR := ./include
@@ -19,7 +18,7 @@ CXXFLAGS := -Wall -Wextra -O2 -pipe \
     -mno-red-zone -std=c++20 -ggdb -g -fPIC \
     -I$(LIB_INCLUDE_DIR) -I$(INCLUDE_DIR)
 
-LDFLAGS := -shared -m elf_x86_64 -e module_init -L $(ROOT)/library/ioforge -l ioforge
+LDFLAGS := -shared -m elf_x86_64
 
 # cari semua file cpp secara rekursif
 SRCS := $(shell find $(SRC_DIR) -type f -name '*.cpp')

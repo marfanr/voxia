@@ -1,4 +1,6 @@
 #include "e1000/e1000.hpp"
+#include "type.h"
+#include <cstdint>
 
 #define IO_ADDR_OFFSET 0x0
 #define IO_DATA_OFFSET 0x4
@@ -14,6 +16,11 @@
 #define REG_RXDESCLEN 0x2808
 #define REG_RXDESCHEAD 0x2810
 #define REG_RXDESCTAIL 0x2818
+
+#define IMS_RXT0 (1 << 7)
+#define IMS_RXO (1 << 6)
+#define IMS_RXDMT0 (1 << 4)
+#define IMS_LSC (1 << 2)
 
 #define REG_TCTRL 0x0400
 #define REG_TXDESCLO 0x3800
@@ -85,276 +92,283 @@
 #define TSTA_LC (1 << 2) // Late Collision
 #define LSTA_TU (1 << 3) // Transmit Underrun
 
-void
-E1000Module::write(uint16_t p_address, uint32_t p_value)
-{
-    (*((volatile uint32_t *)(device->bar[0].address + p_address))) = p_value;
+static struct e1000_rx_desc* rx_descs[E1000_NUM_RX_DESC];
+static struct e1000_rx_comp rx_comp[E1000_NUM_RX_DESC];
+static struct e1000_tx_desc* tx_descs[E1000_NUM_TX_DESC];
+
+static volatile int setup_tx_done = 0;
+
+void E1000Module::write(uint16_t p_address, uint32_t p_value) {
+	volatile uint32_t* addr =
+	    (volatile uint32_t*)(device->bar[0].address + p_address);
+	*addr = p_value;
 }
 
-uint32_t
-E1000Module::read(uint16_t p_address)
-{
-    return *((volatile uint32_t *)(device->bar[0].address + p_address));
+uint32_t E1000Module::read(uint16_t p_address) {
+	return *((volatile uint32_t*)(device->bar[0].address + p_address));
 }
 
-boolean_t
-E1000Module::detectEeprom()
-{
-    uint32_t val = 0;
-    write(REG_EEPROM, 0x1);
+boolean_t E1000Module::detectEeprom() {
+	uint32_t val = 0;
+	write(REG_EEPROM, 0x1);
 
-    for (int i = 0; i < 1000 && !eerprom_exists; i++)
-    {
-        val = read(REG_EEPROM);
-        if (val & 0x10)
-            eerprom_exists = true;
-        else
-            eerprom_exists = false;
-    }
-    return eerprom_exists;
+	for (int i = 0; i < 1000 && !eerprom_exists; i++) {
+		val = read(REG_EEPROM);
+		// if (val & 0x10)
+		if (val & 0b10)
+			eerprom_exists = true;
+		else
+			eerprom_exists = false;
+	}
+	return eerprom_exists;
 }
 
-uint32_t
-E1000Module::readEeprom(uint32_t addr)
-{
-    uint16_t data = 0;
-    uint32_t tmp  = 0;
-    if (eerprom_exists)
-    {
-        write(REG_EEPROM, (1) | ((uint32_t)(addr) << 8));
-        while (!((tmp = read(REG_EEPROM)) & (1 << 4)))
-            ;
-    }
-    else
-    {
-        write(REG_EEPROM, (1) | ((uint32_t)(addr) << 2));
-        while (!((tmp = read(REG_EEPROM)) & (1 << 1)))
-            ;
-    }
-    data = (uint16_t)((tmp >> 16) & 0xFFFF);
-    return data;
+uint32_t E1000Module::readEeprom(uint32_t addr) {
+	uint16_t data = 0;
+	uint32_t tmp = 0;
+	if (eerprom_exists) {
+		write(REG_EEPROM, (1) | ((uint32_t)(addr) << 8));
+		while (!((tmp = read(REG_EEPROM)) & (1 << 4)))
+			;
+	} else {
+		write(REG_EEPROM, (1) | ((uint32_t)(addr) << 2));
+		while (!((tmp = read(REG_EEPROM)) & (1 << 1)))
+			;
+	}
+	data = (uint16_t)((tmp >> 16) & 0xFFFF);
+	return data;
 }
 
-boolean_t
-E1000Module::syncMacAddress()
-{
-    if (eerprom_exists)
-    {
-        uint32_t temp;
-        temp        = readEeprom(0);
-        mac_addr[0] = temp & 0xff;
-        mac_addr[1] = temp >> 8;
-        temp        = readEeprom(1);
-        mac_addr[2] = temp & 0xff;
-        mac_addr[3] = temp >> 8;
-        temp        = readEeprom(2);
-        mac_addr[4] = temp & 0xff;
-        mac_addr[5] = temp >> 8;
-    }
-    // todo: get from mmbar isnt eeprom existed
-    return false;
+static const char hexmap[] = "0123456789ABCDEF";
+
+boolean_t E1000Module::syncMacAddress() {
+	// TODO: detect eeprom dulu
+
+	uint32_t ral = read(0x5400);
+	uint32_t rah = read(0x5404);
+
+	// Cek bit Address Valid (Bit 31) di RAH
+	// Jika hardware mendukung AV bit, pastikan bit tersebut menyala
+	if ((rah & 0x80000000) == 0 && ral == 0) {
+		log("E1000", "MAC Address tidak valid (AV bit 0) atau kosong!");
+		return false;
+	}
+
+	// Masking rah dengan 0xFFFF untuk membuang bit status seperti AV
+	// agar tidak ikut masuk ke perhitungan MAC
+	mac_addr[0] = ral & 0xFF;
+	mac_addr[1] = (ral >> 8) & 0xFF;
+	mac_addr[2] = (ral >> 16) & 0xFF;
+	mac_addr[3] = (ral >> 24) & 0xFF;
+	mac_addr[4] = (rah & 0xFFFF) & 0xFF;
+	mac_addr[5] = ((rah & 0xFFFF) >> 8) & 0xFF;
+
+	char outc[18] = {0};
+	uint8_t* out = (uint8_t*)outc;
+	for (int i = 0; i < 6; i++) {
+		uint8_t byte = mac_addr[i];
+		*out++ = hexmap[(byte >> 4) & 0x0F]; // nibble tinggi
+		*out++ = hexmap[byte & 0x0F];        // nibble rendah
+		if (i != 5)
+			*out++ = ':'; // tambahkan pemisah
+	}
+	*out = '\0';
+	log("E1000", "MAC terbaca dari MMIO: %s", outc);
+	return true;
 }
 
-void
-E1000Module::enableInterrupt()
-{
-    write(REG_IMASK, 0x1F6DC);
-    write(REG_IMASK, 0xff & ~4);
-    read(0xc0);
-}
-void
-E1000Module::disableInterrupt()
-{
-    write(REG_IMASK, 0x1F6DC);
-    write(REG_IMASK, 0xff);
-    read(0xc0);
+void E1000Module::enableInterrupt() {
+	write(REG_IMASK, IMS_RXT0 | IMS_RXDMT0 | IMS_RXO | IMS_LSC);
+	read(0x00C0); // flush ICR
 }
 
-void
-E1000Module::initReceiverX()
-{
-    uint8_t              *ptr;
-    struct e1000_rx_desc *descs;
-
-    uintptr_t paddr;
-    ptr = (uint8_t *)(IOUtils::DMAAlloc(sizeof(struct e1000_rx_desc) * E1000_NUM_RX_DESC + 16,
-                                        &paddr));
-
-    descs = (struct e1000_rx_desc *)ptr;
-    for (int i = 0; i < E1000_NUM_RX_DESC; i++)
-    {
-        rx_descs[i] = (struct e1000_rx_desc *)((uintptr_t)descs + i * 16);
-        uintptr_t a_paddr;
-        auto      a         = IOUtils::DMAAlloc(8192 + 16, &a_paddr);
-        rx_descs[i]->addr   = (uint64_t)(uint8_t *)a_paddr;
-        rx_comp[i].paddr    = a_paddr;
-        rx_comp[i].addr     = (uint64_t)a;
-        rx_descs[i]->status = 0;
-    }
-
-    write(REG_TXDESCLO, (uint32_t)((uint64_t)paddr >> 32));
-    write(REG_TXDESCHI, (uint32_t)((uint64_t)paddr & 0xFFFFFFFF));
-
-    write(REG_RXDESCLO, (uint64_t)paddr);
-    write(REG_RXDESCHI, 0);
-
-    write(REG_RXDESCLEN, E1000_NUM_RX_DESC * 16);
-
-    write(REG_RXDESCHEAD, 0);
-    write(REG_RXDESCTAIL, E1000_NUM_RX_DESC - 1);
-    rx_cur = 0;
-    write(REG_RCTRL, RCTL_EN | RCTL_SBP | RCTL_UPE | RCTL_MPE | RCTL_LBM_NONE | RTCL_RDMTS_HALF |
-                         RCTL_BAM | RCTL_SECRC | RCTL_BSIZE_8192);
-
-    log(mod, "Receiver initialized");
+void E1000Module::disableInterrupt() {
+	write(REG_IMASK, 0x1F6DC);
+	write(REG_IMASK, 0xff);
+	read(0xc0);
 }
 
-void
-E1000Module::initTransmitterX()
-{
-    uint8_t              *ptr;
-    struct e1000_tx_desc *descs;
-    // Allocate buffer for receive descriptors. For simplicity, in my case khmalloc returns a
-    // virtual address that is identical to it physical mapped address. In your case you should
-    // handle virtual and physical addresses as the addresses passed to the NIC should be physical
-    // ones
-    uintptr_t paddr;
-    ptr = (uint8_t *)(IOUtils::DMAAlloc(sizeof(struct e1000_tx_desc) * E1000_NUM_TX_DESC + 16,
-                                        &paddr));
+void E1000Module::initReceiverX() {
+	uint8_t* ptr;
+	struct e1000_rx_desc* descs;
 
-    descs = (struct e1000_tx_desc *)ptr;
-    for (int i = 0; i < E1000_NUM_TX_DESC; i++)
-    {
-        tx_descs[i]         = (struct e1000_tx_desc *)((uint8_t *)descs + i * 16);
-        tx_descs[i]->addr   = 0;
-        tx_descs[i]->cmd    = 0;
-        tx_descs[i]->status = TSTA_DD;
-    }
+	uintptr_t paddr;
+	ptr = (uint8_t*)(IOUtils::DMAAlloc(
+	    sizeof(struct e1000_rx_desc) * E1000_NUM_RX_DESC + 16, &paddr));
 
-    write(REG_TXDESCHI, (uint32_t)((uint64_t)paddr >> 32));
-    write(REG_TXDESCLO, (uint32_t)((uint64_t)paddr & 0xFFFFFFFF));
+	descs = (struct e1000_rx_desc*)ptr;
+	for (int i = 0; i < E1000_NUM_RX_DESC; i++) {
+		rx_descs[i] =
+		    (struct e1000_rx_desc*)((uintptr_t)descs + i * 16);
+		uintptr_t a_paddr;
+		auto a = IOUtils::DMAAlloc(2048 + 16, &a_paddr);
+		rx_descs[i]->addr = (uint64_t)a_paddr;
+		rx_comp[i].paddr = a_paddr;
+		rx_comp[i].addr = (uint64_t)a;
+		rx_descs[i]->status = 0;
+	}
 
-    // now setup total length of descriptors
-    write(REG_TXDESCLEN, E1000_NUM_TX_DESC * 16);
+	write(REG_RXDESCLO, (uint32_t)((uint64_t)paddr & 0xFFFFFFFF)); // low
+	write(REG_RXDESCHI, (uint32_t)((uint64_t)paddr >> 32));        // high
 
-    // setup numbers
-    write(REG_TXDESCHEAD, 0);
-    write(REG_TXDESCTAIL, 0);
-    tx_cur = 0;
-    write(REG_TCTRL,
-          TCTL_EN | TCTL_PSP | (15 << TCTL_CT_SHIFT) | (64 << TCTL_COLD_SHIFT) | TCTL_RTLC);
+	write(REG_RXDESCLEN, E1000_NUM_RX_DESC * 16);
 
-    // This line of code overrides the one before it but I left both to highlight that the previous
-    // one works with e1000 cards, but for the e1000e cards you should set the TCTRL register as
-    // follows. For detailed description of each bit, please refer to the Intel Manual. In the case
-    // of I217 and 82577LM packets will not be sent if the TCTRL is not configured using the
-    // following bits.
-    write(REG_TCTRL, 0b0110000000000111111000011111010);
-    write(REG_TIPG, 0x0060200A);
+	write(REG_RXDESCHEAD, 0);
+	write(REG_RXDESCTAIL, E1000_NUM_RX_DESC - 1);
+
+	rx_cur = 0;
+
+	write(REG_RCTRL, RCTL_EN | RCTL_BAM | RCTL_SECRC | RCTL_BSIZE_2048);
+	write(REG_RXDCTL, (1 << 25) | 1);
+	write(REG_RDTR, 0);
+	write(REG_RADV, 0);
+
+	log(mod, "Receiver initialized");
 }
 
-int
-E1000Module::sendPacket(const void *data, size_t len)
-{
-    tx_descs[tx_cur]->addr   = (uint64_t)data;
-    tx_descs[tx_cur]->length = len;
-    tx_descs[tx_cur]->cmd    = CMD_EOP | CMD_IFCS | CMD_RS;
-    tx_descs[tx_cur]->status = 0;
-    uint8_t old_cur          = tx_cur;
-    tx_cur                   = (tx_cur + 1) % E1000_NUM_TX_DESC;
-    write(REG_TXDESCTAIL, tx_cur);
+void E1000Module::initTransmitterX() {
+	struct e1000_tx_desc* descs;
 
-    bool success = 0;
-    for (int i = 0; i < 3; i++)
-    {
-        if (tx_descs[old_cur]->status & 0xff)
-        {
-            success = true;
-            break;
-        }
-        IOUtils::sleep(1000000);
-    }
-    return success;
+	uintptr_t paddr = 0;
+	uintptr_t ptr = (uintptr_t)(IOUtils::DMAAlloc(
+	    sizeof(struct e1000_tx_desc) * E1000_NUM_TX_DESC + 16, &paddr));
+	log("E1000", "tx_desc addr 0x%x (0x%x)", paddr, ptr);
+
+	descs = (struct e1000_tx_desc*)ptr;
+	serial2_printf("descs at 0x%x\n", descs);
+	for (int i = 0; i < E1000_NUM_TX_DESC; i++) {
+		tx_descs[i] = (struct e1000_tx_desc*)&descs[i];
+		serial2_printf("init tx descs % at 0x%x\n", i, tx_descs[i]);
+		tx_descs[i]->addr = 0;
+		tx_descs[i]->cmd = 0;
+		tx_descs[i]->status = TSTA_DD;
+	}
+
+	write(REG_TXDESCHI, (uint32_t)((uint64_t)paddr >> 32));
+	write(REG_TXDESCLO, (uint32_t)((uint64_t)paddr & 0xFFFFFFFF));
+
+	// now setup total length of descriptors
+	write(REG_TXDESCLEN, E1000_NUM_TX_DESC * 16);
+
+	// setup numbers
+	write(REG_TXDESCHEAD, 0);
+	write(REG_TXDESCTAIL, 0);
+	tx_cur = 0;
+	write(REG_TCTRL, TCTL_EN | TCTL_PSP | (15 << TCTL_CT_SHIFT) |
+	                     (64 << TCTL_COLD_SHIFT) | TCTL_RTLC);
+
+	// This line of code overrides the one before it but I left both to
+	// highlight that the previous
+	// one works with e1000 cards, but for the e1000e cards you should set
+	// the TCTRL register as
+	// follows. For detailed description of each bit, please refer to the
+	// Intel Manual. In the case
+	// of I217 and 82577LM packets will not be sent if the TCTRL is not
+	// configured using the
+	// following bits.
+	write(REG_TCTRL, 0b0110000000000111111000011111010);
+	write(REG_TIPG, 0x0060200A);
+
+	__atomic_store_n(&setup_tx_done, 1, __ATOMIC_RELEASE);
+	log(mod, "Transmitter initialized");
 }
 
-void
-E1000Module::linkup()
-{
-    uint32_t val = read(REG_CTRL);
-    write(REG_CTRL, val | ECTRL_SLU | 2);
+int E1000Module::sendPacket(const void* data, size_t len) {
+	int setup_done = __atomic_load_n(&setup_tx_done, __ATOMIC_ACQUIRE);
+	if (setup_done == 0) {
+		serial2_printf("wait tx setup done..\n");
+		while (!__atomic_load_n(&setup_tx_done, __ATOMIC_ACQUIRE)) {
+			// optional: pause / cpu_relax
+		}
+	}
+	tx_descs[tx_cur]->addr = (uint64_t)data;
+	tx_descs[tx_cur]->length = len;
+	tx_descs[tx_cur]->cmd = CMD_EOP | CMD_IFCS | CMD_RS;
+	tx_descs[tx_cur]->status = 0;
+	uint8_t old_cur = tx_cur;
+	tx_cur = (tx_cur + 1) % E1000_NUM_TX_DESC;
+	write(REG_TXDESCTAIL, tx_cur);
+
+	bool success = 0;
+	for (int i = 0; i < 3; i++) {
+		if (tx_descs[old_cur]->status & 0xff) {
+			success = true;
+			break;
+		}
+		IOUtils::sleep(1000000);
+	}
+
+	return success;
 }
 
-void
-E1000Module::fireHandler()
-{
-    // log("E1000 IRQ", "msuk");
-    E1000Module *module = E1000Module::getInstance();
-    // log("E1000 IRQ", "module at 0x%x", module);
-    if (!module)
-        return;
-    uint32_t status = module->read(0xc0);
-    log("E100 IRQ", "status 0x%x", status);
-    if (status & 0x04)
-    {
-        log("E100 IRQ", "link up");
-        module->linkup();
-    }
-    else if (status & 0x10)
-    {
-        log("E100 IRQ", "good threshold");
-        // good threshold
-    }
-    else if (status & 0x80)
-    {
-        log("E100 IRQ", "receive");
-        module->receiveHandle();
-    }
-    else
-    {
-        log("E100 IRQ", "unknown");
-    }
+void E1000Module::linkup() {
+	// uint32_t val = read(REG_CTRL);
+	// write(REG_CTRL, val | ECTRL_SLU | 2);
+
+	uint32_t val = read(REG_CTRL);
+
+	// val |= (1 << 6); // SLU (Set Link Up)
+	val |= (1 << 6); // SLU
+	val |= (1 << 5); // ASDE (auto speed detect enable)
+	val |= (1 << 3); // FD (full duplex)
+
+	write(REG_CTRL, val);
 }
 
-void
-E1000Module::receiveHandle()
-{
-    uint16_t old_cur;
-    got_packet = false;
-
-    while ((rx_descs[rx_cur]->status & 0x1))
-    {
-        got_packet = true;
-        // latest_packet_buffer = (uint8_t *)rx_comp[rx_cur].addr;
-        // latest_packet_size   = rx_descs[rx_cur]->length;
-        // rx_descs[rx_cur]->status = 0;
-        old_cur = rx_cur;
-        rx_cur  = (rx_cur + 1) % E1000_NUM_RX_DESC;
-        write(REG_RXDESCTAIL, old_cur);
-    }
+void E1000Module::fireHandler() {
+	log("E1000 IRQ", "msuk");
+	E1000Module* module = E1000Module::getInstance();
+	// log("E1000 IRQ", "module at 0x%x", module);
+	if (!module)
+		return;
+	uint32_t status = module->read(0xc0);
+	log("E100 IRQ", "status 0x%x", status);
+	if (status & 0x04) {
+		log("E100 IRQ", "link up");
+		module->linkup();
+	} else if (status & 0x10) {
+		log("E100 IRQ", "good threshold");
+		// good threshold
+	} else if (status & 0x80) {
+		log("E100 IRQ", "receive");
+		module->receiveHandle();
+	} else {
+		log("E100 IRQ", "unknown");
+	}
 }
 
-int
-E1000Module::receivePacket(void **buffer, size_t *size)
-{
-    if (!(rx_descs[last_readed_rx_cur]->status & 0x1))
-    {
-        return 0;
-    }
+void E1000Module::receiveHandle() {
+	uint16_t old_cur;
+	got_packet = false;
 
-    *buffer = (void *)rx_comp[last_readed_rx_cur].addr;
-    *size   = rx_descs[last_readed_rx_cur]->length;
-
-    rx_descs[last_readed_rx_cur]->status = 0;
-    last_readed_rx_cur++;
-
-    return 1;
+	while ((rx_descs[rx_cur]->status & 0x1)) {
+		got_packet = true;
+		// latest_packet_buffer = (uint8_t *)rx_comp[rx_cur].addr;
+		// latest_packet_size   = rx_descs[rx_cur]->length;
+		// rx_descs[rx_cur]->status = 0;
+		old_cur = rx_cur;
+		rx_cur = (rx_cur + 1) % E1000_NUM_RX_DESC;
+		write(REG_RXDESCTAIL, old_cur);
+	}
 }
 
-int
-E1000Module::getMacAddress(uint8_t mac[6])
-{
-    for (int i = 0; i < 6; i++)
-        mac[i] = mac_addr[i];
+int E1000Module::receivePacket(void** buffer, size_t* size) {
+	if (!(rx_descs[last_readed_rx_cur]->status & 0x1)) {
+		return 0;
+	}
 
-    return 1;
+	*buffer = (void*)rx_comp[last_readed_rx_cur].addr;
+	*size = rx_descs[last_readed_rx_cur]->length;
+
+	rx_descs[last_readed_rx_cur]->status = 0;
+	last_readed_rx_cur++;
+
+	return 1;
+}
+
+int E1000Module::getMacAddress(uint8_t mac[6]) {
+	for (int i = 0; i < 6; i++)
+		mac[i] = mac_addr[i];
+
+	return 1;
 }
