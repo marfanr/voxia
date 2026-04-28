@@ -1,6 +1,7 @@
 #ifndef __USB_HID__HID_HPP__
 #define __USB_HID__HID_HPP__
 
+#include "ioforge/ioforge_nic.h"
 #include "ioforge/ioforge_pci.hpp"
 #include "type.h"
 
@@ -67,6 +68,7 @@ class E1000Module : public IOforgePCI {
 	// receive packet
 	bool got_packet = false;
 	int last_readed_rx_cur = 0;
+	ioforge_nic_service* nic = 0;
 };
 
 #endif //__USB_HID__HID_HPP__

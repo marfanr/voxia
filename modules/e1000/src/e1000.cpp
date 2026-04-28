@@ -1,6 +1,9 @@
 #include "e1000/e1000.hpp"
+#include "ioforge/ioforge.h"
+#include "ioforge/ioforge_nic.h"
 #include "type.h"
 #include <cstdint>
+#include <cstring>
 
 #define IO_ADDR_OFFSET 0x0
 #define IO_DATA_OFFSET 0x4
@@ -29,35 +32,35 @@
 #define REG_TXDESCHEAD 0x3810
 #define REG_TXDESCTAIL 0x3818
 
-#define REG_RDTR 0x2820   // RX Delay Timer Register
+#define REG_RDTR 0x2820	  // RX Delay Timer Register
 #define REG_RXDCTL 0x2828 // RX Descriptor Control
-#define REG_RADV 0x282C   // RX Int. Absolute Delay Timer
+#define REG_RADV 0x282C	  // RX Int. Absolute Delay Timer
 #define REG_RSRPD 0x2C00  // RX Small Packet Detect Interrupt
 
 #define REG_TIPG 0x0410 // Transmit Inter Packet Gap
-#define ECTRL_SLU 0x40  // set link up
+#define ECTRL_SLU 0x40	// set link up
 
-#define RCTL_EN (1 << 1)            // Receiver Enable
-#define RCTL_SBP (1 << 2)           // Store Bad Packets
-#define RCTL_UPE (1 << 3)           // Unicast Promiscuous Enabled
-#define RCTL_MPE (1 << 4)           // Multicast Promiscuous Enabled
-#define RCTL_LPE (1 << 5)           // Long Packet Reception Enable
-#define RCTL_LBM_NONE (0 << 6)      // No Loopback
-#define RCTL_LBM_PHY (3 << 6)       // PHY or external SerDesc loopback
+#define RCTL_EN (1 << 1)	    // Receiver Enable
+#define RCTL_SBP (1 << 2)	    // Store Bad Packets
+#define RCTL_UPE (1 << 3)	    // Unicast Promiscuous Enabled
+#define RCTL_MPE (1 << 4)	    // Multicast Promiscuous Enabled
+#define RCTL_LPE (1 << 5)	    // Long Packet Reception Enable
+#define RCTL_LBM_NONE (0 << 6)	    // No Loopback
+#define RCTL_LBM_PHY (3 << 6)	    // PHY or external SerDesc loopback
 #define RTCL_RDMTS_HALF (0 << 8)    // Free Buffer Threshold is 1/2 of RDLEN
 #define RTCL_RDMTS_QUARTER (1 << 8) // Free Buffer Threshold is 1/4 of RDLEN
 #define RTCL_RDMTS_EIGHTH (2 << 8)  // Free Buffer Threshold is 1/8 of RDLEN
-#define RCTL_MO_36 (0 << 12)        // Multicast Offset - bits 47:36
-#define RCTL_MO_35 (1 << 12)        // Multicast Offset - bits 46:35
-#define RCTL_MO_34 (2 << 12)        // Multicast Offset - bits 45:34
-#define RCTL_MO_32 (3 << 12)        // Multicast Offset - bits 43:32
-#define RCTL_BAM (1 << 15)          // Broadcast Accept Mode
-#define RCTL_VFE (1 << 18)          // VLAN Filter Enable
-#define RCTL_CFIEN (1 << 19)        // Canonical Form Indicator Enable
-#define RCTL_CFI (1 << 20)          // Canonical Form Indicator Bit Value
-#define RCTL_DPF (1 << 22)          // Discard Pause Frames
-#define RCTL_PMCF (1 << 23)         // Pass MAC Control Frames
-#define RCTL_SECRC (1 << 26)        // Strip Ethernet CRC
+#define RCTL_MO_36 (0 << 12)	    // Multicast Offset - bits 47:36
+#define RCTL_MO_35 (1 << 12)	    // Multicast Offset - bits 46:35
+#define RCTL_MO_34 (2 << 12)	    // Multicast Offset - bits 45:34
+#define RCTL_MO_32 (3 << 12)	    // Multicast Offset - bits 43:32
+#define RCTL_BAM (1 << 15)	    // Broadcast Accept Mode
+#define RCTL_VFE (1 << 18)	    // VLAN Filter Enable
+#define RCTL_CFIEN (1 << 19)	    // Canonical Form Indicator Enable
+#define RCTL_CFI (1 << 20)	    // Canonical Form Indicator Bit Value
+#define RCTL_DPF (1 << 22)	    // Discard Pause Frames
+#define RCTL_PMCF (1 << 23)	    // Pass MAC Control Frames
+#define RCTL_SECRC (1 << 26)	    // Strip Ethernet CRC
 
 // Buffer Sizes
 #define RCTL_BSIZE_256 (3 << 16)
@@ -72,8 +75,8 @@
 
 #define CMD_EOP (1 << 0)  // End of Packet
 #define CMD_IFCS (1 << 1) // Insert FCS
-#define CMD_IC (1 << 2)   // Insert Checksum
-#define CMD_RS (1 << 3)   // Report Status
+#define CMD_IC (1 << 2)	  // Insert Checksum
+#define CMD_RS (1 << 3)	  // Report Status
 #define CMD_RPS (1 << 4)  // Report Packet Sent
 #define CMD_VLE (1 << 6)  // VLAN Packet Enable
 #define CMD_IDE (1 << 7)  // Interrupt Delay Enable
@@ -82,7 +85,7 @@
 
 #define TCTL_EN (1 << 1)      // Transmit Enable
 #define TCTL_PSP (1 << 3)     // Pad Short Packets
-#define TCTL_CT_SHIFT 4       // Collision Threshold
+#define TCTL_CT_SHIFT 4	      // Collision Threshold
 #define TCTL_COLD_SHIFT 12    // Collision Distance
 #define TCTL_SWXOFF (1 << 22) // Software XOFF Transmission
 #define TCTL_RTLC (1 << 24)   // Re-transmit on Late Collision
@@ -100,12 +103,12 @@ static volatile int setup_tx_done = 0;
 
 void E1000Module::write(uint16_t p_address, uint32_t p_value) {
 	volatile uint32_t* addr =
-	    (volatile uint32_t*)(device->bar[0].address + p_address);
+		(volatile uint32_t*) (device->bar[0].address + p_address);
 	*addr = p_value;
 }
 
 uint32_t E1000Module::read(uint16_t p_address) {
-	return *((volatile uint32_t*)(device->bar[0].address + p_address));
+	return *((volatile uint32_t*) (device->bar[0].address + p_address));
 }
 
 boolean_t E1000Module::detectEeprom() {
@@ -127,15 +130,15 @@ uint32_t E1000Module::readEeprom(uint32_t addr) {
 	uint16_t data = 0;
 	uint32_t tmp = 0;
 	if (eerprom_exists) {
-		write(REG_EEPROM, (1) | ((uint32_t)(addr) << 8));
+		write(REG_EEPROM, (1) | ((uint32_t) (addr) << 8));
 		while (!((tmp = read(REG_EEPROM)) & (1 << 4)))
 			;
 	} else {
-		write(REG_EEPROM, (1) | ((uint32_t)(addr) << 2));
+		write(REG_EEPROM, (1) | ((uint32_t) (addr) << 2));
 		while (!((tmp = read(REG_EEPROM)) & (1 << 1)))
 			;
 	}
-	data = (uint16_t)((tmp >> 16) & 0xFFFF);
+	data = (uint16_t) ((tmp >> 16) & 0xFFFF);
 	return data;
 }
 
@@ -164,11 +167,11 @@ boolean_t E1000Module::syncMacAddress() {
 	mac_addr[5] = ((rah & 0xFFFF) >> 8) & 0xFF;
 
 	char outc[18] = {0};
-	uint8_t* out = (uint8_t*)outc;
+	uint8_t* out = (uint8_t*) outc;
 	for (int i = 0; i < 6; i++) {
 		uint8_t byte = mac_addr[i];
 		*out++ = hexmap[(byte >> 4) & 0x0F]; // nibble tinggi
-		*out++ = hexmap[byte & 0x0F];        // nibble rendah
+		*out++ = hexmap[byte & 0x0F];	     // nibble rendah
 		if (i != 5)
 			*out++ = ':'; // tambahkan pemisah
 	}
@@ -193,23 +196,23 @@ void E1000Module::initReceiverX() {
 	struct e1000_rx_desc* descs;
 
 	uintptr_t paddr;
-	ptr = (uint8_t*)(IOUtils::DMAAlloc(
-	    sizeof(struct e1000_rx_desc) * E1000_NUM_RX_DESC + 16, &paddr));
+	ptr = (uint8_t*) (IOUtils::DMAAlloc(
+		sizeof(struct e1000_rx_desc) * E1000_NUM_RX_DESC + 16, &paddr));
 
-	descs = (struct e1000_rx_desc*)ptr;
+	descs = (struct e1000_rx_desc*) ptr;
 	for (int i = 0; i < E1000_NUM_RX_DESC; i++) {
 		rx_descs[i] =
-		    (struct e1000_rx_desc*)((uintptr_t)descs + i * 16);
+			(struct e1000_rx_desc*) ((uintptr_t) descs + i * 16);
 		uintptr_t a_paddr;
 		auto a = IOUtils::DMAAlloc(2048 + 16, &a_paddr);
-		rx_descs[i]->addr = (uint64_t)a_paddr;
+		rx_descs[i]->addr = (uint64_t) a_paddr;
 		rx_comp[i].paddr = a_paddr;
-		rx_comp[i].addr = (uint64_t)a;
+		rx_comp[i].addr = (uint64_t) a;
 		rx_descs[i]->status = 0;
 	}
 
-	write(REG_RXDESCLO, (uint32_t)((uint64_t)paddr & 0xFFFFFFFF)); // low
-	write(REG_RXDESCHI, (uint32_t)((uint64_t)paddr >> 32));        // high
+	write(REG_RXDESCLO, (uint32_t) ((uint64_t) paddr & 0xFFFFFFFF)); // low
+	write(REG_RXDESCHI, (uint32_t) ((uint64_t) paddr >> 32));	 // high
 
 	write(REG_RXDESCLEN, E1000_NUM_RX_DESC * 16);
 
@@ -230,22 +233,21 @@ void E1000Module::initTransmitterX() {
 	struct e1000_tx_desc* descs;
 
 	uintptr_t paddr = 0;
-	uintptr_t ptr = (uintptr_t)(IOUtils::DMAAlloc(
-	    sizeof(struct e1000_tx_desc) * E1000_NUM_TX_DESC + 16, &paddr));
+	uintptr_t ptr = (uintptr_t) (IOUtils::DMAAlloc(
+		sizeof(struct e1000_tx_desc) * E1000_NUM_TX_DESC + 16, &paddr));
 	log("E1000", "tx_desc addr 0x%x (0x%x)", paddr, ptr);
 
-	descs = (struct e1000_tx_desc*)ptr;
+	descs = (struct e1000_tx_desc*) ptr;
 	serial2_printf("descs at 0x%x\n", descs);
 	for (int i = 0; i < E1000_NUM_TX_DESC; i++) {
-		tx_descs[i] = (struct e1000_tx_desc*)&descs[i];
-		serial2_printf("init tx descs % at 0x%x\n", i, tx_descs[i]);
+		tx_descs[i] = (struct e1000_tx_desc*) &descs[i];
 		tx_descs[i]->addr = 0;
 		tx_descs[i]->cmd = 0;
 		tx_descs[i]->status = TSTA_DD;
 	}
 
-	write(REG_TXDESCHI, (uint32_t)((uint64_t)paddr >> 32));
-	write(REG_TXDESCLO, (uint32_t)((uint64_t)paddr & 0xFFFFFFFF));
+	write(REG_TXDESCHI, (uint32_t) ((uint64_t) paddr >> 32));
+	write(REG_TXDESCLO, (uint32_t) ((uint64_t) paddr & 0xFFFFFFFF));
 
 	// now setup total length of descriptors
 	write(REG_TXDESCLEN, E1000_NUM_TX_DESC * 16);
@@ -254,8 +256,8 @@ void E1000Module::initTransmitterX() {
 	write(REG_TXDESCHEAD, 0);
 	write(REG_TXDESCTAIL, 0);
 	tx_cur = 0;
-	write(REG_TCTRL, TCTL_EN | TCTL_PSP | (15 << TCTL_CT_SHIFT) |
-	                     (64 << TCTL_COLD_SHIFT) | TCTL_RTLC);
+	write(REG_TCTRL, TCTL_EN | TCTL_PSP | (15 << TCTL_CT_SHIFT)
+				 | (64 << TCTL_COLD_SHIFT) | TCTL_RTLC);
 
 	// This line of code overrides the one before it but I left both to
 	// highlight that the previous
@@ -281,7 +283,7 @@ int E1000Module::sendPacket(const void* data, size_t len) {
 			// optional: pause / cpu_relax
 		}
 	}
-	tx_descs[tx_cur]->addr = (uint64_t)data;
+	tx_descs[tx_cur]->addr = (uint64_t) data;
 	tx_descs[tx_cur]->length = len;
 	tx_descs[tx_cur]->cmd = CMD_EOP | CMD_IFCS | CMD_RS;
 	tx_descs[tx_cur]->status = 0;
@@ -341,11 +343,31 @@ void E1000Module::receiveHandle() {
 	uint16_t old_cur;
 	got_packet = false;
 
+	if (!nic) {
+		nic = IOforgeNICFindByName((char*) mod);
+	}
+
 	while ((rx_descs[rx_cur]->status & 0x1)) {
 		got_packet = true;
-		// latest_packet_buffer = (uint8_t *)rx_comp[rx_cur].addr;
-		// latest_packet_size   = rx_descs[rx_cur]->length;
-		// rx_descs[rx_cur]->status = 0;
+
+		// auto latest_packet_buffer = (uint8_t*) rx_comp[rx_cur].addr;
+		// for (int i = 0; i < 112; i++) {
+		// 	serial2_printf("0x%x ", latest_packet_buffer[i]);
+		// }
+
+		// serial2_printf("\n package size (%d)\n", latest_packet_size);
+
+		auto latest_packet_size = rx_descs[rx_cur]->length;
+		kpacket_t packet = {
+			.data = (uint8_t*) rx_comp[rx_cur].addr,
+			.len = latest_packet_size,
+		};
+		// send back to kernel
+		IOForgeNICRx(nic, &packet);
+
+		// next tail
+		rx_descs[rx_cur]->status = 0;
+
 		old_cur = rx_cur;
 		rx_cur = (rx_cur + 1) % E1000_NUM_RX_DESC;
 		write(REG_RXDESCTAIL, old_cur);
@@ -357,7 +379,7 @@ int E1000Module::receivePacket(void** buffer, size_t* size) {
 		return 0;
 	}
 
-	*buffer = (void*)rx_comp[last_readed_rx_cur].addr;
+	*buffer = (void*) rx_comp[last_readed_rx_cur].addr;
 	*size = rx_descs[last_readed_rx_cur]->length;
 
 	rx_descs[last_readed_rx_cur]->status = 0;
