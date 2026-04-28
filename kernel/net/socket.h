@@ -1,14 +1,68 @@
 #ifndef __NET__SOCKET_H__
 #define __NET__SOCKET_H__
 
-typedef struct
-{
-    int   domain;
-    int   type;
-    int   protocol;
-    void *private_data;
-} socket_t;
+#include "ioforge/ioforge_nic.h"
+#include <type.h>
 
-void socket(int domain, int type, int protocol, socket_t *socket);
+/* Socket General */
+typedef struct sockaddr {
+	uint16_t sa_family;
+	uint8_t sa_data[14];
+} sockaddr_t;
+
+/* Raw / packet socket: bind ke NIC + EtherType */
+typedef struct sockaddr_ll {
+	uint16_t sll_family;   /* AF_RAW atau AF_PACKET */
+	uint16_t sll_protocol; /* EtherType (host byte order) */
+	uint8_t sll_nic_id;    /* NIC id (0..MAX_NICS-1), 0xff = semua NIC */
+	uint8_t sll_mac[NIC_MAC_LEN];
+	uint8_t _pad;
+} sockaddr_ll_t;
+
+/* IPv4 socket address */
+typedef struct sockaddr_in {
+	uint16_t sin_family; /* AF_INET */
+	uint16_t sin_port;   /* port dalam network byte order */
+	uint32_t sin_addr;   /* IP dalam network byte order   */
+	uint8_t _pad[8];
+} sockaddr_in_t;
+
+typedef struct socket socket_t;
+typedef struct socket_ops {
+	int (*recv)(socket_t* socket, void** buffer, size_t* size);
+	int (*bind)(socket_t* socket, sockaddr_in_t* addr, uint32_t len);
+	int (*set_sockopt)(socket_t* socket, uint32_t level, uint32_t optname,
+			   const void* optval, uint32_t optlen);
+} socket_ops_t;
+
+typedef enum {
+	AF_RAW = 0,	/* raw Ethernet frame (L2)                */
+	AF_INET = 2,	/* IPv4 (TCP/UDP — diimplementasi di atas) */
+	AF_INET6 = 10,	/* IPv6                                    */
+	AF_PACKET = 17, /* Linux-style packet socket               */
+} sock_family_t;
+
+typedef enum {
+	SOCK_RAW = 0,	 /* raw, tidak ada transport header         */
+	SOCK_DGRAM = 1,	 /* datagram (UDP-style, connectionless)    */
+	SOCK_STREAM = 2, /* stream (TCP-style, connection-oriented) */
+} sock_type_t;
+
+struct socket {
+	sock_family_t family;
+	sock_type_t type;
+	uint16_t protocol;
+
+	/* binding */
+	struct ioforge_nic_service*
+		bound_nic;   /* NIC id, 0xff = semua NIC            */
+	uint8_t nonblocking; /* SO_NONBLOCK?  */
+	uint8_t broadcast;   /* SO_BROADCAST? */
+
+	socket_ops_t* ops;
+};
+
+void vxSocket(sock_family_t family, sock_type_t type, uint16_t protocol,
+	      socket_t* socket);
 
 #endif // __NET__SOCKET_H__
