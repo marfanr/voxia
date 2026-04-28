@@ -75,7 +75,7 @@ void acpi_phys_page_unmap(uintptr_t addr) {
 static void parsing_dsdt(uintptr_t dsdt_addr) {
 	// uintptr_t   ddsdt = acpi_map_phys_page(dsdt_addr, 1);
 	// struct SDT *sdt   = (struct SDT *)ddsdt;
-	// LOG_INFO("ACPI", "DSDT header length %d", sdt->Length);
+	// LOG2_INFO("ACPI", "DSDT header length %d", sdt->Length);
 	// uintptr_t new_dsdt = acpi_map_phys_page(dsdt_addr, (BLOCK_SIZE +
 	// sdt->Length - 1) / BLOCK_SIZE); acpi_phys_page_unmap(ddsdt); sdt =
 	// (struct SDT *)new_dsdt; uint8_t *dsdt = (uint8_t *)new_dsdt;
@@ -90,19 +90,19 @@ static void parsing_dsdt(uintptr_t dsdt_addr) {
 	//         if (strncmp((char *)((uintptr_t)dsdt + i + 1), "_S5_", 4) ==
 	//         0)
 	//         {
-	//             LOG_INFO("ACPI", "found _S5_ at %d", i);
+	//             LOG2_INFO("ACPI", "found _S5_ at %d", i);
 	//             for (size_t j = i + 5; j < sdt->Length; j++)
 	//             {
 	//                 if (dsdt[j] == PACKAGE_OP)
 	//                 {
-	//                     LOG_INFO("ACPI", "found Package at %d", j);
+	//                     LOG2_INFO("ACPI", "found Package at %d", j);
 
 	//                     for (size_t l = j + 1; l < sdt->Length; l++)
 	//                     {
 	//                         if (dsdt[l] == BYTE_PREFIX)
 	//                         {
-	//                             LOG_INFO("ACPI", "found byte prefix first
-	//                             at %d", l); break;
+	//                             LOG2_INFO("ACPI", "found byte prefix
+	//                             first at %d", l); break;
 	//                         }
 	//                     }
 	//                     // break;
@@ -128,14 +128,14 @@ static void parsing_dsdt(uintptr_t dsdt_addr) {
 	//     }
 	// }
 
-	// LOG_INFO("ACPI", "slp_typa %x slptypb %x", slp_typa, slp_typb);
+	// LOG2_INFO("ACPI", "slp_typa %x slptypb %x", slp_typa, slp_typb);
 }
 
 static void parsing_fadt(uintptr_t fadt_addr) {
 	// struct FADT *fadt = (struct FADT *)fadt_addr;
-	// LOG_INFO("ACPI", "FADT header length %d", fadt->header.Length);
-	// LOG_INFO("ACPI", "FADT PM1a cblk 0x%x", fadt->PM1aControlBlock);
-	// LOG_INFO("ACPI", "FADT  DSDT 0x%x", fadt->Dsdt);
+	// LOG2_INFO("ACPI", "FADT header length %d", fadt->header.Length);
+	// LOG2_INFO("ACPI", "FADT PM1a cblk 0x%x", fadt->PM1aControlBlock);
+	// LOG2_INFO("ACPI", "FADT  DSDT 0x%x", fadt->Dsdt);
 	// parsing_dsdt(fadt->Dsdt);
 
 	// outw(fadt->PM1aControlBlock, (0x1 << 10) | 1);
@@ -144,24 +144,24 @@ static void parsing_fadt(uintptr_t fadt_addr) {
 }
 
 static void parsing_madt(struct MADT* madt) {
-	LOG_INFO("ACPI", "APIC addr 0x%x", madt->localApicAddress);
+	LOG2_INFO("ACPI", "APIC addr 0x%x", madt->localApicAddress);
 	uintptr_t apic_addr = acpi_map_phys_page(madt->localApicAddress, 1);
 	apicSetBaseAddr(apic_addr);
 	apicInitialize();
 
 	uint8_t* ptr = (uint8_t*)&madt->table;
 	uint8_t* ptr_end = (uint8_t*)madt + madt->header.Length;
-	LOG_INFO("ACPI", "madt header 0x%x length 0x%x", ptr, ptr_end);
+	LOG2_INFO("ACPI", "madt header 0x%x length 0x%x", ptr, ptr_end);
 
 	// uint8_t bspid = cpuid_get_bsp_id();
-	// LOG_INFO("ACPI", "current bsp id : %d", bspid);
+	// LOG2_INFO("ACPI", "current bsp id : %d", bspid);
 
 	// madt_record_table_entry_t *a = (madt_record_table_entry_t
 	// *)((uintptr_t)madt + 0x2C);
 
 	while (ptr < ptr_end) {
 		madt_record_table_entry_t* t = (madt_record_table_entry_t*)ptr;
-		// LOG_INFO("MADT", "type %d, len %d", t->entry_type,
+		// LOG2_INFO("MADT", "type %d, len %d", t->entry_type,
 		// t->record_length);
 		if (t->record_length == 0)
 			break;
@@ -171,8 +171,8 @@ static void parsing_madt(struct MADT* madt) {
 			uint8_t cpu_id = *(uint8_t*)(ptr + 0x2);
 			uint32_t flags = *(uint32_t*)(ptr + 0x4);
 
-			LOG_INFO("ACPI", "found APIC Id %d CPU Id %d", apic_id,
-			         cpu_id);
+			LOG2_INFO("ACPI", "found APIC Id %d CPU Id %d", apic_id,
+			          cpu_id);
 			vxACPIRegisterNewCore(apic_id, cpu_id, flags);
 
 			break;
@@ -233,20 +233,20 @@ INIT(acpi) {
 	}
 
 	uintptr_t rsdt_addr = rsdp_ptr->RsdtAddress;
-	LOG_INFO("ACPI", "rsdt addr 0x%x", rsdt_addr);
+	LOG2_INFO("ACPI", "rsdt addr 0x%x", rsdt_addr);
 
 	// Parse RSDT
 	struct RSDT* rsdt = (struct RSDT*)acpi_map_phys_page(rsdt_addr, 1);
-	LOG_INFO("RSDT", "rsdt length %d",
-	         (rsdt->h.Length - sizeof(rsdt->h)) / 4);
+	LOG2_INFO("RSDT", "rsdt length %d",
+	          (rsdt->h.Length - sizeof(rsdt->h)) / 4);
 
 	for (uint64_t i = 0; i < (rsdt->h.Length - sizeof(rsdt->h)) / 4; i++) {
 		uintptr_t phys_addr = rsdt->PointerToOtherSDT[i];
 		uintptr_t addr = acpi_map_phys_page(phys_addr, 2);
 		struct SDT* sdt = (struct SDT*)addr;
 
-		LOG_INFO("ACPI", "signature %s (%x) found", sdt->Signature,
-		         *(uint32_t*)sdt->Signature);
+		LOG2_INFO("ACPI", "signature %s (%x) found", sdt->Signature,
+		          *(uint32_t*)sdt->Signature);
 
 		switch (*(uint32_t*)sdt->Signature) {
 		case APIC_SIGNATURE:
@@ -269,7 +269,7 @@ INIT(acpi) {
 			break;
 		}
 	}
-	LOG_INFO("ACPI", "end search at rsdt");
+	LOG2_INFO("ACPI", "end search at rsdt");
 
 	// kita tidak butuh lagi setelah semua dibaca
 	// acpi_phys_page_unmap((uintptr_t)rsdp_ptr);

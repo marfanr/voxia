@@ -109,9 +109,10 @@ workqueue_t* vxAddWorkqueueTask(void (*task)(void*), void* arg,
 INIT(Workqueue) {
 	for (uint16_t i = 1; i < vxGetActiveCoreCount(); i++) {
 		auto cpu_info = vxGetCpuInfo(i);
-		if (cpu_info->status != Active)
+		if (cpu_info->status != Active) {
+			serial2_printf("cpu %d not active\n", cpu_info->cpuid);
 			continue;
-
+		}
 		serial2_printf("workqueue init on core %d\n", cpu_info->cpuid);
 		vxCreateThread((uintptr_t)workqueue_process, i, 1, 0);
 	}

@@ -9,7 +9,6 @@
 #include "memory/vm_manager.h"
 #include "modules/kernel_reader.h"
 #include "procc/workqueue.h"
-#include "sys/library.h"
 #include "vfs/enum.h"
 #include <libk/str.h>
 #include <modules/voxmo.h>
@@ -31,7 +30,7 @@ static voxmo_loaded_module_t_ptr vxGetVoxmoModule(string name) {
 			return voxmo_modules.data[i];
 		}
 	}
-	LOG_ERROR("VOXMO", "module %s not found", name->c_str);
+	LOG2_ERROR("VOXMO", "module %s not found", name->c_str);
 	return nullptr;
 }
 
@@ -53,23 +52,24 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 	Elf64_Ehdr* ehdr = (Elf64_Ehdr*)data;
 	switch (ehdr->e_type) {
 	case 1:
-		LOG_DEBUG("VOXMO", "ELF Type: Relocatable (ET_REL)");
+		LOG2_DEBUG("VOXMO", "ELF Type: Relocatable (ET_REL)");
 		break;
 	case 2:
-		LOG_DEBUG("VOXMO", "ELF Type: Executable (ET_EXEC)");
+		LOG2_DEBUG("VOXMO", "ELF Type: Executable (ET_EXEC)");
 		break;
 	case 3:
-		LOG_DEBUG("VOXMO", "ELF Type: Shared Object / PIE (ET_DYN)");
+		LOG2_DEBUG("VOXMO", "ELF Type: Shared Object / PIE (ET_DYN)");
 		break;
 	default:
-		LOG_DEBUG("VOXMO", "ELF Type: Unknown (0x%x)", ehdr->e_type);
+		LOG2_DEBUG("VOXMO", "ELF Type: Unknown (0x%x)", ehdr->e_type);
 		break;
 	}
 
 	if (ehdr->e_type != 3) {
-		LOG_ERROR("VOXMO", "not shared library");
+		LOG2_ERROR("VOXMO", "not shared library");
 		return;
 	}
+
 	// find symbol EhciModule::setup
 	elf_section_map sh_map = {0};
 	elf_section_map_all(data, &sh_map);
@@ -104,102 +104,10 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 		elf_dyn_map_all(dyn, data, &dyn_map);
 
 		LOG2_INFO("VOXMO", "strtab found at 0x%x", dyn_map.strtab);
-		LOG2_INFO("VOXMO", "needed found at 0x%x", dyn_map.needed);
+		LOG2_INFO("VOXMO", "needed size %d", dyn_map.needed.size);
 
-		if (dyn_map.needed.size) {
-			uintptr_t lib_base = 0x8000000;
-			for (size_t i = 0; i < dyn_map.needed.size; i++) {
-				char* lib_name =
-				    (char*)(dyn_map.strtab +
-				            dyn_map.needed.data[i]);
-				LOG2_INFO("VOXMO", "required lib name : %s",
-				          lib_name);
-
-				// TODO: check if library is already loaded on
-				// same pml4
-
-				struct Library* lib = library_load(lib_name);
-				// if (lib->is_loaded)
-				// {
-				//     continue;
-				// }
-
-				uint8_t* lib_data = (uint8_t*)lib->entry;
-
-				Elf64_Ehdr* ehdr = (Elf64_Ehdr*)lib_data;
-				switch (ehdr->e_type) {
-				case 1:
-					LOG_DEBUG(
-					    "VOXMO",
-					    "ELF Type: Relocatable (ET_REL)");
-					break;
-				case 2:
-					LOG_DEBUG(
-					    "VOXMO",
-					    "ELF Type: Executable (ET_EXEC)");
-					break;
-				case 3:
-					LOG_DEBUG("VOXMO",
-					          "ELF Type: Shared Object / "
-					          "PIE (ET_DYN)");
-					break;
-				default:
-					LOG_DEBUG("VOXMO",
-					          "ELF Type: Unknown (0x%x)",
-					          ehdr->e_type);
-					break;
-				}
-				LOG2_INFO("VOXMO", "lib data : 0x%x", lib_data);
-
-				// elf
-				elf_section_map lib_sh_map = {0};
-				elf_section_map_all(lib_data, &lib_sh_map);
-
-				// todo: dynamic addr for library base
-				if (!lib->is_loaded) {
-					elf_mmap_got(&lib_sh_map, lib_base);
-					elf_load(lib_data, lib_base);
-				}
-
-				Elf64_Dyn* lib_dyn =
-				    elf_get_phdr_dynamic(lib_data);
-
-				// elf_map
-				elf_dynamic_map lib_dyn_map = {0};
-				elf_dyn_map_all(lib_dyn, lib_data,
-				                &lib_dyn_map);
-
-				LOG2_INFO("VOXMO", "strtab found at 0x%x",
-				          lib_dyn_map.strtab);
-				LOG2_INFO("VOXMO", "needed found at 0x%x",
-				          lib_dyn_map.needed);
-
-				GnuHashHeader lib_gnu_hash;
-				Elf64_Shdr* lib_gnu_hash_sym =
-				    lib_sh_map.gnuhash;
-				elf_gnu_hash_parse(&lib_gnu_hash,
-				                   lib_gnu_hash_sym, lib_data);
-
-				// relocate
-				if (!lib->is_loaded) {
-					elf_relocate_dyn(&lib_dyn_map, lib_base,
-					                 &lib_gnu_hash,
-					                 &voxmo_load_syms);
-					lib->is_loaded = true;
-					elf_call_init_array(&lib_sh_map,
-					                    lib_base);
-				}
-
-				// load symbol
-				elf_get_symbol(lib_name, lib_base, &lib_sh_map,
-				               lib_data, &voxmo_load_syms,
-				               true);
-
-				// call init construct
-			}
-		}
-		LOG_DEBUG("VOXMO", "load library done");
-
+		// TODO: handle unresolved symbol
+		// kalau gagal reoslve tidak usa di muat kernel module nya
 		elf_relocate_dyn(&dyn_map, base_addr, &gnu_hash,
 		                 &voxmo_load_syms);
 	}
@@ -225,9 +133,9 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 			voxmo_loaded_module_t_ptr dep_module =
 			    vxGetVoxmoModule(module->dependency.data[i]);
 			if (!dep_module) {
-				LOG_ERROR("VOXMO",
-				          "dependency module %s not found",
-				          module->dependency.data[i]->c_str);
+				LOG2_ERROR("VOXMO",
+				           "dependency module %s not found",
+				           module->dependency.data[i]->c_str);
 				continue;
 			}
 			proccess_elf(dep_module);
@@ -252,7 +160,7 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 			          module->name->c_str);
 		}
 	} else {
-		LOG_ERROR("VOXMO", "load not found");
+		LOG2_ERROR("VOXMO", "load not found");
 	}
 }
 
@@ -272,7 +180,7 @@ void vxVoxmoInstall(const char* path) {
 	dentry_ptr dentry = 0;
 	if (vxResolveDentry(full_path_with_ext->c_str, 0, &dentry, 0) !=
 	    VFS_OK) {
-		LOG_ERROR("VOXMO", "module %s not found", path);
+		LOG2_ERROR("VOXMO", "module %s not found", path);
 		return;
 	}
 
@@ -346,7 +254,7 @@ void vxVoxmoInstall(const char* path) {
 	}
 
 	if (!main_found) {
-		LOG_ERROR("VOXMO", "main file not found");
+		LOG2_ERROR("VOXMO", "main file not found");
 		return;
 	}
 
@@ -361,7 +269,7 @@ void vxVoxmoProbe(string name) {
 	LOG2_INFO("VOXMO", "probing module %s", name->c_str);
 	voxmo_loaded_module_t_ptr module = vxGetVoxmoModule(name);
 	if (!module) {
-		LOG_ERROR("VOXMO", "module %s not found", name->c_str);
+		LOG2_ERROR("VOXMO", "module %s not found", name->c_str);
 		return;
 	}
 
@@ -391,3 +299,97 @@ void vxVoxmoReload() {
 	}
 	LOG2_INFO("VOXMO", "all module reloaded");
 }
+
+// TODO: will be removed, we didnt need dynamic linking in
+// kernel module
+// if (dyn_map.needed.size) { 	uintptr_t
+// lib_base = 0x8000000; 	for (size_t i = 0; i <
+// dyn_map.needed.size; i++) { 		char* lib_name =
+// 		    (char*)(dyn_map.strtab +
+// 		            dyn_map.needed.data[i]);
+// 		LOG2_INFO("VOXMO", "required lib name : %s",
+// 		          lib_name);
+
+// 		// TODO: check if library is already loaded on
+// 		// same pml4
+
+// 		struct Library* lib = library_load(lib_name);
+// 		// if (lib->is_loaded)
+// 		// {
+// 		//     continue;
+// 		// }
+
+// 		uint8_t* lib_data = (uint8_t*)lib->entry;
+
+// 		Elf64_Ehdr* ehdr = (Elf64_Ehdr*)lib_data;
+// 		switch (ehdr->e_type) {
+// 		case 1:
+// 			LOG2_DEBUG(
+// 			    "VOXMO",
+// 			    "ELF Type: Relocatable (ET_REL)");
+// 			break;
+// 		case 2:
+// 			LOG2_DEBUG(
+// 			    "VOXMO",
+// 			    "ELF Type: Executable (ET_EXEC)");
+// 			break;
+// 		case 3:
+// 			LOG2_DEBUG("VOXMO",
+// 			          "ELF Type: Shared Object / "
+// 			          "PIE (ET_DYN)");
+// 			break;
+// 		default:
+// 			LOG2_DEBUG("VOXMO",
+// 			          "ELF Type: Unknown (0x%x)",
+// 			          ehdr->e_type);
+// 			break;
+// 		}
+// 		LOG2_INFO("VOXMO", "lib data : 0x%x", lib_data);
+
+// 		// elf
+// 		elf_section_map lib_sh_map = {0};
+// 		elf_section_map_all(lib_data, &lib_sh_map);
+
+// 		// todo: dynamic addr for library base
+// 		if (!lib->is_loaded) {
+// 			elf_mmap_got(&lib_sh_map, lib_base);
+// 			elf_load(lib_data, lib_base);
+// 		}
+
+// 		Elf64_Dyn* lib_dyn =
+// 		    elf_get_phdr_dynamic(lib_data);
+
+// 		// elf_map
+// 		elf_dynamic_map lib_dyn_map = {0};
+// 		elf_dyn_map_all(lib_dyn, lib_data,
+// 		                &lib_dyn_map);
+
+// 		LOG2_INFO("VOXMO", "strtab found at 0x%x",
+// 		          lib_dyn_map.strtab);
+// 		LOG2_INFO("VOXMO", "needed found at 0x%x",
+// 		          lib_dyn_map.needed);
+
+// 		GnuHashHeader lib_gnu_hash;
+// 		Elf64_Shdr* lib_gnu_hash_sym =
+// 		    lib_sh_map.gnuhash;
+// 		elf_gnu_hash_parse(&lib_gnu_hash,
+// 		                   lib_gnu_hash_sym, lib_data);
+
+// 		// relocate
+// 		if (!lib->is_loaded) {
+// 			elf_relocate_dyn(&lib_dyn_map, lib_base,
+// 			                 &lib_gnu_hash,
+// 			                 &voxmo_load_syms);
+// 			lib->is_loaded = true;
+// 			elf_call_init_array(&lib_sh_map,
+// 			                    lib_base);
+// 		}
+
+// 		// load symbol
+// 		elf_get_symbol(lib_name, lib_base, &lib_sh_map,
+// 		               lib_data, &voxmo_load_syms,
+// 		               true);
+
+// 		// call init construct
+// 	}
+// }

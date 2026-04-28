@@ -22,13 +22,20 @@
 #define APIC_TIMER_ONE_SHOT (0 << 17)
 #define APIC_TIMER_DEADLINE (2 << 17)
 
-void     apicInitialize();
-void     apic_eoi();
-void     apic_write(uint32_t reg, uint32_t value);
+#define APIC_LVT_TMR 0x0320
+#define APIC_LVT_PERF 0x0340
+#define APIC_LVT_LINT0 0x0350
+#define APIC_LVT_LINT1 0x0360
+#define APIC_LVT_ERR 0x0370
+#define APIC_ESR 0x0280
+
+void apicInitialize();
+void apic_eoi();
+void apic_write(uint32_t reg, uint32_t value);
 uint32_t apic_read(uint32_t reg);
-void     apic_send_ipi(uint8_t vector, uint8_t dest);
-void     vxAPICCreateTimer(uint32_t type, double freq_us, uint8_t vector);
-void     vxAPICCreateDeadlineTimer(const uint8_t vector, const double freq_us);
-bool     vxTSChasInvariant(void);
+void apic_send_ipi(uint8_t vector, uint8_t dest);
+void vxAPICCreateTimer(uint32_t type, double freq_us, uint8_t vector);
+void vxAPICCreateDeadlineTimer(const uint8_t vector, const double freq_us);
+bool vxTSChasInvariant(void);
 
 #endif // __HAL__APIC__APIC_H__

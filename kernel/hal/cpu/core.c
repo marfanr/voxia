@@ -214,7 +214,7 @@ INIT(Core) {
 
 				timeout = 10000000ULL;
 				while (data[3] == 0 && timeout-- > 0)
-					__asm__ volatile("pause");
+					vxHPETSleep(ms2ns(1000));
 
 				if (data[3] != 0)
 					LOG_INFO("CORE",
@@ -227,6 +227,8 @@ INIT(Core) {
 			LOG_DEBUG("CORE", "core %d sudah ambil data", cpu_id);
 			core_info->status = Active;
 		}
+
+		serial2_flush();
 	}
 
 	LOG_INFO("core", "active core count %d", active_core_count);

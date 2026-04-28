@@ -88,10 +88,8 @@ int_table:
 %endrep
 
 extern syscall
-extern apic_eoi
 global syscall_interupt
-extern serial_send_number
-extern serial_send_string
+
 syscall_interupt:        
         pushall
         ; mov rbp, rsp

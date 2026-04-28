@@ -199,10 +199,14 @@ extern void vxInterruptHandler(interrupt_stack_frame_t* rsp) {
 	// handle exception
 	const scheduler_queue_t* queue = vxSchedulerGetCurrentQueue(cpu_id);
 	if (queue && int_number < 31) {
+		uintptr_t cr2 = 0;
+		asm volatile("mov %%cr2, %0" : "=r"(cr2));
+
 		LOG2_ERROR("INTERRUPT",
-		           "An Error detected %s (%d) on thread id %d",
+		           "An Error detected %s (%d) on thread id %d at 0x%x",
 		           exception_messages[int_number], int_number,
-		           queue->thread->id);
+		           queue->thread->id, rsp->rip, cr2);
+
 		queue->thread->state = THREAD_STATE_TERMINATED;
 		rsp->rip = (uintptr_t)iddle;
 		goto end;
@@ -236,10 +240,11 @@ extern void vxInterruptHandler(interrupt_stack_frame_t* rsp) {
 
 			// if (!vma_tree->start_address)
 			// {
-			serial_trace("page fault at 0x%x\n", cr2);
-			serial_trace("\n\n %s \nexception on %d\n",
-			             exception_messages[rsp->int_no],
-			             rsp->int_no);
+			serial2_printf("page fault at 0x%x\n", cr2);
+			serial2_printf("\n\n %s \nexception on %d\n",
+			               exception_messages[rsp->int_no],
+			               rsp->int_no);
+			serial2_flush();
 			INFLOOP;
 		}
 		spin_release(&int_lock);

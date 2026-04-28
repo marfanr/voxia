@@ -68,13 +68,15 @@ SECTIONS
         KEEP(*(.init_early.initrd))
         KEEP(*(.init_early.graphic))
         KEEP(*(.init_early.ioforge))
+        KEEP(*(.init_early.KernelReader))
+
         /* scheduler thread core urutannya jangan terbalik */
         KEEP(*(.init_early.Scheduler))
         KEEP(*(.init_early.Thread))
         KEEP(*(.init_early.Core))
         KEEP(*(.init_early.Workqueue))
-        KEEP(*(.init_early.KernelReader))
         KEEP(*(.init_early.ModuleRegister))
+        
         /*
         KEEP(*(.init_early.Virtio))
         KEEP(*(.init_early.ProccessRegister))

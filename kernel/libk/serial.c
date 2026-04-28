@@ -48,36 +48,36 @@ void serial_send_string(char* str) {
 }
 
 void serial_send_number(int64_t num, int base) {
+	if (base < 2 || base > 16)
+		return;
+
 	const char* digits = "0123456789ABCDEF";
-	char buffer[32]; // cukup untuk 64-bit
+	char buffer[65]; /* worst case: 64 binary digits + sign */
 	int i = 0;
 	bool negative = false;
 
+	uint64_t n;
 	if (base == 10 && num < 0) {
 		negative = true;
-		num = -num; // ubah ke positif untuk konversi desimal
+		n = (uint64_t)(-num); /* safe: negate first, then reinterpret */
+	} else {
+		n = (uint64_t)num; /* for hex/oct/bin: reinterpret all bits */
 	}
-
-	// gunakan uint64_t untuk base != 10 agar bisa cetak semua bit
-	uint64_t n = (base == 10) ? (uint64_t)num : (uint64_t)num;
 
 	if (n == 0) {
 		buffer[i++] = '0';
 	} else {
 		while (n > 0) {
-			buffer[i++] = digits[n % base];
-			n /= base;
+			buffer[i++] = digits[n % (uint64_t)base];
+			n /= (uint64_t)base;
 		}
 	}
 
-	if (negative) {
+	if (negative)
 		buffer[i++] = '-';
-	}
 
-	// kirim dalam urutan normal
-	for (int j = i - 1; j >= 0; j--) {
+	for (int j = i - 1; j >= 0; j--)
 		serial_putc(buffer[j]);
-	}
 }
 
 void serial_send_unsigned_number(uint64_t num, int base, int limit) {
@@ -391,6 +391,30 @@ void serial2_flush() {
 	}
 }
 
+static void serial_send_padded(uint64_t val, int base, int width, char pad) {
+	const char* digits = "0123456789ABCDEF";
+	char buf[65];
+	int i = 0;
+
+	if (val == 0) {
+		buf[i++] = '0';
+	} else {
+		uint64_t n = val;
+		while (n > 0) {
+			buf[i++] = digits[n % base];
+			n /= base;
+		}
+	}
+
+	/* Emit padding */
+	for (int p = i; p < width; p++)
+		serial_putc(pad);
+
+	/* Emit digits in reverse */
+	for (int j = i - 1; j >= 0; j--)
+		serial_putc(buf[j]);
+}
+
 static void parse_before_multicore(__builtin_va_list args, const char* fmt) {
 	for (const char* p = fmt; *p != '\0'; p++) {
 		if (*p != '%') {
@@ -398,58 +422,114 @@ static void parse_before_multicore(__builtin_va_list args, const char* fmt) {
 			continue;
 		}
 		p++;
-		if (*p == 'd') {
-			int i = __builtin_va_arg(args, int);
-			serial_send_number(i, 10);
-		} else if (*p == 'l') {
+
+		/* --- flags --- */
+		char pad = ' ';
+		if (*p == '0') {
+			pad = '0';
 			p++;
-			if (*p == 'u') {
-				uint64_t i = __builtin_va_arg(args, uint64_t);
-				serial_send_unsigned_number(i, 10, 0);
-			} else if (*p == 'd') {
-				int64_t i = __builtin_va_arg(args, int64_t);
-				serial_send_number(i, 10);
-			}
-		} else if (*p == 'x') {
-			uint64_t i = __builtin_va_arg(args, uint64_t);
-			serial_send_number(i, 16);
-		} else if (*p == 's') {
-			char* s = __builtin_va_arg(args, char*);
-			serial_send_string(s);
-		} else if (*p == 'b') {
-			uint64_t i = __builtin_va_arg(args, uint64_t);
-			serial_send_number(i, 2);
-		} else if (*p == 'B') {
-			boolean_t i = __builtin_va_arg(args, boolean_t);
-			if (i) {
-				serial_send_string("true");
-			} else {
-				serial_send_string("false");
-			}
-		} else if (*p == 'f') {
-			double f = __builtin_va_arg(args, double);
-			serial_send_number_double(f, 4);
-		} else if (*p == '.') {
+		}
+
+		/* --- width --- */
+		int width = 0;
+		while (*p >= '0' && *p <= '9') {
+			width = width * 10 + (*p - '0');
 			p++;
-			int precision = 0;
+		}
+
+		/* --- precision (.N) --- */
+		int precision = 4; /* default for %f */
+		if (*p == '.') {
+			p++;
+			precision = 0;
 			while (*p >= '0' && *p <= '9') {
 				precision = precision * 10 + (*p - '0');
 				p++;
 			}
-			if (*p == 'f') {
-				double f = __builtin_va_arg(args, double);
-				serial_send_number_double(f, precision);
+		}
+
+		/* --- length modifier --- */
+		bool is_long = false;
+		if (*p == 'l') {
+			is_long = true;
+			p++;
+		}
+
+		/* --- specifier --- */
+		switch (*p) {
+		case 'd': {
+			int64_t i = is_long
+			                ? __builtin_va_arg(args, int64_t)
+			                : (int64_t) __builtin_va_arg(args, int);
+			if (i < 0) {
+				serial_putc('-');
+				serial_send_padded((uint64_t)(-i), 10,
+				                   width ? width - 1 : 0, pad);
+			} else {
+				serial_send_padded((uint64_t)i, 10, width, pad);
 			}
-			if (*p == 'x') {
-				uint64_t i = __builtin_va_arg(args, uint64_t);
-				serial_send_unsigned_number(i, 16, precision);
-			}
+			break;
+		}
+		case 'u': {
+			uint64_t i = is_long ? __builtin_va_arg(args, uint64_t)
+			                     : (uint64_t) __builtin_va_arg(
+			                           args, unsigned int);
+			serial_send_padded(i, 10, width, pad);
+			break;
+		}
+		case 'x': {
+			/* %x  -> unsigned int (4 bytes via varargs)
+			   %lx -> uint64_t    (8 bytes) */
+			uint64_t i = is_long ? __builtin_va_arg(args, uint64_t)
+			                     : (uint64_t) __builtin_va_arg(
+			                           args, unsigned int);
+			serial_send_padded(i, 16, width, pad);
+			break;
+		}
+		case 'b': {
+			uint64_t i = is_long ? __builtin_va_arg(args, uint64_t)
+			                     : (uint64_t) __builtin_va_arg(
+			                           args, unsigned int);
+			serial_send_padded(i, 2, width, pad);
+			break;
+		}
+		case 's': {
+			char* s = __builtin_va_arg(args, char*);
+			if (!s)
+				s = "(null)";
+			serial_send_string(s);
+			break;
+		}
+		case 'B': {
+			boolean_t i = __builtin_va_arg(args, int);
+			serial_send_string(i ? "true" : "false");
+			break;
+		}
+		case 'f': {
+			double f = __builtin_va_arg(args, double);
+			serial_send_number_double(f, precision);
+			break;
+		}
+		case 'c': {
+			char c = (char)__builtin_va_arg(args, int);
+			serial_putc(c);
+			break;
+		}
+		case '%':
+			serial_putc('%');
+			break;
+		default:
+			serial_putc('%');
+			serial_putc(*p);
+			break;
 		}
 	}
 }
 
 extern boolean_t multicore_start;
 
+// TODO: implement per core buffer
+// unutk cegah race condition saat dipanggil di dalam module
 KERNEL_API void serial2_printf(const char* fmt, ...) {
 	__builtin_va_list args;
 	__builtin_va_start(args, fmt);

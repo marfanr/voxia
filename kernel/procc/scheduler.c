@@ -25,6 +25,7 @@ scheduler_core_t* vxGetSchedulerCore(uint16_t core) { return &scheduler[core]; }
 INIT(Scheduler) {
 	vxCreateSlabCache(&scheduler_cache, "scheduler",
 	                  sizeof(scheduler_queue_t), 0, 0);
+	LOG_INFO("Scheduler", "scheduler cache at 0x%x", scheduler_cache);
 }
 
 scheduler_queue_t* vxSchedulerGetCurrentQueue(uint16_t core) {
@@ -135,7 +136,7 @@ void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 	}
 	case THREAD_STATE_READY: {
 		if (!thread->stack)
-			thread->stack = (uintptr_t)kalloc(0x1000);
+			thread->stack = (uintptr_t)kalloc(4096);
 
 		// if (tick - thread->)
 		thread->state = THREAD_STATE_RUNNING;
@@ -147,14 +148,21 @@ void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 		} else {
 			LOG2_DEBUG("SCHEDULER",
 			           "core %d ready to run kernel mode", core_id);
-			LOG2_DEBUG("SCHEDULER", "core %d aaddr %x", core_id,
-			           thread->entry_addr);
-			((void (*)())thread->entry_addr)();
+
 			reg->rip = thread->entry_addr;
 			reg->rsp = ((thread->stack + 0x1000) & ~0xFULL) - 8;
-			// LOG2_DEBUG("SCHEDULER", "core %d rsp
-			// %x", core_id, 	           reg->rsp);
+			// *(uint64_t*)reg->rsp = (uint64_t)vxThreadExit;
+
+			reg->cs = 0x28;
+			reg->ss = 0x30;
+
+			reg->rflags = 0x202;
+
 			reg->rbp = 0;
+
+			LOG2_DEBUG("SCHEDULER", "core %d aaddr %x", core_id,
+			           thread->entry_addr);
+			return;
 		}
 		vxSaveRegister(reg, &thread->reg);
 		break;
@@ -248,7 +256,7 @@ void vxStartScheduler() {
 	serial2_printf("scheduler init on core %d\n", core_id);
 	irq_register(core_id, 0x45, (void*)vxSchedulerTick, true, 0x28, 0,
 	             INTERRUPT_ATTR_KERNEL);
-	vxAPICCreateTimer(APIC_TIMER_PERIOD, 5, 0x45);
+	vxAPICCreateTimer(APIC_TIMER_PERIOD, 8, 0x45);
 	// LOG2_DEBUG(DEBUG_LEVEL_INFO, "Scheduler started on CORE %d
 	// \n",
 	//            core_id);

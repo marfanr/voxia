@@ -39,8 +39,8 @@ void ioforge_register_service(struct ioforge_service* service) {
 		return;
 	}
 
-	serial_trace("ioforge register ok 0x%x with addr %x\n", service,
-	             service->address);
+	serial2_printf("ioforge register ok 0x%x with addr %x\n", service,
+	               service->address);
 	struct ioforge_service* tmp = ioforge_services;
 	while (tmp->next != 0) {
 		tmp = tmp->next;
@@ -132,15 +132,15 @@ uint32_t ioforge_mmio_inl(uint32_t port) { return mmio_inl(port); }
 
 KERNEL_API
 void ioforge_irq_register(uint8_t n, void* handler) {
-	auto core_id = vxGetCoreData()->core_id;
-	LOG_INFO("IOFORGE", "registering irq %d on core %d", n, core_id);
+	auto core_id = coreGetCpuID();
+	LOG2_INFO("IOFORGE", "registering irq %d on core %d", n, core_id);
 	irq_register(core_id, n, handler, true, 0x28, 0, INTERRUPT_ATTR_KERNEL);
 }
 
 KERNEL_API
 void ioforge_map_isr(uint8_t irq, uint8_t vector) {
-	auto core_id = vxGetCoreData()->core_id;
-	LOG_INFO("IOFORGE", "mapping isr %d on core %d", irq, core_id);
+	auto core_id = coreGetCpuID();
+	LOG2_INFO("IOFORGE", "mapping isr %d on core %d", irq, core_id);
 	vxIOAPICMapISR(irq, vector, core_id);
 }
 

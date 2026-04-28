@@ -4,6 +4,7 @@
 #include "hal/graphic/framebuffer.h"
 #include "hal/graphic/graphic.h"
 #include "init/loader.h"
+#include "ioforge/ioforge_nic.h"
 #include "libk/serial.h"
 #include "procc/proccess.h"
 #include "procc/thread.h"
@@ -25,19 +26,27 @@ void kernel_init() {
 extern void _start(struct stivale2_struct* stivale2_struct) {
 	serial_setup();
 	build_context_from_stivale2(stivale2_struct, &ctx);
-
-	// LOG_INFO("INIT", "run all init");
 	run_all_init_calls(&ctx);
 
+	// tempat untuk test
+	auto n = IOforgeNICFindByName("E1000");
+	if (n) {
+		LOG2_INFO("NIC TEST", "NIC E1000 exit");
+
+		// uint8_t* a = kalloc(512);
+
+		// n->ops->send(a, 512);
+	}
+
 	// for logger
-	// irq_register(0, 0x45, (void*)serial2_flush, true, 0x28, 0,
-	//              INTERRUPT_ATTR_KERNEL);
-	// vxAPICCreateTimer(APIC_TIMER_PERIOD, 5, 0x45);
+	irq_register(0, 0x45, (void*)serial2_flush, true, 0x28, 0,
+	             INTERRUPT_ATTR_KERNEL);
+	vxAPICCreateTimer(APIC_TIMER_PERIOD, 5, 0x45);
 
 	// LOG_INFO("INIT", "Hello from serial2_printf! Value: %d, okokok %x\n",
 	//          42, 0x76);
 
-	serial2_flush();
+	// serial2_flush();
 
 	// task_initialize();
 
@@ -110,13 +119,6 @@ extern void _start(struct stivale2_struct* stivale2_struct) {
 	// vxTimerCounterCountInMs(&counter)); LOG_INFO("INIT", "end of init");
 
 	// rtc_initialize();
-
-	// // test section
-	// auto n = IOforgeNICFindByName("E1000");
-	// if (n)
-	// {
-	//     LOG_INFO("NIC TEST", "NIC E1000 exit");
-	// }
 
 	// // start scheduler on BSP
 	// // create kernel init

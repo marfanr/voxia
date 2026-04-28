@@ -1,4 +1,5 @@
 #include "autoconf.h"
+#include "hal/cpu/interrupt.h"
 #include "init.h"
 #include "libk/serial.h"
 #include "modules/voxmo.h"
@@ -8,13 +9,14 @@ static void detectBootPartition() {}
 
 INIT(ModuleRegister) {
 	// reg library
-	library_register("/init/lib/libioforge.so", LIBRARY_TYPE_DYNAMIC);
+	// tidak akan dipkaia lagi
+	// library_register("/init/lib/libioforge.so", LIBRARY_TYPE_DYNAMIC);
 
 	// reg kernel module
 	vxSetDefaultVoxmoPath(VOXIA_DEFAULT_VOXMO_PATH);
 	// vxVoxmoInstall("usb-hid");
 	vxVoxmoInstall("e1000");
-	vxVoxmoInstall("ehci");
+	// vxVoxmoInstall("ehci");
 
 	// register default filesystem : iso96660, fat
 	// filesystem_register("ISO9660", 0);

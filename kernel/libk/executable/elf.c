@@ -268,7 +268,8 @@ void elf_relocate_rel(Elf64_Rela* rel, uintptr_t base, uint64_t rela_count,
 		Elf64_Sym* lookup_sym = elf_gnu_lookup(name, gnu_hash, symbols,
 		                                       (const char*)strtab);
 		if (lookup_sym) {
-			LOG_DEBUG("ELF", "found lookup at gnu symbl %s", name);
+			// LOG_DEBUG("ELF", "found lookup at gnu symbl %s",
+			// name);
 			symbol = lookup_sym;
 		}
 
@@ -325,10 +326,10 @@ void elf_relocate_rel(Elf64_Rela* rel, uintptr_t base, uint64_t rela_count,
 				break;
 			}
 			*(uint64_t*)(base + rel[i].r_offset) = value;
-			LOG_DEBUG("ELF",
-			          "update gotplt at 0x%x (0x%x + %x) to 0x%x",
-			          base + rel[i].r_offset, base, rel[i].r_offset,
-			          value);
+			// LOG_DEBUG("ELF",
+			//           "update gotplt at 0x%x (0x%x + %x) to
+			//           0x%x", base + rel[i].r_offset, base,
+			//           rel[i].r_offset, value);
 
 			break;
 		}
@@ -510,8 +511,8 @@ void elf_call_init_array(elf_section_map* map, uintptr_t base) {
 		LOG2_INFO("VOXMO", "lib init array count %d", count);
 		for (size_t i = 0; i < count; i++) {
 			if (arr[i]) {
-				LOG_DEBUG("VOXMO", "load .init array %x",
-				          arr[i]);
+				LOG2_DEBUG("VOXMO", "load .init array %x",
+				           arr[i]);
 				((ctor_t)((uintptr_t)arr[i]))();
 			}
 		}
