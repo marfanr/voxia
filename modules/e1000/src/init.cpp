@@ -69,12 +69,12 @@ extern "C" int E1000SendPacketCWrapper(const void* data, size_t len) {
 	int a = instance.sendPacket(data, len);
 	return a;
 }
-
-static int E1000GetMacAddressCWrapper(uint8_t mac[6]) {
+extern "C" int E1000GetMacAddressCWrapper(uint8_t mac[6]) {
 	return instance.getMacAddress(mac);
+	// return a;
 }
 
-static int E1000ReceivePacketCWraper(void** buffer, size_t* size) {
+extern "C" int E1000ReceivePacketCWraper(void** buffer, size_t* size) {
 	return instance.receivePacket(buffer, size);
 }
 
@@ -83,6 +83,7 @@ __attribute__((constructor)) static void e100_constructor() {
 		(ioforge_nic_service*) IOForge::IOUtils::alloc(
 			sizeof(ioforge_nic_service));
 	log("E1000", "nic 0x%x", nic);
+
 	nic->ops = (ioforge_nic_operation*) IOForge::IOUtils::alloc(
 		sizeof(ioforge_nic_operation));
 	const char* service_name = "E1000";

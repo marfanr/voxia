@@ -30,6 +30,9 @@ typedef struct sockaddr_in {
 typedef struct socket socket_t;
 typedef struct socket_ops {
 	int (*recv)(socket_t* socket, void* buffer, size_t size);
+	// recv with zero copy
+	int (*recv_zc)(socket_t* socket, void** buffer, size_t size);
+
 	int (*bind)(socket_t* socket, sockaddr_in_t* addr, uint32_t len);
 	int (*set_sockopt)(socket_t* socket, uint32_t level, uint32_t optname,
 			   const void* optval, uint32_t optlen);

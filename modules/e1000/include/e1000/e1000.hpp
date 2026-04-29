@@ -59,9 +59,10 @@ class E1000Module : public IOforgePCI {
 	int getMacAddress(uint8_t mac[6]);
 
       private:
+	bool mac_ready = false;
+	uint32_t mac_addr[6];
 	ioforge_pci_service* device;
 	boolean_t eerprom_exists = false;
-	uint32_t mac_addr[6];
 	void initReceiverX();
 	void initTransmitterX();
 

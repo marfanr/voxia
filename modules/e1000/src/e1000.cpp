@@ -157,6 +157,11 @@ boolean_t E1000Module::syncMacAddress() {
 		return false;
 	}
 
+	// aktifkan bit AV (address valid)
+	rah |= (1u << 31);
+	write(0x5404, rah);
+	write(0x5400, ral);
+
 	// Masking rah dengan 0xFFFF untuk membuang bit status seperti AV
 	// agar tidak ikut masuk ke perhitungan MAC
 	mac_addr[0] = ral & 0xFF;
@@ -165,6 +170,8 @@ boolean_t E1000Module::syncMacAddress() {
 	mac_addr[3] = (ral >> 24) & 0xFF;
 	mac_addr[4] = (rah & 0xFFFF) & 0xFF;
 	mac_addr[5] = ((rah & 0xFFFF) >> 8) & 0xFF;
+
+	mac_ready = true;
 
 	char outc[18] = {0};
 	uint8_t* out = (uint8_t*) outc;
@@ -177,6 +184,7 @@ boolean_t E1000Module::syncMacAddress() {
 	}
 	*out = '\0';
 	log("E1000", "MAC terbaca dari MMIO: %s", outc);
+
 	return true;
 }
 
@@ -222,9 +230,13 @@ void E1000Module::initReceiverX() {
 	rx_cur = 0;
 
 	write(REG_RCTRL, RCTL_EN | RCTL_BAM | RCTL_SECRC | RCTL_BSIZE_2048);
+
+	// write(REG_RCTRL, RCTL_EN | RCTL_BAM | RCTL_SECRC | RCTL_BSIZE_2048
+	// 			 | RCTL_UPE | RCTL_MPE);
 	write(REG_RXDCTL, (1 << 25) | 1);
-	write(REG_RDTR, 0);
-	write(REG_RADV, 0);
+
+	write(REG_RDTR, 64);
+	write(REG_RADV, 128);
 
 	log(mod, "Receiver initialized");
 }
@@ -276,6 +288,7 @@ void E1000Module::initTransmitterX() {
 }
 
 int E1000Module::sendPacket(const void* data, size_t len) {
+	// serial2_printf("sended an addr 0x%x\n", (uintptr_t) data);
 	int setup_done = __atomic_load_n(&setup_tx_done, __ATOMIC_ACQUIRE);
 	if (setup_done == 0) {
 		serial2_printf("wait tx setup done..\n");
@@ -309,7 +322,7 @@ void E1000Module::linkup() {
 
 	uint32_t val = read(REG_CTRL);
 
-	// val |= (1 << 6); // SLU (Set Link Up)
+	val |= (1 << 6); // SLU (Set Link Up)
 	val |= (1 << 6); // SLU
 	val |= (1 << 5); // ASDE (auto speed detect enable)
 	val |= (1 << 3); // FD (full duplex)
@@ -367,7 +380,7 @@ void E1000Module::receiveHandle() {
 		old_cur = rx_cur;
 		rx_cur = (rx_cur + 1) % E1000_NUM_RX_DESC;
 		write(REG_RXDESCTAIL, old_cur);
-		write(REG_RDTR, rx_cur);
+		// write(REG_RDTR, rx_cur);
 	}
 }
 
@@ -386,6 +399,9 @@ int E1000Module::receivePacket(void** buffer, size_t* size) {
 }
 
 int E1000Module::getMacAddress(uint8_t mac[6]) {
+	if (!mac_ready)
+		return 0;
+
 	for (int i = 0; i < 6; i++)
 		mac[i] = mac_addr[i];
 
