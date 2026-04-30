@@ -90,7 +90,7 @@ inline uint16_t vxNtohs(uint16_t netshort);
 #define IPPROTO_TCP 6
 #define IPPROTO_UDP 17
 
-#define SO_BINDTODEVICE 25 /* bind ke NIC tertentu (nic_id)      */
+#define SO_BINDTODEVICE 25 /* bind ke netdvev, default by route table      */
 #define SO_RCVBUF 8	   /* ukuran RX buffer                   */
 #define SO_SNDBUF 7	   /* ukuran TX buffer                   */
 #define SO_BROADCAST 6	   /* izinkan broadcast                  */

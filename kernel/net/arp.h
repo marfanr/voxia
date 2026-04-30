@@ -1,6 +1,7 @@
 #ifndef __NET__ARP_H__
 #define __NET__ARP_H__
 
+#include "ioforge/ioforge_nic.h"
 #include <type.h>
 
 struct arp_packet {
@@ -17,6 +18,7 @@ struct arp_packet {
 	uint32_t target_ip;
 } __attribute__((packed));
 
-void vxNetHandleARP(struct arp_packet* arp);
+void arp_reply(struct ioforge_nic_service* nic, uint32_t ip,
+	       uint8_t out_mac[6]);
 
 #endif // __NET__ARP_H__
