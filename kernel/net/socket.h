@@ -79,9 +79,6 @@ struct socket {
 
 void vxSocket(sock_family_t family, sock_type_t type, uint16_t protocol,
 	      socket_t** socket);
-uint32_t vxInetAddr(const char* addr);
-uint16_t vxHtons(uint16_t value);
-inline uint16_t vxNtohs(uint16_t netshort);
 
 /* sock option*/
 #define SOL_SOCKET 1

@@ -14,4 +14,7 @@ struct ethernet_header {
 void ethernet_send_frame(netdev_t* dev, struct netbuff* netbuff,
 			 uint16_t ethertype, const uint8_t dst_mac[6]);
 
+#define ETHER_TYPE_ARP 0x0806
+#define ETHER_TYPE_IP 0x0800
+
 #endif // __NET__ETHERNET_H__

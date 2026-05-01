@@ -91,4 +91,5 @@ netdev_t* lookup_netdev(char* name) {
 static void bind_nic(netdev_t* netdev, struct ioforge_nic_service* nic) {
 	netdev->nic = nic;
 	nic->ops->get_mac_address(netdev->mac);
+	LOG2_INFO("netdev", "netdev mac %x", netdev->mac[0]);
 }
