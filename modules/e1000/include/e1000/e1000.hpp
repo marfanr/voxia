@@ -6,7 +6,8 @@
 #include "type.h"
 
 #define E1000_NUM_RX_DESC 256
-#define E1000_NUM_TX_DESC 8
+#define E1000_NUM_RX_MASK (E1000_NUM_RX_DESC - 1)
+#define E1000_NUM_TX_DESC 64
 #define E1000_VENDOR_ID 0x8086
 #define E1000_DEVICE_ID 0x100c
 
@@ -40,7 +41,7 @@ class E1000Module : public IOforgePCI {
 	E1000Module();
 	void load() override;
 	void unload() override;
-	int sendPacket(const void* data, size_t len);
+	int sendPacket(const struct data_template data[], size_t count);
 	int receivePacket(void** buffer, size_t* size);
 	inline void setNIC(struct ioforge_nic_service* nic) {
 		this->nic = nic;
@@ -57,6 +58,7 @@ class E1000Module : public IOforgePCI {
 	void receiveHandle();
 	uint32_t read(uint16_t p_address);
 	int getMacAddress(uint8_t mac[6]);
+	void storeBufferToPool(int rx_id, void* vaddr);
 
       private:
 	bool mac_ready = false;

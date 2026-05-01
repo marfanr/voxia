@@ -2,6 +2,7 @@
 #define __NET__SOCKET_H__
 
 #include "ioforge/ioforge_nic.h"
+#include "net/netdev.h"
 #include <type.h>
 
 /* Socket General */
@@ -57,15 +58,13 @@ struct socket {
 	uint16_t protocol;
 
 	/* untuk binding */
-	struct ioforge_nic_service*
-		bound_nic;   /* NIC id, 0xff = semua NIC            */
+	netdev_t* netdev;
+
 	uint8_t nonblocking; /* SO_NONBLOCK?  */
 	uint8_t broadcast;   /* SO_BROADCAST? */
 
 	sockaddr_in_t local_addr;
 	sockaddr_in_t remote_addr;
-
-	// net_buffer
 
 	// statistik
 	uint64_t rx_packets;
@@ -105,6 +104,5 @@ inline uint16_t vxNtohs(uint16_t netshort);
 #define SOCK_ERR_AGAIN -4   /* non-blocking, tidak ada data       */
 #define SOCK_ERR_NOMEM -5   /* buffer pool habis                  */
 #define SOCK_ERR_NOTCONN -6 /* belum connect()                    */
-#define SOCK_ERR_BADFD -7   /* file descriptor tidak valid        */
 
 #endif // __NET__SOCKET_H__

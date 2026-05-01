@@ -1,7 +1,6 @@
 #include "netbuff.h"
 #include "init/init.h"
 #include "ioforge/ioforge.h"
-#include "ioforge/ioforge_nic.h"
 #include "memory/slab.h"
 #include <libk/str.h>
 
@@ -17,7 +16,7 @@ INIT(Netbuff) {
 			  0);
 }
 
-struct netbuff* create_netbuff(struct ioforge_nic_service* nic) {
+struct netbuff* create_netbuff() {
 	struct netbuff* netbuff = 0;
 	if (!netbuff_temp_count) {
 		netbuff = (struct netbuff*) vxSlabAlloc(netbuff_cache);
@@ -35,7 +34,6 @@ struct netbuff* create_netbuff(struct ioforge_nic_service* nic) {
 	netbuff->data = netbuff->head + NETBUFF_MAX_HEADROOM;
 	netbuff->tail = netbuff->data;
 	netbuff->length = 0;
-	netbuff->nic = nic;
 
 	return netbuff;
 }

@@ -18,21 +18,29 @@ typedef enum {
 
 typedef struct netdev netdev_t;
 struct netdev_ops {
-	int (*open)(netdev_t* dev);
-	int (*stop)(netdev_t* dev);
-	int (*xmit)(netdev_t* dev, struct netbuff* nb);
-	int (*set_mac_address)(netdev_t* dev, void* addr);
+	int (*init)(struct netdev* dev);
+	int (*open)(struct netdev* dev);
+	int (*stop)(struct netdev* dev);
+	int (*transmit)(struct netdev* dev, uint8_t* packet, uint16_t len);
+	int (*set_mac)(struct netdev* dev, const uint8_t* new_mac);
+	void (*bind_nic)(struct netdev* dev, struct ioforge_nic_service* nic);
+	void (*unbind_nic)(struct netdev* dev);
 };
 
 struct netdev {
+	uint32_t hash;
 	boolean_t is_up;
 	netdev_type_t type;
 	char name[NETDEV_NAME_MAX_LEN];
 	uint8_t mac[NIC_MAC_LEN];
 
 	struct ioforge_nic_service* nic;
+	struct netdev_ops* ops;
+
+	// for hash map colision handling
+	void* next;
 };
 
-struct netdev* create_netdev(char* name, uint8_t mac[NIC_MAC_LEN]);
-
+int create_netdev(char* name, netdev_type_t type);
+netdev_t* lookup_netdev(char* name);
 #endif // __NET__NETDEV_H__

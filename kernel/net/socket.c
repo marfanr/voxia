@@ -12,6 +12,7 @@
 #include "ip_type.h"
 #include "net/netbuff.h"
 #include "tcp.h"
+#include "netdev.h"
 
 static struct slab_cache* socket_cache = 0;
 static socket_ops_t* socket_ops = 0;
@@ -164,151 +165,162 @@ static int socket_receive(socket_t* socket, void* buffer, size_t size) {
 	auto family = socket->family;
 	auto type = socket->type;
 
-	auto nic = socket->bound_nic;
-
-	if (nic->pq_tail == nic->pq_head) {
-		return -1;
+	auto dev = socket->netdev;
+	if (!dev) {
+		return SOCK_ERR_NODEV;
 	}
 
-	struct pending_rx* rx = &nic->pending_queue[nic->pq_tail];
+	auto nic = dev->nic;
 
-	int n = (rx->len < size) ? rx->len : size;
+	// TODO: handle if devnet is virtual device
+	if (nic->pq_tail == nic->pq_head) {
+		return 0;
+	}
 
-	struct ethernet_header* eth = (struct ethernet_header*) rx->data;
+	struct pending_rx rx;
+	if (ioforge_receive_pending_queue(nic, &rx) == -1) {
+		return 0;
+	}
+	// serial2_printf("pending rx buffer 0x%x\n", rx.data);
+
+	int n = (rx.len < size) ? rx.len : size;
+
+	struct ethernet_header* eth = (struct ethernet_header*) rx.data;
 
 	uint16_t ethertype = vxHtons(eth->ethertype);
+	serial2_printf("ether type 0x%x\n", ethertype);
 
-	// read mac from nic
-	uint8_t my_mac[6] = {0};
-	nic->ops->get_mac_address(my_mac);
+	// // read mac from nic
+	// uint8_t my_mac[6] = {0};
+	// nic->ops->get_mac_address(my_mac);
 
-	// ipv4
-	if (ethertype == 0x0800) {
+	// // ipv4
+	// if (ethertype == 0x0800) {
 
-		struct ipv4_header* ip =
-			(struct ipv4_header*) (rx->data
-					       + sizeof(
-						       struct ethernet_header));
+	// 	struct ipv4_header* ip =
+	// 		(struct ipv4_header*) (rx.data
+	// 				       + sizeof(
+	// 					       struct ethernet_header));
 
-		char ip_buf[16];
-		vxInetNtoa(ip->src_ip, ip_buf);
+	// 	char ip_buf[16];
+	// 	vxInetNtoa(ip->src_ip, ip_buf);
 
-		LOG2_DEBUG("socket", "terdeteksi packet ipv4 dengan type : %d",
-			   ip->protocol);
+	// 	LOG2_DEBUG("socket", "terdeteksi packet ipv4 dengan type : %d",
+	// 		   ip->protocol);
 
-		uint8_t ihl = ip->version_ihl & 0x0F; // panjang header (/32)
+	// 	uint8_t ihl = ip->version_ihl & 0x0F; // panjang header (/32)
 
-		// icmp
-		if (ip->protocol == ICMP_PROTOCOL) {
-			// LOG2_INFO("Socket", "icmp detected");
+	// 	// icmp
+	// 	if (ip->protocol == ICMP_PROTOCOL) {
+	// 		// LOG2_INFO("Socket", "icmp detected");
 
-			struct icmp_header* icmp =
-				(struct icmp_header*) ((uint8_t*) ip
-						       + (ihl * 4));
+	// 		struct icmp_header* icmp =
+	// 			(struct icmp_header*) ((uint8_t*) ip
+	// 					       + (ihl * 4));
 
-			uint16_t total_len = vxNtohs(ip->total_length);
-			uint16_t icmp_len = total_len - (ihl * 4);
+	// 		uint16_t total_len = vxNtohs(ip->total_length);
+	// 		uint16_t icmp_len = total_len - (ihl * 4);
 
-			//    echo
-			if (icmp->type == 8) {
-				// LOG2_INFO("Socket", "icmp echo detected");
+	// 		//    echo
+	// 		if (icmp->type == 8) {
+	// 			// LOG2_INFO("Socket", "icmp echo detected");
 
-				struct icmp_echo* echo =
-					(struct icmp_echo*) icmp;
+	// 			struct icmp_echo* echo =
+	// 				(struct icmp_echo*) icmp;
 
-				uintptr_t paddr;
-				size_t size = sizeof(struct ethernet_header)
-					      + total_len;
+	// 			uintptr_t paddr;
+	// 			size_t size = sizeof(struct ethernet_header)
+	// 				      + total_len;
 
-				if (size < 60)
-					size = 60;
+	// 			if (size < 60)
+	// 				size = 60;
 
-				size_t aligned_size =
-					((size + 0x1000 - 1) & ~(0x1000 - 1))
-					/ 0x1000;
+	// 			size_t aligned_size =
+	// 				((size + 0x1000 - 1) & ~(0x1000 - 1))
+	// 				/ 0x1000;
 
-				uintptr_t vaddr = (uintptr_t) ioforge_dma_alloc(
-					aligned_size, &paddr);
+	// 			uintptr_t vaddr = (uintptr_t) ioforge_dma_alloc(
+	// 				aligned_size, &paddr);
 
-				memset((void*) vaddr, 0, size);
+	// 			memset((void*) vaddr, 0, size);
 
-				// icmp_response
-				struct ethernet_header* eth_reply =
-					(struct ethernet_header*) vaddr;
-				struct ipv4_header* ip_reply =
-					(struct
-					 ipv4_header*) (vaddr
-							+ sizeof(
-								struct
-								ethernet_header));
-				struct icmp_echo* icmp_reply =
-					(struct
-					 icmp_echo*) (vaddr
-						      + sizeof(struct
-							       ethernet_header)
-						      + sizeof(struct
-							       ipv4_header));
+	// 			// icmp_response
+	// 			struct ethernet_header* eth_reply =
+	// 				(struct ethernet_header*) vaddr;
+	// 			struct ipv4_header* ip_reply =
+	// 				(struct
+	// 				 ipv4_header*) (vaddr
+	// 						+ sizeof(
+	// 							struct
+	// 							ethernet_header));
+	// 			struct icmp_echo* icmp_reply =
+	// 				(struct
+	// 				 icmp_echo*) (vaddr
+	// 					      + sizeof(struct
+	// 						       ethernet_header)
+	// 					      + sizeof(struct
+	// 						       ipv4_header));
 
-				//    ethernet
-				memcopy(eth_reply->dest_mac, eth->src_mac, 6);
-				memcopy(eth_reply->src_mac, my_mac, 6);
-				eth_reply->ethertype = vxNtohs(0x0800);
+	// 			//    ethernet
+	// 			memcopy(eth_reply->dest_mac, eth->src_mac, 6);
+	// 			memcopy(eth_reply->src_mac, my_mac, 6);
+	// 			eth_reply->ethertype = vxNtohs(0x0800);
 
-				// ipv4
-				memcopy(ip_reply, ip, ihl * 4);
+	// 			// ipv4
+	// 			memcopy(ip_reply, ip, ihl * 4);
 
-				ip_reply->src_ip = ip->dst_ip;
-				ip_reply->dst_ip = ip->src_ip;
-				ip_reply->ttl = 64;
-				ip_reply->checksum = 0;
+	// 			ip_reply->src_ip = ip->dst_ip;
+	// 			ip_reply->dst_ip = ip->src_ip;
+	// 			ip_reply->ttl = 64;
+	// 			ip_reply->checksum = 0;
 
-				// icmp
-				memcopy(icmp_reply, icmp, icmp_len);
+	// 			// icmp
+	// 			memcopy(icmp_reply, icmp, icmp_len);
 
-				icmp_reply->type = 0; // echo reply
-				icmp_reply->checksum = 0;
+	// 			icmp_reply->type = 0; // echo reply
+	// 			icmp_reply->checksum = 0;
 
-				// checksum
-				icmp_reply->checksum = checksum16_adc(
-					(uint16_t*) icmp_reply, icmp_len);
-				ip_reply->checksum = checksum16_adc(
-					(uint16_t*) ip_reply, ihl * 4);
+	// 			// checksum
+	// 			icmp_reply->checksum = checksum16_adc(
+	// 				(uint16_t*) icmp_reply, icmp_len);
+	// 			ip_reply->checksum = checksum16_adc(
+	// 				(uint16_t*) ip_reply, ihl * 4);
 
-				// send
-				// nic->ops->send((void*) paddr, size);
+	// 			// send
+	// 			// nic->ops->send((void*) paddr, size);
 
-				ioforge_dma_free((void*) paddr, (void*) vaddr,
-						 aligned_size);
-			}
-		}
+	// 			ioforge_dma_free((void*) paddr, (void*) vaddr,
+	// 					 aligned_size);
+	// 		}
+	// 	}
 
-		if (ip->protocol == TCP_PROTOCOL) {
-			LOG2_DEBUG("socket", "TCP Request");
+	// 	if (ip->protocol == TCP_PROTOCOL) {
+	// 		LOG2_DEBUG("socket", "TCP Request");
 
-			struct tcp_header* tcp =
-				(struct tcp_header*) ((uint8_t*) ip
-						      + (ihl * 4));
+	// 		struct tcp_header* tcp =
+	// 			(struct tcp_header*) ((uint8_t*) ip
+	// 					      + (ihl * 4));
 
-			auto port = vxNtohs(tcp->destination_port);
-			LOG2_DEBUG("socket", "TCP request to port : %d", port);
+	// 		auto port = vxNtohs(tcp->destination_port);
+	// 		LOG2_DEBUG("socket", "TCP request to port : %d", port);
 
-			auto syn = tcp->flags & 0x02;
-			auto ack = tcp->flags & 0x10;
-			auto fin = tcp->flags & 0x01;
-			auto rst = tcp->flags & 0x04;
+	// 		auto syn = tcp->flags & 0x02;
+	// 		auto ack = tcp->flags & 0x10;
+	// 		auto fin = tcp->flags & 0x01;
+	// 		auto rst = tcp->flags & 0x04;
 
-			LOG2_DEBUG("socket",
-				   "Syn : %d, Ack : %d, Fin : %d, Rst : %d",
-				   syn, ack, fin, rst);
+	// 		LOG2_DEBUG("socket",
+	// 			   "Syn : %d, Ack : %d, Fin : %d, Rst : %d",
+	// 			   syn, ack, fin, rst);
 
-			if (syn) {
-			}
-		}
-	}
+	// 		if (syn) {
+	// 		}
+	// 	}
+	// }
 
 	if (ethertype == 0x0806) {
 		struct arp_packet* arp =
-			(struct arp_packet*) (rx->data
+			(struct arp_packet*) (rx.data
 					      + sizeof(struct ethernet_header));
 		char ip_buf[16];
 		vxInetNtoa(arp->sender_ip, ip_buf);
@@ -317,16 +329,16 @@ static int socket_receive(socket_t* socket, void* buffer, size_t size) {
 		auto target = arp->target_ip;
 		if (vxInetAddr(MYIP) == target) {
 			LOG2_INFO("ARP", "success targeting me");
-			arp_reply(nic, arp->sender_ip, eth->src_mac);
+			arp_reply(dev, arp->sender_ip, eth->src_mac);
 		}
 	}
 
 	// copy ke buffer user
-	memcopy(buffer, rx->data, n);
+	// setidaknya copy nya hanya di akhir
+	// memcopy(buffer, rx.data, n);
 
-	// advance tail (consume entry)
-	nic->pq_tail = (nic->pq_tail + 1) % PENDING_QUEUE_SIZE;
-
+	// clear rx
+	ioforge_clear_rx_queue(nic, &rx);
 	return n;
 }
 
@@ -338,13 +350,11 @@ socket_set_sockopt(socket_t* socket, uint32_t level, uint32_t optname,
 	case SOL_SOCKET: {
 		switch (optname) {
 		case SO_BINDTODEVICE: {
-			auto nic = IOforgeNICFindByName((char*) optval);
-			if (!nic) {
-				LOG2_ERROR("Socket", "NIC Not found, failed to "
-						     "bind into the socket");
+			auto netdev = lookup_netdev((char*) optval);
+			socket->netdev = netdev;
+			if (!netdev) {
 				return SOCK_ERR_NODEV;
 			}
-			socket->bound_nic = nic;
 			return SOCK_OK;
 			break;
 		}

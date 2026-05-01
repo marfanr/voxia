@@ -52,9 +52,9 @@ void E1000Module::load() {
 	for (int i = 0; i < 0x80; i++)
 		write(0x5200 + i * 4, 0);
 
-	enableInterrupt();
 	initReceiverX();
 	initTransmitterX();
+	enableInterrupt();
 
 	uint32_t tctl = read(0x0400);
 	serial2_printf("TCTL = 0x%x\n", tctl);
@@ -65,8 +65,9 @@ void E1000Module::load() {
 	log(mod, "Successfully Initialized Module");
 }
 
-extern "C" int E1000SendPacketCWrapper(const void* data, size_t len) {
-	int a = instance.sendPacket(data, len);
+extern "C" int
+E1000SendPacketCWrapper(const struct data_template data[], size_t count) {
+	int a = instance.sendPacket(data, count);
 	return a;
 }
 extern "C" int E1000GetMacAddressCWrapper(uint8_t mac[6]) {
@@ -76,6 +77,10 @@ extern "C" int E1000GetMacAddressCWrapper(uint8_t mac[6]) {
 
 extern "C" int E1000ReceivePacketCWraper(void** buffer, size_t* size) {
 	return instance.receivePacket(buffer, size);
+}
+
+extern "C" void E1000StoreBufferToPoolCWrapper(int rx_id, void* vaddr) {
+	instance.storeBufferToPool(rx_id, vaddr);
 }
 
 __attribute__((constructor)) static void e100_constructor() {
@@ -92,6 +97,8 @@ __attribute__((constructor)) static void e100_constructor() {
 	nic->ops->send = E1000SendPacketCWrapper;
 	nic->ops->receive = E1000ReceivePacketCWraper;
 	nic->ops->get_mac_address = E1000GetMacAddressCWrapper;
+	nic->ops->storeBufferToPool = E1000StoreBufferToPoolCWrapper;
+
 	nic->pq_head = nic->pq_tail = 0;
 
 	E1000Module::getInstance()->setNIC(nic);

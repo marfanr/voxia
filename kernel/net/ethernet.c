@@ -1,25 +1,19 @@
 #include "ethernet.h"
-#include "ioforge/ioforge.h"
 #include "ioforge/ioforge_nic.h"
 #include "libk/serial.h"
 #include "libk/str.h"
+#include "net/netdev.h"
 #include <memory/memory_utils.h>
 
 // TODO: handle race condition jika dipanggil di scheduler
-void ethernet_send_frame(struct ioforge_nic_service* nic,
-			 struct netbuff* netbuff, uint16_t ethertype,
-			 const uint8_t dst_mac[6]) {
+void ethernet_send_frame(netdev_t* dev, struct netbuff* netbuff,
+			 uint16_t ethertype, const uint8_t dst_mac[6]) {
 
-	uint8_t self_mac[6];
-	if (!nic->ops->get_mac_address(self_mac)) {
-		LOG2_ERROR("Ethernet", "Failed to get MAC address");
-		return;
-	}
 	struct ethernet_header* eth = (struct ethernet_header*) netbuff_push(
 		netbuff, sizeof(struct ethernet_header));
 
 	memcopy((void*) eth->dest_mac, (void*) dst_mac, 6);
-	memcopy((void*) eth->src_mac, (void*) self_mac, 6);
+	memcopy((void*) eth->src_mac, (void*) dev->mac, 6);
 	eth->ethertype = ethertype;
 
 	if (netbuff->length < 60) {
@@ -37,5 +31,6 @@ void ethernet_send_frame(struct ioforge_nic_service* nic,
 					 .len = netbuff->length,
 					 .wait_next_data = false};
 
-	nic->ops->send(data, 1);
+	//  TODO di dev ada ops sendiri buat send tidak langsung ke nic
+	dev->nic->ops->send(data, 1);
 }
