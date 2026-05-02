@@ -147,24 +147,6 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 	LOG_INFO("PCI", "device id : 0x%x", pci->device_id);
 	LOG_INFO("PCI", "vendor id : 0x%x", pci->vendor_id);
 	pci->command = pci_read16(bus, device, func, 4);
-	// turn on bus mastering
-
-	// sementara untuk e1000 saja
-	// if (pci->vendor_id == 0x8086 && pci->device_id == 0x100C) {
-	if (pci->vendor_id == 0x8086 && pci->device_id == 0x10D3) {
-		auto cmd = pci->command;
-		cmd |= (1 << 2); // Bus Master
-		// cmd |= (1 << 1);   // Memory Space
-		// cmd |= ~(1 << 10); // Memory Space
-		pci_write16(bus, device, func, 4, cmd);
-
-		// check
-		cmd = pci_read16(bus, device, func, 4);
-		auto bus_master = (cmd & (1 << 2)) >> 2;
-		auto memory_space = (cmd & (1 << 1)) >> 1;
-		LOG_INFO("PCI", "bus master : %d", bus_master);
-		LOG_INFO("PCI", "memory space : %d", memory_space);
-	}
 
 	pci->status = pci_read16(bus, device, func, 6);
 	if ((pci->status & (1 << 4))) {
@@ -257,6 +239,24 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 		pci_write16(bus, device, func, 0x04, cmd); // restore
 	}
 
+	// turn on bus mastering
+	// sementara untuk e1000 saja
+	// if (pci->vendor_id == 0x8086 && pci->device_id == 0x100C) {
+	if (pci->vendor_id == 0x8086 && pci->device_id == 0x10D3) {
+		auto cmd = pci->command;
+		cmd |= (1 << 2); // Bus Master
+		// cmd |= (1 << 1);   // Memory Space
+		// cmd |= ~(1 << 10); // Memory Space
+		pci_write16(bus, device, func, 4, cmd);
+
+		// check
+		cmd = pci_read16(bus, device, func, 4);
+		auto bus_master = (cmd & (1 << 2)) >> 2;
+		auto memory_space = (cmd & (1 << 1)) >> 1;
+		LOG_INFO("PCI", "bus master : %d", bus_master);
+		LOG_INFO("PCI", "memory space : %d", memory_space);
+	}
+
 	uint32_t cardbus_cis_pointer =
 		pci_read16(bus, device, func, 41) & 0xFFFF;
 	cardbus_cis_pointer |= pci_read16(bus, device, func, 43) << 16;
@@ -268,6 +268,8 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 	// pci->capability_ptr    = pci_read16(bus, device, func, 52);
 	uint8_t interrupt_line = pci_read16(bus, device, func, 60) & 0xFF;
 	uint8_t interrupt_pin = pci_read16(bus, device, func, 60) >> 8;
+	LOG_INFO("PCI", "intr line 0x%2x, intr pin : 0x%1x", interrupt_line,
+		 interrupt_pin);
 	uint8_t min_grant = pci_read16(bus, device, func, 62) & 0xFF;
 	uint8_t max_latency = pci_read16(bus, device, func, 63) & 0xFF;
 
