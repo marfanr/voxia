@@ -68,3 +68,35 @@ uint16_t checksum16_adc(const uint16_t* data, size_t length) {
 
 	return ~sum;
 }
+
+static int u8_to_str(uint8_t val, char* buf) {
+	int i = 0;
+
+	if (val >= 100) {
+		buf[i++] = '0' + (val / 100);
+		val %= 100;
+		buf[i++] = '0' + (val / 10);
+		buf[i++] = '0' + (val % 10);
+	} else if (val >= 10) {
+		buf[i++] = '0' + (val / 10);
+		buf[i++] = '0' + (val % 10);
+	} else {
+		buf[i++] = '0' + val;
+	}
+
+	return i;
+}
+
+char* vxInetNtoa(uint32_t ip, char* buffer) {
+	uint8_t* b = (uint8_t*) &ip;
+	int len = 0;
+
+	for (int i = 0; i < 4; i++) {
+		len += u8_to_str(b[i], buffer + len);
+		if (i < 3)
+			buffer[len++] = '.';
+	}
+
+	buffer[len] = '\0';
+	return buffer;
+}

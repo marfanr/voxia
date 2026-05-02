@@ -33,14 +33,17 @@ struct netdev {
 	netdev_type_t type;
 	char name[NETDEV_NAME_MAX_LEN];
 	uint8_t mac[NIC_MAC_LEN];
+	uint16_t mtu;
 
 	struct ioforge_nic_service* nic;
 	struct netdev_ops* ops;
 
+	uint16_t ip_id_counter;
 	// for hash map colision handling
 	void* next;
 };
 
 int create_netdev(char* name, netdev_type_t type);
 netdev_t* lookup_netdev(char* name);
+uint16_t get_next_ip_id(netdev_t* dev);
 #endif // __NET__NETDEV_H__

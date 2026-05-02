@@ -8,7 +8,7 @@
 #include "net/socket.h"
 #include "netutils.h"
 
-void handle_icmp(netdev_t* dev, struct ipv4_header* ip, uint8_t mac_src[6]) {
+void handle_icmp(netdev_t* dev, struct ipv4_header* ip, uint8_t mac_dst[6]) {
 
 	uint8_t ihl = ip->version_ihl & 0x0F;
 	uint16_t ip_hdr_len = ihl * 4;
@@ -23,40 +23,44 @@ void handle_icmp(netdev_t* dev, struct ipv4_header* ip, uint8_t mac_src[6]) {
 	uint16_t icmp_len = total_len - ip_hdr_len;
 
 	// echo request
-	if (icmp->type == 8) {
-		LOG2_INFO("Socket", "icmp echo detected");
+	char ip_buf[16];
+	vxInetNtoa(ip->src_ip, ip_buf);
 
+	uint16_t frag_field = vxNtohs(ip->flags_fragment);
+
+	// 1. Cek bit "More Fragments" (MF)
+	// Bit ini ada di posisi 0x2000
+	bool has_more_fragments = (frag_field & 0x2000);
+
+	// 2. Cek "Fragment Offset"
+	// Offset ada di 13 bit bawah (0x1FFF)
+	uint16_t fragment_offset = (frag_field & 0x1FFF);
+
+	if (has_more_fragments || fragment_offset > 0) {
+		LOG2_WARN("ICMP", "packet ini terfragmentasi");
+		// TODO: handle reassembly untuk packet besar
+		return;
+	}
+
+	if (icmp->type == 8) {
 		auto nb = create_netbuff();
 
-		// imcp
+		// Alokasi space untuk ICMP payload + header
 		struct icmp_echo* icmp_reply =
 			(struct icmp_echo*) netbuff_put(nb, icmp_len);
 
-		// copy seluruh ICMP (header + data)
+		// Copy data dari ICMP request
 		memcopy(icmp_reply, icmp, icmp_len);
 
-		icmp_reply->type = 0; // echo reply
+		// Ubah jadi Echo Reply
+		icmp_reply->type = 0;
 		icmp_reply->checksum = 0;
 		icmp_reply->checksum =
 			checksum16_adc((uint16_t*) icmp_reply, icmp_len);
 
-		// ip
-		struct ipv4_header* ip_reply =
-			(struct ipv4_header*) netbuff_push(nb, ip_hdr_len);
-
-		// copy header asli (biar version, ihl, tos, flags ikut)
-		memcopy(ip_reply, ip, ip_hdr_len);
-
-		ip_reply->src_ip = ip->dst_ip;
-		ip_reply->dst_ip = ip->src_ip;
-		ip_reply->ttl = 64;
-		ip_reply->total_length = vxHtons(ip_hdr_len + icmp_len);
-
-		ip_reply->checksum = 0;
-		ip_reply->checksum =
-			checksum16_adc((uint16_t*) ip_reply, ip_hdr_len);
-
-		ethernet_send_frame(dev, nb, vxHtons(ETHER_TYPE_IP), mac_src);
+		// Kirim ke layer IP
+		ipv4_send(dev, nb, ip->src_ip, 1,
+			  mac_dst); // 1 adalah protokol ICMP
 
 		free_netbuff(nb);
 	}

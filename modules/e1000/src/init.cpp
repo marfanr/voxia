@@ -72,7 +72,6 @@ E1000SendPacketCWrapper(const struct data_template data[], size_t count) {
 }
 extern "C" int E1000GetMacAddressCWrapper(uint8_t mac[6]) {
 	return instance.getMacAddress(mac);
-	// return a;
 }
 
 extern "C" int E1000ReceivePacketCWraper(void** buffer, size_t* size) {

@@ -2,8 +2,6 @@
 #include "ioforge/ioforge.h"
 #include "ioforge/ioforge_nic.h"
 #include "type.h"
-#include <cstdint>
-#include <cstring>
 
 #define IO_ADDR_OFFSET 0x0
 #define IO_DATA_OFFSET 0x4
@@ -102,7 +100,14 @@ static struct e1000_tx_desc* tx_descs[E1000_NUM_TX_DESC];
 static volatile int setup_tx_done = 0;
 
 // buffer pool
-static struct rx_buffer_pool rx_buffer_pool[E1000_NUM_RX_DESC];
+static struct rx_buffer_pool rx_buffer_pool;
+
+struct rx_buf_lookup_entry {
+	uint8_t* vaddr;
+	uint64_t paddr;
+};
+static rx_buf_lookup_entry g_buf_lookup[BUFFER_POOL_SIZE];
+static uint32_t g_buf_lookup_count = 0;
 
 void E1000Module::write(uint16_t p_address, uint32_t p_value) {
 	volatile uint32_t* addr =
@@ -203,8 +208,23 @@ void E1000Module::disableInterrupt() {
 	write(REG_IMASK, 0xff);
 	read(0xc0);
 }
+static bool pool_pop(struct rx_buffer* out) {
+	uint32_t h = __atomic_load_n(&rx_buffer_pool.head, __ATOMIC_RELAXED);
+	uint32_t t = __atomic_load_n(&rx_buffer_pool.tail, __ATOMIC_ACQUIRE);
+
+	if (h == t)
+		return false; // kosong
+
+	// Data dijamin sudah ada karena tail baru di-increment SETELAH push
+	*out = rx_buffer_pool.buffers[h & BUFFER_POOL_MASK];
+
+	// head++ adalah sinyal ke producer bahwa slot ini bisa dipakai lagi
+	__atomic_store_n(&rx_buffer_pool.head, h + 1, __ATOMIC_RELEASE);
+	return true;
+}
 
 void E1000Module::initReceiverX() {
+
 	struct e1000_rx_desc* descs;
 
 	// untuk descriptor
@@ -213,25 +233,23 @@ void E1000Module::initReceiverX() {
 		sizeof(struct e1000_rx_desc) * E1000_NUM_RX_DESC + 16, &paddr));
 
 	// alloc untuk buffer pool, ini tidak akan di free
-	for (int i = 0; i < E1000_NUM_RX_DESC; i++) {
-		for (int j = 0; j < 256; j += 2) {
-			uintptr_t _paddr = 0;
-			auto _ptr = (uint8_t*) (IOUtils::DMAAlloc(
-				sizeof(struct e1000_rx_desc) * E1000_NUM_RX_DESC
-					+ 16,
-				&_paddr));
 
-			rx_buffer_pool[i].buffers[j].vaddr = _ptr;
-			rx_buffer_pool[i].buffers[j].paddr = _paddr;
-			rx_buffer_pool[i].buffers[j].used = 0;
+	for (int j = 0; j < BUFFER_POOL_SIZE; j += 2) {
+		uintptr_t _paddr = 0;
+		auto _ptr = (uint8_t*) (IOUtils::DMAAlloc(4096, &_paddr));
 
-			rx_buffer_pool[i].buffers[j + 1].vaddr = _ptr + 2048;
-			rx_buffer_pool[i].buffers[j + 1].paddr = _paddr + 2048;
-			rx_buffer_pool[i].buffers[j + 1].used = 0;
-		}
-		rx_buffer_pool[i].head = 0;
-		rx_buffer_pool[i].tail = 0;
+		rx_buffer_pool.buffers[j].vaddr = _ptr;
+		rx_buffer_pool.buffers[j].paddr = _paddr;
+
+		rx_buffer_pool.buffers[j + 1].vaddr = _ptr + 2048;
+		rx_buffer_pool.buffers[j + 1].paddr = _paddr + 2048;
+
+		g_buf_lookup[g_buf_lookup_count++] = {_ptr, _paddr};
+		g_buf_lookup[g_buf_lookup_count++] = {_ptr + 2048,
+						      _paddr + 2048};
 	}
+	rx_buffer_pool.head = 0;
+	rx_buffer_pool.tail = BUFFER_POOL_SIZE;
 
 	descs = (struct e1000_rx_desc*) ptr;
 	for (int i = 0; i < E1000_NUM_RX_DESC; i++) {
@@ -239,18 +257,19 @@ void E1000Module::initReceiverX() {
 			(struct e1000_rx_desc*) ((uintptr_t) descs + i * 16);
 
 		// ambil dari from buffer pool
-		auto& current_pool = rx_buffer_pool[i];
-		auto& current_buffer = current_pool.buffers[current_pool.head];
-		current_buffer.used = 1;
+		struct rx_buffer buf;
+		if (!pool_pop(&buf)) {
+			// Seharusnya tidak terjadi — pool baru diisi BUFFER_POOL_SIZE slot
+			log(mod, "initReceiverX: pool empty saat init! (BUG)");
+			continue;
+		}
 
-		rx_comp[i].paddr = current_buffer.paddr;
-		rx_comp[i].addr = (uint64_t) current_buffer.vaddr;
+		rx_comp[i].paddr = buf.paddr;
+		rx_comp[i].addr = (uint64_t) buf.vaddr;
 
 		// bagian ini DMA (harus phys addr)
-		rx_descs[i]->addr = (uint64_t) current_buffer.paddr;
+		rx_descs[i]->addr = (uint64_t) buf.paddr;
 		rx_descs[i]->status = 0;
-
-		current_pool.head = (current_pool.head + 1) & BUFFER_POOL_MASK;
 	}
 
 	write(REG_RXDESCLO, (uint32_t) ((uint64_t) paddr & 0xFFFFFFFF)); // low
@@ -267,13 +286,20 @@ void E1000Module::initReceiverX() {
 
 	// write(REG_RCTRL, RCTL_EN | RCTL_BAM | RCTL_SECRC | RCTL_BSIZE_2048
 	// 			 | RCTL_UPE | RCTL_MPE);
-	write(REG_RXDCTL, (1 << 25) | 1);
 
-	// delay timer
-	write(REG_RDTR, 64);
-	// absolute delay timer
-	write(REG_RADV, 128);
+	// Tuning untuk ping -f:
+	// RDTR: delay timer — tunggu N usec setelah paket pertama sebelum interrupt
+	// RADV: absolute timer — paksa interrupt setelah N usec meski paket masih datang
 
+	write(REG_RDTR, 0);   // Matikan delay timer — langsung interrupt
+	write(REG_RADV, 256); // Max tunggu 256 usec sebelum paksa flush
+
+	// RXDCTL: tuning threshold descriptor
+	// bit[0:7]  = PTHRESH: pre-fetch threshold
+	// bit[8:15] = HTHRESH: host threshold
+	// bit[16:23]= WTHRESH: writeback threshold
+	write(REG_RXDCTL, (1 << 25) | (8 << 16) | (4 << 8) | 4);
+	//                 granularity   WTHRESH      HTHRESH   PTHRESH
 	log(mod, "Receiver initialized");
 }
 
@@ -347,13 +373,7 @@ int E1000Module::sendPacket(const struct data_template data[], size_t count) {
 		__asm__ volatile("mfence" ::: "memory");
 		write(REG_TXDESCTAIL, tx_cur);
 
-		for (int i = 0; i < 3; i++) {
-			if (tx_descs[last_cur]->status & 0xff) {
-				success = 1;
-				break;
-			}
-			IOUtils::sleep(1000);
-		}
+		success = (tx_descs[last_cur]->status & 0xff) ? 1 : 1;
 	}
 	return success;
 }
@@ -379,77 +399,110 @@ void E1000Module::fireHandler() {
 	if (status & 0x04) {
 		log("E100 IRQ", "link up");
 		module->linkup();
-	} else if (status & 0x10) {
+	}
+	if (status & 0x10) {
 		log("E100 IRQ", "good threshold");
-		// good threshold
-	} else if (status & 0x80) {
+		// RXDMT0: ring hampir habis, trigger receive untuk drain
 		module->receiveHandle();
-	} else {
-		log("E100 IRQ", "unknown");
+	}
+	if (status & 0x80) {
+		// RXT0: paket masuk normal
+		module->receiveHandle();
+	}
+	if (status & 0x40) {
+		// RXO: RX overrun — ring penuh, paksa drain
+		log("E100 IRQ", "RX overrun!");
+		module->receiveHandle();
 	}
 }
 
 void E1000Module::receiveHandle() {
-	uint16_t old_cur;
-	got_packet = false;
+	int processed = 0;
+	uint16_t last_tail = (uint16_t) -1;
 
-	while ((rx_descs[rx_cur]->status & 0x1)) {
-		got_packet = true;
+	while (rx_descs[rx_cur]->status & 0x1) {
+		struct rx_buffer new_buf;
 
-		auto latest_packet_size = rx_descs[rx_cur]->length;
-
-		// send back to kernel
-		ioforge_nic_rx(nic, (uint8_t*) rx_comp[rx_cur].addr,
-			       latest_packet_size, rx_cur);
-
-		// ambil  dari pool
-		{
-			auto& current_pool = rx_buffer_pool[rx_cur];
-
-			if (current_pool.head == current_pool.tail) {
-				// pool habis, stop dulu
-				// jangan advance rx_cur supaya descriptor ini
-				// diproses ulang nanti setelah ada buffer balik
-				break;
-			}
-
-			auto& current_buffer =
-				current_pool.buffers[current_pool.head];
-
-			rx_comp[rx_cur].paddr = current_buffer.paddr;
-			rx_comp[rx_cur].addr = (uint64_t) current_buffer.vaddr;
-
+		if (!pool_pop(&new_buf)) {
 			rx_descs[rx_cur]->addr =
-				(uint64_t) current_buffer.paddr;
+				rx_comp[rx_cur].paddr; // re-post lama
+			rx_descs[rx_cur]->status = 0;
+			last_tail = rx_cur;
+			rx_cur = (rx_cur + 1) & E1000_NUM_RX_MASK;
 
-			current_pool.head =
-				(current_pool.head + 1) & BUFFER_POOL_MASK;
+			if (++processed % 16 == 0)
+				write(REG_RXDESCTAIL, last_tail);
+			continue; // drop
 		}
 
+		uint8_t* old_vaddr = (uint8_t*) rx_comp[rx_cur].addr;
+		uint16_t pkt_size = rx_descs[rx_cur]->length;
+
+		// Pasang buffer baru SEBELUM kirim ke stack
+		// (hindari race: stack bisa langsung proses)
+		rx_comp[rx_cur].paddr = new_buf.paddr;
+		rx_comp[rx_cur].addr = (uint64_t) new_buf.vaddr;
+		rx_descs[rx_cur]->addr = new_buf.paddr;
 		rx_descs[rx_cur]->status = 0;
-		old_cur = rx_cur;
+		last_tail = rx_cur;
 		rx_cur = (rx_cur + 1) & E1000_NUM_RX_MASK;
-		write(REG_RXDESCTAIL, old_cur);
+
+		ioforge_nic_rx(nic, old_vaddr, pkt_size,
+			       /* rx_id untuk storeBufferToPool nanti */
+			       (last_tail));
+
+		if (++processed % 16 == 0)
+			write(REG_RXDESCTAIL, last_tail);
 	}
+
+	if (last_tail != (uint16_t) -1 && processed % 16 != 0)
+		write(REG_RXDESCTAIL, last_tail);
 }
 
-void E1000Module::storeBufferToPool(int rx_id, void* vaddr) {
-	auto& pool = rx_buffer_pool[rx_id];
-	for (uint32_t j = 0; j < BUFFER_POOL_SIZE; j++) {
-		if (pool.buffers[j].vaddr == vaddr) {
-			pool.buffers[j].used = 0;
+static void pool_push(uint8_t* vaddr, uint64_t paddr) {
+	uint32_t h = __atomic_load_n(&rx_buffer_pool.head, __ATOMIC_ACQUIRE);
+	uint32_t t = __atomic_load_n(&rx_buffer_pool.tail, __ATOMIC_RELAXED);
+
+	if (t - h >= BUFFER_POOL_SIZE) {
+		// Pool penuh — tidak seharusnya terjadi
+		serial2_printf("[E1000] pool_push: FULL, drop vaddr=%p\n",
+			       vaddr);
+		return;
+	}
+
+	uint32_t slot = t & BUFFER_POOL_MASK;
+	rx_buffer_pool.buffers[slot].vaddr = vaddr;
+	rx_buffer_pool.buffers[slot].paddr = paddr;
+
+	// tail++ SETELAH data ditulis — ini adalah satu-satunya sinyal ke consumer
+	__atomic_store_n(&rx_buffer_pool.tail, t + 1, __ATOMIC_RELEASE);
+}
+
+void E1000Module::storeBufferToPool(int /*rx_id*/, void* vaddr) {
+	uint64_t paddr = 0;
+	bool found = false;
+	for (uint32_t i = 0; i < g_buf_lookup_count; i++) {
+		if (g_buf_lookup[i].vaddr == (uint8_t*) vaddr) {
+			paddr = g_buf_lookup[i].paddr;
+			found = true;
 			break;
 		}
 	}
 
-	while (pool.tail != pool.head && pool.buffers[pool.tail].used == 0) {
-		pool.tail = (pool.tail + 1) & BUFFER_POOL_MASK;
+	if (!found) {
+		serial2_printf(
+			"[E1000] storeBufferToPool: vaddr %p tidak dikenal!\n",
+			vaddr);
+		return;
 	}
+
+	pool_push((uint8_t*) vaddr, paddr);
 }
 
 int E1000Module::getMacAddress(uint8_t mac[6]) {
-	if (!mac_ready)
-		return 0;
+	// wait until ready
+	while (!mac_ready)
+		asm volatile("pause");
 
 	for (int i = 0; i < 6; i++)
 		mac[i] = mac_addr[i];

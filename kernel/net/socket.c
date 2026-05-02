@@ -31,38 +31,6 @@ INIT(Socket) {
 	socket_ops->bind = socket_bind;
 }
 
-static int u8_to_str(uint8_t val, char* buf) {
-	int i = 0;
-
-	if (val >= 100) {
-		buf[i++] = '0' + (val / 100);
-		val %= 100;
-		buf[i++] = '0' + (val / 10);
-		buf[i++] = '0' + (val % 10);
-	} else if (val >= 10) {
-		buf[i++] = '0' + (val / 10);
-		buf[i++] = '0' + (val % 10);
-	} else {
-		buf[i++] = '0' + val;
-	}
-
-	return i;
-}
-
-char* vxInetNtoa(uint32_t ip, char* buffer) {
-	uint8_t* b = (uint8_t*) &ip;
-	int len = 0;
-
-	for (int i = 0; i < 4; i++) {
-		len += u8_to_str(b[i], buffer + len);
-		if (i < 3)
-			buffer[len++] = '.';
-	}
-
-	buffer[len] = '\0';
-	return buffer;
-}
-
 void vxSocket(sock_family_t family, sock_type_t type, uint16_t protocol,
 	      socket_t** socket) {
 	// kalau belum ada cache buat dulu
@@ -113,7 +81,6 @@ static int socket_receive(socket_t* socket, void* buffer, size_t size) {
 	struct ethernet_header* eth = (struct ethernet_header*) rx.data;
 
 	uint16_t ethertype = vxHtons(eth->ethertype);
-	serial2_printf("ether type 0x%x\n", ethertype);
 
 	if (ethertype == ETHER_TYPE_IP) {
 		struct ipv4_header* ip =
@@ -124,8 +91,8 @@ static int socket_receive(socket_t* socket, void* buffer, size_t size) {
 		char ip_buf[16];
 		vxInetNtoa(ip->src_ip, ip_buf);
 
-		LOG2_DEBUG("socket", "terdeteksi packet ipv4 dengan type : %d",
-			   ip->protocol);
+		// LOG2_DEBUG("socket", "terdeteksi packet ipv4 dengan type : %d",
+		// 	   ip->protocol);
 
 		// uint8_t ihl = ip->version_ihl & 0x0F; // panjang header (/32)
 

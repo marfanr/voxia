@@ -18,6 +18,6 @@ struct ipv4_header {
 	uint32_t dst_ip;
 } __attribute__((packed));
 
-void ipv4_send(netdev_t* dev, struct netbuff* netbuff, uint32_t dst_ip,
-	       uint16_t protocol);
+void ipv4_send(netdev_t* dev, struct netbuff* nb, uint32_t dst_ip,
+	       uint8_t protocol, uint8_t mac_dest[6]);
 #endif

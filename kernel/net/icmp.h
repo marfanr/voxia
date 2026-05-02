@@ -22,5 +22,5 @@ struct icmp_echo {
 	uint8_t data[]; // payload (opsional, variabel)
 } __attribute__((packed));
 
-void handle_icmp(netdev_t* dev, struct ipv4_header* ip, uint8_t mac_src[6]);
+void handle_icmp(netdev_t* dev, struct ipv4_header* ip, uint8_t mac_dst[6]);
 #endif // __NET__ICMP_H__

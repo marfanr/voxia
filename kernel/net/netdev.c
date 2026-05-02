@@ -31,6 +31,9 @@ int create_netdev(char* name, netdev_type_t type) {
 	auto netdev = (struct netdev*) vxSlabAlloc(netdev_cache);
 	memcopy(netdev->name, name, strlen(name));
 
+	// TODO
+	netdev->mtu = 15000;
+
 	netdev->is_up = false;
 	netdev->type = type;
 
@@ -92,4 +95,8 @@ static void bind_nic(netdev_t* netdev, struct ioforge_nic_service* nic) {
 	netdev->nic = nic;
 	nic->ops->get_mac_address(netdev->mac);
 	LOG2_INFO("netdev", "netdev mac %x", netdev->mac[0]);
+}
+
+uint16_t get_next_ip_id(netdev_t* dev) {
+	return __atomic_fetch_add(&dev->ip_id_counter, 1, __ATOMIC_RELAXED);
 }

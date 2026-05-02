@@ -14,5 +14,6 @@ static inline uint16_t vxNtohs(uint16_t netshort) {
 uint32_t vxInetAddr(const char* addr);
 
 uint16_t checksum16_adc(const uint16_t* data, size_t length);
+char* vxInetNtoa(uint32_t ip, char* buffer);
 
 #endif // __NET__NETUTILS_H__
