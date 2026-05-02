@@ -438,8 +438,6 @@ void E1000Module::receiveHandle() {
 		uint8_t* old_vaddr = (uint8_t*) rx_comp[rx_cur].addr;
 		uint16_t pkt_size = rx_descs[rx_cur]->length;
 
-		// Pasang buffer baru SEBELUM kirim ke stack
-		// (hindari race: stack bisa langsung proses)
 		rx_comp[rx_cur].paddr = new_buf.paddr;
 		rx_comp[rx_cur].addr = (uint64_t) new_buf.vaddr;
 		rx_descs[rx_cur]->addr = new_buf.paddr;
@@ -447,9 +445,7 @@ void E1000Module::receiveHandle() {
 		last_tail = rx_cur;
 		rx_cur = (rx_cur + 1) & E1000_NUM_RX_MASK;
 
-		ioforge_nic_rx(nic, old_vaddr, pkt_size,
-			       /* rx_id untuk storeBufferToPool nanti */
-			       (last_tail));
+		ioforge_nic_rx(nic, old_vaddr, pkt_size, (last_tail));
 
 		if (++processed % 16 == 0)
 			write(REG_RXDESCTAIL, last_tail);
@@ -464,7 +460,6 @@ static void pool_push(uint8_t* vaddr, uint64_t paddr) {
 	uint32_t t = __atomic_load_n(&rx_buffer_pool.tail, __ATOMIC_RELAXED);
 
 	if (t - h >= BUFFER_POOL_SIZE) {
-		// Pool penuh — tidak seharusnya terjadi
 		serial2_printf("[E1000] pool_push: FULL, drop vaddr=%p\n",
 			       vaddr);
 		return;
@@ -474,7 +469,6 @@ static void pool_push(uint8_t* vaddr, uint64_t paddr) {
 	rx_buffer_pool.buffers[slot].vaddr = vaddr;
 	rx_buffer_pool.buffers[slot].paddr = paddr;
 
-	// tail++ SETELAH data ditulis — ini adalah satu-satunya sinyal ke consumer
 	__atomic_store_n(&rx_buffer_pool.tail, t + 1, __ATOMIC_RELEASE);
 }
 
