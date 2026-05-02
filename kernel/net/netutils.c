@@ -69,6 +69,17 @@ uint16_t checksum16_adc(const uint16_t* data, size_t length) {
 	return ~sum;
 }
 
+uint32_t checksum16_raw(const uint16_t* data, size_t length) {
+	uint32_t sum = 0;
+	while (length >= 2) {
+		sum += *data++;
+		length -= 2;
+	}
+	if (length)
+		sum += *(uint8_t*) data;
+	return sum;
+}
+
 static int u8_to_str(uint8_t val, char* buf) {
 	int i = 0;
 

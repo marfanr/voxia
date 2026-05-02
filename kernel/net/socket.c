@@ -91,16 +91,12 @@ static int socket_receive(socket_t* socket, void* buffer, size_t size) {
 		char ip_buf[16];
 		vxInetNtoa(ip->src_ip, ip_buf);
 
-		// LOG2_DEBUG("socket", "terdeteksi packet ipv4 dengan type : %d",
-		// 	   ip->protocol);
-
-		// uint8_t ihl = ip->version_ihl & 0x0F; // panjang header (/32)
-
 		if (ip->protocol == ICMP_PROTOCOL) {
 			handle_icmp(dev, ip, eth->src_mac);
 		}
 
 		if (ip->protocol == TCP_PROTOCOL) {
+			handle_tcp(dev, ip, eth->src_mac);
 		}
 	}
 
