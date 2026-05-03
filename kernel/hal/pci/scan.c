@@ -107,28 +107,6 @@ void pci_write16(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off,
 // Sekarang: hanya deteksi MSI ada/tidak
 // Yang berguna: actually enable MSI supaya tidak pakai legacy IRQ
 
-void pci_enable_msi(struct ioforge_pci_service* pci, uint8_t vector,
-		    uint8_t cpu, uint8_t cap) {
-	if (!cap)
-		return;
-
-	uint32_t msg_addr = 0xFEE00000 | (cpu << 12);
-	uint16_t msg_data = vector;
-
-	pci_write32(pci->pci_bus, pci->pci_dev, pci->pci_func, cap + 0x4,
-		    msg_addr);
-	pci_write16(pci->pci_bus, pci->pci_dev, pci->pci_func, cap + 0x8,
-		    msg_data);
-
-	// Enable MSI bit
-	uint16_t ctrl = pci_read16(pci->pci_bus, pci->pci_dev, pci->pci_func,
-				   cap + 0x2);
-	pci_write16(pci->pci_bus, pci->pci_dev, pci->pci_func, cap + 0x2,
-		    ctrl | 1);
-
-	LOG_INFO("PCI", "MSI enabled vector=%d cpu=%d", vector, cpu);
-}
-
 static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 	struct ioforge_pci_service* pci = (struct ioforge_pci_service*) kalloc(
 		sizeof(struct ioforge_pci_service));
@@ -154,20 +132,20 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 		pci->capability_ptr = cap_ptr;
 		// LOG_INFO("PCI", "device ada capability list");
 
-		while (cap_ptr != 0 && cap_ptr >= 0x40 && cap_ptr <= 0xFF) {
-			uint8_t cap_id = pci_read8(bus, device, func,
-						   cap_ptr); // ID capability
-			uint8_t next_ptr = pci_read8(
-				bus, device, func,
-				cap_ptr + 1); // pointer ke capability selanjutnya
+		// while (cap_ptr != 0 && cap_ptr >= 0x40 && cap_ptr <= 0xFF) {
+		// 	uint8_t cap_id = pci_read8(bus, device, func,
+		// 				   cap_ptr); // ID capability
+		// 	uint8_t next_ptr = pci_read8(
+		// 		bus, device, func,
+		// 		cap_ptr + 1); // pointer ke capability selanjutnya
 
-			if (cap_id == 05) {
-				LOG_INFO("PCI", "MSI Available");
-				// pci_enable_msi(pci, 0, 0, cap_ptr);
-			}
+		// 	if (cap_id == 05) {
+		// 		LOG_INFO("PCI", "MSI Available");
+		// 		// pci_enable_msi(pci, 0, 0, cap_ptr);
+		// 	}
 
-			cap_ptr = next_ptr;
-		}
+		// 	cap_ptr = next_ptr;
+		// }
 	}
 	pci->revision_id = pci_read16(bus, device, func, 8) & 0xFF;
 	pci->prog_if = (pci_read16(bus, device, func, 8) >> 8) & 0xFF;
@@ -267,9 +245,11 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 	expansion_rom_base_address |= pci_read16(bus, device, func, 50) << 16;
 	// pci->capability_ptr    = pci_read16(bus, device, func, 52);
 	uint8_t interrupt_line = pci_read16(bus, device, func, 60) & 0xFF;
-	uint8_t interrupt_pin = pci_read16(bus, device, func, 60) >> 8;
-	LOG_INFO("PCI", "intr line 0x%2x, intr pin : 0x%1x", interrupt_line,
-		 interrupt_pin);
+	uint8_t interrupt_pin = (pci_read16(bus, device, func, 60) >> 8) & 0xFF;
+	LOG_INFO("PCI", "IRQ %d pin : %d", interrupt_line, interrupt_pin);
+	pci->interrupt_line = interrupt_line;
+	pci->interrupt_pin = interrupt_pin;
+
 	uint8_t min_grant = pci_read16(bus, device, func, 62) & 0xFF;
 	uint8_t max_latency = pci_read16(bus, device, func, 63) & 0xFF;
 

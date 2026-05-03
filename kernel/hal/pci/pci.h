@@ -36,13 +36,18 @@ enum PCI_HEADER_TYPE {
 };
 
 void pci_scan();
-// uint32_t pci_readl(uint8_t bus, uint8_t device, uint8_t func, uint8_t offset);
-// void pci_writel(uint8_t bus, uint8_t device, uint8_t func, uint8_t offset,
-// 		uint32_t value);
 
-// uint16_t pci_readw(uint8_t bus, uint8_t device, uint8_t func, uint8_t offset);
-// uint8_t pci_readb(uint8_t bus, uint8_t device, uint8_t func, uint8_t offset);
-// void pci_writew(uint8_t bus, uint8_t device, uint8_t func, uint8_t offset,
-// 		uint16_t value);
+uint32_t pci_read32(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off);
+uint64_t pci_read64(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off);
+uint16_t pci_read16(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off);
+uint8_t pci_read8(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off);
+void pci_write32(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off,
+		 uint32_t val);
+void pci_write64(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off,
+		 uint64_t val);
+void pci_write16(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off,
+		 uint16_t val);
+void pci_write8(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off,
+		uint8_t val);
 
 #endif // __HAL__PCI__PCI_H_

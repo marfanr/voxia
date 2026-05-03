@@ -1,6 +1,7 @@
 #include "e1000/e1000.hpp"
 #include "ioforge/ioforge.h"
 #include "ioforge/ioforge_nic.hpp"
+#include "ioforge/ioforge_pci.h"
 #include "ioforge/ioforge_pci.hpp"
 #include <ioforge/ioforge.hpp>
 
@@ -19,6 +20,10 @@ E1000Module* E1000Module::getInstance() {
 extern "C" void fireHandler() {
 	log("E1000 IRQ", "ok");
 }
+
+#define IMS_RXQ0 (1 << 20)  // Bit 20: Receive Queue 0
+#define IMS_TXQ0 (1 << 22)  // Bit 22: Transmit Queue 0
+#define IMS_OTHER (1 << 24) // Bit 24: Other Causes (LSC, dll)
 
 void E1000Module::load() {
 	// device = findDevice(0x8086, 0x100C);
@@ -54,14 +59,65 @@ void E1000Module::load() {
 
 	initReceiverX();
 	initTransmitterX();
+
+	serial2_printf("E1000 interrupt line: %d (%d)\n",
+		       device->interrupt_line);
+
+	uint16_t msix_cap = pci_cap_find_msix(device);
+	uint16_t msi_cap = pci_cap_find_msi(device);
+
+	if (msix_cap) {
+		log(mod, "MSI-X Available at cap : 0x%x", msix_cap);
+		auto cpu = coreGetCpuID();
+		auto irq = IOUtils::irq_alloc_entry();
+		IOUtils::irq_register(irq, (void*) E1000Module::fireHandler);
+		pci_enable_msix(device, irq, cpu, msix_cap);
+		// current_irq_mode = INT_MSIX;
+
+		// 1. Konfigurasi CTRL_EXT (0x0018) untuk MSI-X
+		// Bit 24 (EIAME), Bit 27 (IAME), Bit 31 (PBA_CLR)
+		uint32_t ctrl_ext = read(0x0018);
+		ctrl_ext |= (1 << 24) | (1 << 27) | (1u << 31);
+		write(0x0018, ctrl_ext);
+
+		// 2. IVAR (0x00E4):
+		// FORMAT 82574L YANG BENAR: 4-bit per antrean
+		// INTEL 82574 BAB 0.2.4.9
+
+		uint32_t ivar = 0;
+		// RXQ0
+		ivar |= (1 << 3) | 1;
+		// TXQ0
+		ivar |= (1 << 11) | (2 << 8);
+		write(0x00E4, ivar); // Hasilnya akan menjadi 0x0808
+
+		// IVAR_MISC: Other causes (LSC, dll) -> Vector 0
+		// (Bit 3 = Valid, Bit 2:0 = Vector 0)
+		write(0x00E8, (1 << 3) | 0); // Hasilnya akan menjadi 0x0008
+
+		write(0x000DC, IMS_RXQ0 | IMS_TXQ0 | IMS_OTHER);
+
+		read(0x01580);
+		read(0x000C0);
+	}
+
+	else if (msi_cap) {
+		log(mod, "MSI Available at 0x%x", msi_cap);
+		auto irq = IOUtils::irq_alloc_entry();
+		auto cpu = coreGetCpuID();
+		IOUtils::irq_register(irq, (void*) E1000Module::fireHandler);
+		pci_enable_msi(device, irq, cpu, msi_cap);
+	}
+
+	else if (device->interrupt_line) {
+		log(mod, "Using Legacy IRQ");
+
+		auto irq = IOUtils::irq_alloc_entry();
+		IOUtils::isr_map(device->interrupt_line, irq);
+		IOUtils::irq_register(irq, (void*) E1000Module::fireHandler);
+	}
+
 	enableInterrupt();
-
-	uint32_t tctl = read(0x0400);
-	serial2_printf("TCTL = 0x%x\n", tctl);
-
-	IOUtils::isr_map(10, 0x55);
-	IOUtils::irq_register(0x55, (void*) E1000Module::fireHandler);
-
 	log(mod, "Successfully Initialized Module");
 }
 
@@ -74,9 +130,9 @@ extern "C" int E1000GetMacAddressCWrapper(uint8_t mac[6]) {
 	return instance.getMacAddress(mac);
 }
 
-extern "C" int E1000ReceivePacketCWraper(void** buffer, size_t* size) {
-	return instance.receivePacket(buffer, size);
-}
+// extern "C" int E1000ReceivePacketCWraper(void** buffer, size_t* size) {
+// 	return instance.receivePacket(buffer, size);
+// }
 
 extern "C" void E1000StoreBufferToPoolCWrapper(int rx_id, void* vaddr) {
 	instance.storeBufferToPool(rx_id, vaddr);
@@ -94,7 +150,7 @@ __attribute__((constructor)) static void e100_constructor() {
 	IOForge::IOUtils::strcopy((char*) nic->service.name,
 				  (char*) service_name);
 	nic->ops->send = E1000SendPacketCWrapper;
-	nic->ops->receive = E1000ReceivePacketCWraper;
+	// nic->ops->receive = E1000ReceivePacketCWraper;
 	nic->ops->get_mac_address = E1000GetMacAddressCWrapper;
 	nic->ops->storeBufferToPool = E1000StoreBufferToPoolCWrapper;
 

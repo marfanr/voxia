@@ -23,6 +23,10 @@
 #define IMS_RXDMT0 (1 << 4)
 #define IMS_LSC (1 << 2)
 
+#define IMS_RXQ0 (1 << 20)  // Bit 20: Receive Queue 0
+#define IMS_TXQ0 (1 << 22)  // Bit 22: Transmit Queue 0
+#define IMS_OTHER (1 << 24) // Bit 24: Other Causes (LSC, dll)
+
 #define REG_TCTRL 0x0400
 #define REG_TXDESCLO 0x3800
 #define REG_TXDESCHI 0x3804
@@ -92,6 +96,9 @@
 #define TSTA_EC (1 << 1) // Excess Collisions
 #define TSTA_LC (1 << 2) // Late Collision
 #define LSTA_TU (1 << 3) // Transmit Underrun
+
+//
+#define REG_ICR 0x00C0
 
 static struct e1000_rx_desc* rx_descs[E1000_NUM_RX_DESC];
 static struct e1000_rx_comp rx_comp[E1000_NUM_RX_DESC];
@@ -198,9 +205,15 @@ boolean_t E1000Module::syncMacAddress() {
 
 void E1000Module::enableInterrupt() {
 	write(REG_IMASK, 0);
-	read(0x00c0);
-	write(REG_IMASK, IMS_RXT0 | IMS_RXDMT0 | IMS_RXO | IMS_LSC);
-	read(0x00C0); // flush ICR
+	read(REG_ICR);
+
+	// msix
+	// write(REG_IMASK, IMS_LSC);
+
+	// msi
+	// write(REG_IMASK, IMS_RXT0 | IMS_RXDMT0 | IMS_RXO | IMS_LSC);
+	write(REG_IMASK, IMS_RXQ0 | IMS_TXQ0 | IMS_OTHER);
+	read(REG_ICR); // flush ICR
 }
 
 void E1000Module::disableInterrupt() {
@@ -291,15 +304,18 @@ void E1000Module::initReceiverX() {
 	// RDTR: delay timer — tunggu N usec setelah paket pertama sebelum interrupt
 	// RADV: absolute timer — paksa interrupt setelah N usec meski paket masih datang
 
-	write(REG_RDTR, 0);   // Matikan delay timer — langsung interrupt
-	write(REG_RADV, 256); // Max tunggu 256 usec sebelum paksa flush
+	write(REG_RDTR, 0); // Matikan delay timer — langsung interrupt
+	write(REG_RADV, 0); // Max tunggu 256 usec sebelum paksa flush
+	// write(REG_RADV, 256); // Max tunggu 256 usec sebelum paksa flush
 
 	// RXDCTL: tuning threshold descriptor
 	// bit[0:7]  = PTHRESH: pre-fetch threshold
 	// bit[8:15] = HTHRESH: host threshold
 	// bit[16:23]= WTHRESH: writeback threshold
-	write(REG_RXDCTL, (1 << 25) | (8 << 16) | (4 << 8) | 4);
+	// write(REG_RXDCTL, (1 << 25) | (8 << 16) | (4 << 8) | 4);
 	//                 granularity   WTHRESH      HTHRESH   PTHRESH
+
+	write(REG_RXDCTL, (1 << 25));
 	log(mod, "Receiver initialized");
 }
 
@@ -389,22 +405,48 @@ void E1000Module::linkup() {
 	write(REG_CTRL, val);
 }
 
+#define ICR_TXDW (1 << 0)     // Transmit Descriptor Written Back
+#define ICR_TXQE (1 << 1)     // Transmit Queue Empty
+#define ICR_LSC (1 << 2)      // Link Status Change
+#define ICR_RXSEQ (1 << 3)    // Receive Sequence Error
+#define ICR_RXDMT0 (1 << 4)   // RX Descriptor Minimum Threshold
+#define ICR_RXO (1 << 6)      // Receiver Overrun
+#define ICR_RXT0 (1 << 7)     // RX Timer Interrupt
+#define ICR_MDAC (1 << 9)     // MDIO Access Complete
+#define ICR_RXCFG (1 << 10)   // RX /C/ ordered sets detected
+#define ICR_GPI_EN0 (1 << 11) // General Purpose Interrupt 0
+#define ICR_GPI_EN1 (1 << 12) // General Purpose Interrupt 1
+#define ICR_GPI_EN2 (1 << 13) // General Purpose Interrupt 2
+#define ICR_GPI_EN3 (1 << 14) // General Purpose Interrupt 3
+
 void E1000Module::fireHandler() {
+	// log("E100 IRQ", "fire");
 	E1000Module* module = E1000Module::getInstance();
 	if (!module)
 		return;
-	uint32_t status = module->read(0xc0);
-	// log("E100 IRQ", "status 0x%x", status);
+
+	// untuk msi-x langsung
+	module->receiveHandle();
+
+	// check icr
+	uint32_t status = module->read(REG_ICR);
+
+	// if (!(status & (IMS_RXT0 | IMS_RXDMT0 | IMS_RXO | IMS_LSC)))
+	// 	return;
 
 	if (status & 0x04) {
 		log("E100 IRQ", "link up");
 		module->linkup();
 	}
-	if (status & 0x10) {
-		log("E100 IRQ", "good threshold");
-		// RXDMT0: ring hampir habis, trigger receive untuk drain
+
+	if (status & (1 << 20)) {
 		module->receiveHandle();
 	}
+	// Catatan penting MSI-X: Karena fitur EIAC (Auto-Clear) aktif,
+	// terkadang hardware membersihkan ICR lebih cepat dari CPU membacanya.
+	// Jika kondisinya begitu, kamu bisa memaksa panggil receiveHandle()
+	// jika modulmu mencatat current_irq_mode == INT_MSIX.
+
 	if (status & 0x80) {
 		// RXT0: paket masuk normal
 		module->receiveHandle();

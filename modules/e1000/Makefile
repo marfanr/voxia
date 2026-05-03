@@ -20,7 +20,6 @@ CXXFLAGS := -Wall -Wextra -O2 -pipe \
 
 LDFLAGS := -shared -m elf_x86_64
 
-# cari semua file cpp secara rekursif
 SRCS := $(shell find $(SRC_DIR) -type f -name '*.cpp')
 OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(SRCS))
 

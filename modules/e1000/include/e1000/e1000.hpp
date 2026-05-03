@@ -42,7 +42,7 @@ class E1000Module : public IOforgePCI {
 	void load() override;
 	void unload() override;
 	int sendPacket(const struct data_template data[], size_t count);
-	int receivePacket(void** buffer, size_t* size);
+	// int receivePacket(void** buffer, size_t* size);
 	inline void setNIC(struct ioforge_nic_service* nic) {
 		this->nic = nic;
 	}
