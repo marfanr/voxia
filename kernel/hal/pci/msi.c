@@ -46,15 +46,8 @@ void KERNEL_API pci_enable_msi(struct ioforge_pci_service* pci, uint8_t vector,
 	LOG2_INFO("PCI", "MSI enabled vector=%d cpu=%d", vector, cpu);
 }
 
-struct msi_t {
-	uint32_t address_lo;
-	uint32_t address_high;
-	uint32_t data;
-	uint32_t vector;
-} __attribute__((packed)); // <-- INI WAJIB ADA
-
-int KERNEL_API pci_enable_msix(struct ioforge_pci_service* pci, uint8_t vector,
-			       uint8_t cpu, uint8_t cap) {
+uintptr_t KERNEL_API pci_enable_msix(struct ioforge_pci_service* pci,
+				     uint8_t vector, uint8_t cpu, uint8_t cap) {
 	if (!cap)
 		return 0;
 
@@ -89,14 +82,15 @@ int KERNEL_API pci_enable_msix(struct ioforge_pci_service* pci, uint8_t vector,
 
 	__asm__ volatile("mfence" ::: "memory");
 
-	// ✅ Bit 15 = enable, Bit 14 harus 0 (Function Mask OFF)
+	// Bit 15 = enable, Bit 14 harus 0 (Function Mask OFF)
 	pci_write16(pci->pci_bus, pci->pci_dev, pci->pci_func, cap + 0x2,
 		    (ctrl | (1 << 15)) & ~(1 << 14));
 
 	LOG2_INFO("MSIX", "enabled, ctrl=0x%x",
 		  pci_read16(pci->pci_bus, pci->pci_dev, pci->pci_func,
 			     cap + 0x2));
-	return 1;
+
+	return selected_bar;
 }
 
 uint16_t KERNEL_API pci_cap_find_msi(struct ioforge_pci_service* pci) {

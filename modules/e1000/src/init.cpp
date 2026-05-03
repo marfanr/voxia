@@ -80,15 +80,13 @@ void E1000Module::load() {
 		ctrl_ext |= (1 << 24) | (1 << 27) | (1u << 31);
 		write(0x0018, ctrl_ext);
 
-		// 2. IVAR (0x00E4):
+		// 2. IVAR (0x00E4): Mapping RXQ0 dan TXQ0 ke Vector 0
 		// FORMAT 82574L YANG BENAR: 4-bit per antrean
-		// INTEL 82574 BAB 0.2.4.9
-
 		uint32_t ivar = 0;
-		// RXQ0
-		ivar |= (1 << 3) | 1;
-		// TXQ0
-		ivar |= (1 << 11) | (2 << 8);
+		// RXQ0 -> Vector 0 (Bit 3 = Valid, Bit 2:0 = Vector 0)
+		ivar |= (1 << 3) | 0;
+		// TXQ0 -> Vector 0 (Bit 11 = Valid, Bit 10:8 = Vector 0)
+		ivar |= (1 << 11) | (0 << 8);
 		write(0x00E4, ivar); // Hasilnya akan menjadi 0x0808
 
 		// IVAR_MISC: Other causes (LSC, dll) -> Vector 0

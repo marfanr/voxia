@@ -208,11 +208,10 @@ void E1000Module::enableInterrupt() {
 	read(REG_ICR);
 
 	// msix
-	// write(REG_IMASK, IMS_LSC);
+	write(REG_IMASK, IMS_RXQ0 | IMS_TXQ0 | IMS_OTHER);
 
 	// msi
 	// write(REG_IMASK, IMS_RXT0 | IMS_RXDMT0 | IMS_RXO | IMS_LSC);
-	write(REG_IMASK, IMS_RXQ0 | IMS_TXQ0 | IMS_OTHER);
 	read(REG_ICR); // flush ICR
 }
 
@@ -425,7 +424,7 @@ void E1000Module::fireHandler() {
 	if (!module)
 		return;
 
-	// untuk msi-x langsung
+	// untuk msi-x
 	module->receiveHandle();
 
 	// check icr
