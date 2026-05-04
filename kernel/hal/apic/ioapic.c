@@ -11,7 +11,7 @@ static struct irq_gsi_map irq_gsi_table[32] = {0};
 static uintptr_t ioapic_base_addr = 0;
 
 void write_ioapic_register(const uintptr_t apic_base, const uint8_t offset,
-                           const uint32_t val) {
+			   const uint32_t val) {
 	mmio_outl(apic_base, offset);
 	mmio_outl(apic_base + 0x10, val);
 }
@@ -19,6 +19,11 @@ void write_ioapic_register(const uintptr_t apic_base, const uint8_t offset,
 uint32_t read_ioapic_register(const uintptr_t apic_base, const uint8_t offset) {
 	mmio_outl(apic_base, offset);
 	return mmio_inl(apic_base + 0x10);
+}
+
+uint32_t ioapic_isr_get_vector(uint8_t irq) {
+	auto reg = read_ioapic_register(ioapic_base_addr, IOAPICREDTBL(irq));
+	return reg & 0xFF;
 }
 
 void vxIOAPICMapISR(uint8_t irq, uint8_t vector, uint8_t apic_id) {
@@ -34,20 +39,20 @@ void vxIOAPICMapISR(uint8_t irq, uint8_t vector, uint8_t apic_id) {
 	high |= (apic_id << 24);
 
 	// set redirection table
-	write_ioapic_register((uintptr_t)ioapic_base_addr, IOAPICREDTBL(irq),
-	                      low);
-	write_ioapic_register((uintptr_t)ioapic_base_addr,
-	                      IOAPICREDTBL(irq) + 1, high);
+	write_ioapic_register((uintptr_t) ioapic_base_addr, IOAPICREDTBL(irq),
+			      low);
+	write_ioapic_register((uintptr_t) ioapic_base_addr,
+			      IOAPICREDTBL(irq) + 1, high);
 }
 
 void ioapic_setup(uintptr_t ioapic_addr) {
 	ioapic_base_addr = ioapic_addr;
 	// tandai smeua ioapic termasking
 	for (int i = 0; i < 24; i++) {
-		write_ioapic_register((uintptr_t)ioapic_addr, IOAPICREDTBL(i),
-		                      1 << 16);
-		write_ioapic_register((uintptr_t)ioapic_addr,
-		                      IOAPICREDTBL(i) + 1, 0);
+		write_ioapic_register((uintptr_t) ioapic_addr, IOAPICREDTBL(i),
+				      1 << 16);
+		write_ioapic_register((uintptr_t) ioapic_addr,
+				      IOAPICREDTBL(i) + 1, 0);
 	}
 
 	// vxIOAPICMapISR(11, 0x56, 0);
