@@ -1,16 +1,6 @@
 #include "ehci/ehci.hpp"
+#include <ioforge/ioforge_usb.h>
 #include <ioforge/ioforge.hpp>
-
-typedef struct {
-	void (*send)(uint32_t data_phys, size_t size);
-} UsbControllerOp;
-
-typedef struct {
-	const char* name;
-	UsbControllerOp* ops;
-} USBController;
-
-extern "C" void ioforge_register_usb_controller(USBController* c);
 
 IoForgeModuleConstructor(EHCIModule);
 
@@ -78,15 +68,18 @@ extern "C" void sendAsyncCWrapper(uint32_t data_phys, size_t size) {
 	instance.sendAsync(data_phys, size);
 }
 
-// uint64_t sendAsyncWithResponseCWrapper()
-
+// harusnya ini dipanggil sebelum kernel module di load
 __attribute__((constructor)) static void ehci_constructor() {
-	// UsbControllerOp op;
-	// USBController usb_con;
-	// // op.send = sendAsyncCWrapper;
+	// registering controller
+	USBController* usb_controller =
+		(USBController*) IOForge::IOUtils::alloc(sizeof(USBController));
 
-	// usb_con.name = "EHCI";
-	// usb_con.ops = &op;
+	usb_controller->ops.send = sendAsyncCWrapper;
 
-	// ioforge_register_usb_controller(&usb_con);
+	IOForge::IOUtils::strcopy((char*) usb_controller->service.name,
+				  (char*) "EHCI");
+	usb_controller->ops.send = sendAsyncCWrapper;
+
+	instance.set_controller(usb_controller);
+	ioforge_register_usb_controller(usb_controller);
 }

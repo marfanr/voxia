@@ -2,6 +2,7 @@
 #define __EHCI__EHCI_HPP__
 
 #include "ioforge/ioforge_pci.hpp"
+#include "ioforge/ioforge_usb.h"
 #include "type.h"
 
 #define EHCI_VENDOR_ID 0x8086
@@ -68,6 +69,7 @@ class EHCIModule : public IOforgePCI {
 				uint8_t len, uint8_t* data);
 	static void fireHandler();
 	static EHCIModule* getInstance();
+	void set_controller(USBController* controller);
 
       private:
 	ioforge_pci_service* device;
@@ -81,6 +83,8 @@ class EHCIModule : public IOforgePCI {
 
 	uintptr_t qh1_paddr, qh2_paddr;
 	uint32_t* framelist;
+
+	USBController* controller;
 };
 
 /* Interrupt Control */

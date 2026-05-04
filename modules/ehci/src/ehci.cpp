@@ -543,3 +543,7 @@ void EHCIModule::fireHandler() {
 
 	module->ehci_op->usbsts = status;
 }
+
+void EHCIModule::set_controller(USBController* controller) {
+	this->controller = controller;
+}
