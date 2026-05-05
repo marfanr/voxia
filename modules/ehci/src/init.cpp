@@ -25,23 +25,23 @@ void EHCIModule::load() {
 
 	stop_device();
 	reset_device();
+
 	ehci_op->frindex = 0;
 	ehci_op->ctrldssegment = 0;
-
 	ehci_op->usbcmd |= EHCI_1_MICRO_FRAME | (0b00 << 2);
+	ehci_op->configflag = 1;
 
 	start_device();
+	// init_controller();
 
 	hcsparam = (uint32_t*) (bar + 0x4);
 	hccparam = (uint32_t*) (bar + 0x8);
 
 	log(mod, "EHCI is 64 bit : %B", *hccparam & 1);
 
-	ehci_op->configflag = 1;
-
 	log(mod, "EHCI setup done");
 
-	init_periodic();
+	// init_periodic();
 
 	serial2_printf("EHCI interrupt line: %d\n", device->interrupt_line);
 
@@ -71,8 +71,10 @@ extern "C" void sendAsyncCWrapper(uint32_t data_phys, size_t size) {
 // harusnya ini dipanggil sebelum kernel module di load
 __attribute__((constructor)) static void ehci_constructor() {
 	// registering controller
-	USBController* usb_controller =
-		(USBController*) IOForge::IOUtils::alloc(sizeof(USBController));
+	struct ioforge_usb_controller_service* usb_controller =
+		(struct ioforge_usb_controller_service*)
+			IOForge::IOUtils::alloc(
+				sizeof(struct ioforge_usb_controller_service));
 
 	usb_controller->ops.send = sendAsyncCWrapper;
 

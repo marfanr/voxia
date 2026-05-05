@@ -9,22 +9,38 @@
 #define EHCI_DEVICE_ID 0x24cd
 
 struct ehci_operation {
-	volatile uint32_t usbcmd;	    /* USB Command Register */
-	volatile uint32_t usbsts;	    /* USB Status Register */
-	volatile uint32_t usbintr;	    /* USB Interrupt Enable Register */
-	volatile uint32_t frindex;	    /* USB Frame Index Register */
+	volatile uint32_t usbcmd; /* USB Command Register */
+	volatile uint32_t usbsts; /* USB Status Register */
+	/*
+	This register enables and disables reporting of the corresponding interrupt to the software. When a bit is set 
+and the corresponding interrupt is active, an interrupt is generated to the host. Interrupt sources that are 
+disabled in this register still appear in the USBSTS to allow the software to poll for events. 
+	*/
+	volatile uint32_t usbintr; /* USB Interrupt Enable Register */
+	/*
+	This register is used by the host controller to index into the periodic frame list. The register updates every 
+125 microseconds (once each micro-frame). Bits [N:3] are used to select a particular entry in the Periodic 
+Frame List during periodic schedule execution. The number of bits used for the index depends on the size of 
+the frame list as set by system software in the Frame List Size field in the USBCMD register (see Table 2-9). 
+This register must be written as a DWord. Byte writes produce undefined results. This register cannot be 
+written unless the Host Controller is in the Halted state as indicated by the HCHalted bit (USBSTS register 
+Section 2.3.2). A write to this register while the Run/Stop bit is set to a one (USBCMD register, Section 
+2.3.1) produces undefined results. Writes to this register also affect the SOF value. See Section 4.5 for 
+details.
+	*/
+	volatile uint32_t frindex;
 	volatile uint32_t ctrldssegment;    /* 4G Segment Selector */
 	volatile uint32_t periodiclistbase; /* Frame List Base Address */
 	volatile uint32_t asynclistaddr;    /* Next Async List Address */
 	volatile uint32_t reserved[9];	    /* Reserved */
 	volatile uint32_t configflag;	    /* Configure Flag Register */
 	volatile uint32_t portsc[];	    /* Port Status/Control Registers */
-} __attribute__((packed));
+};
 
 struct ehci_queue_head {
-	uint32_t qhlp;		     /* Queue Head Link Pointer */
-	uint32_t ch;		     /* Endpoint Characteristics */
-	uint32_t cap;		     /* Endpoint Capabilities */
+	volatile uint32_t qhlp;	     /* Queue Head Link Pointer */
+	volatile uint32_t ch;	     /* Endpoint Characteristics */
+	volatile uint32_t cap;	     /* Endpoint Capabilities */
 	volatile uint32_t currentTD; /* Current TD Pointer */
 
 	volatile uint32_t nextTD;	/* Next TD Pointer */
@@ -32,6 +48,15 @@ struct ehci_queue_head {
 	volatile uint32_t token;	/* Token */
 	volatile uint32_t buffer[5];	/* Buffer Pointers */
 	volatile uint32_t extbuffer[5]; /* Extended Buffer Pointers */
+
+	// internal (batas yang diakses hardware)
+};
+
+typedef struct ehci_queue_head_node ehci_queue_head_node_t;
+struct ehci_queue_head_node {
+	struct ehci_queue_head* head;
+	uint32_t physaddr;
+	ehci_queue_head_node_t* next;
 };
 
 struct ehci_queue_task_descriptor {
@@ -43,8 +68,21 @@ struct ehci_queue_task_descriptor {
 
 	boolean_t used; /* Whether this QTD is in use */
 	uint32_t next;	/* Next QTD in chain */
+
+	// internal
+	uint32_t physaddr;
+} __attribute__((packed));
+
+typedef struct ehci_queue_task_descriptor_node
+	ehci_queue_task_descriptor_node_t;
+
+struct ehci_queue_task_descriptor_node {
+	struct ehci_queue_task_descriptor* task_descriptor;
+	uint32_t physaddr;
+	ehci_queue_task_descriptor_node_t* next;
 };
 
+//
 class EHCIModule : public IOforgePCI {
       public:
 	EHCIModule();
@@ -63,13 +101,19 @@ class EHCIModule : public IOforgePCI {
 	void
 	send_async_with_response(uint8_t addr, uint32_t data_phys, size_t size,
 				 uint32_t response, size_t response_size);
+	void
+	send_async_with_response2(uint8_t addr, uint32_t data_phys, size_t size,
+				  uint32_t response, size_t response_size);
 	void procces_async(ehci_queue_task_descriptor* qtd);
 	void assign_address(int address);
 	void usb_get_descriptor(uint8_t addr, uint8_t type, uint8_t index,
 				uint8_t len, uint8_t* data);
 	static void fireHandler();
 	static EHCIModule* getInstance();
-	void set_controller(USBController* controller);
+	void set_controller(ioforge_usb_controller_service* controller);
+	void usb_get_string_descriptor(uint8_t addr, uint8_t index, char* data,
+				       size_t size);
+	void init_controller();
 
       private:
 	ioforge_pci_service* device;
@@ -84,7 +128,17 @@ class EHCIModule : public IOforgePCI {
 	uintptr_t qh1_paddr, qh2_paddr;
 	uint32_t* framelist;
 
-	USBController* controller;
+	// cache
+	boolean_t retrieve_qh(ehci_queue_head_node_t* out);
+	boolean_t retrieve_qtd(ehci_queue_task_descriptor_node_t* out);
+	void store_qh(ehci_queue_head_node_t* in);
+	void store_qtd(ehci_queue_task_descriptor_node_t* in);
+
+	// qh utils
+	void push_to_qh(ehci_queue_head_node_t* qh);
+	void pop_from_qh(ehci_queue_head_node_t* qh);
+
+	ioforge_usb_controller_service* controller;
 };
 
 /* Interrupt Control */
