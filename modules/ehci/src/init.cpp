@@ -32,7 +32,7 @@ void EHCIModule::load() {
 	ehci_op->configflag = 1;
 
 	start_device();
-	// init_controller();
+	init_controller();
 
 	hcsparam = (uint32_t*) (bar + 0x4);
 	hccparam = (uint32_t*) (bar + 0x8);
@@ -59,13 +59,18 @@ void EHCIModule::load() {
 	ehci_op->usbintr = (1 << 0) | // USBINT
 			   (1 << 1) | // USBERRINT
 			   (1 << 2);  // PORT CHANGE
+
+	// detect all devices
 	probe();
 
 	log(mod, "Loaded Module");
 }
 
-extern "C" void sendAsyncCWrapper(uint32_t data_phys, size_t size) {
-	instance.sendAsync(data_phys, size);
+extern "C" void
+sendAsyncCWrapper(uint32_t addr, uint32_t data_phys, size_t request_size,
+		  uint32_t response_phys, size_t response_size) {
+	instance.send_async_with_response(addr, data_phys, request_size,
+					  response_phys, response_size);
 }
 
 // harusnya ini dipanggil sebelum kernel module di load

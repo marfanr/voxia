@@ -4,8 +4,6 @@
 #include "ioforge/ioforge_usb.h"
 #include "type.h"
 #include "usb.h"
-#include <stddef.h>
-#include <stdint.h>
 
 #define EHCI_MAX_QH_CACHE 128
 #define EHCI_MAX_QH_CACHE_MASK (EHCI_MAX_QH_CACHE - 1)
@@ -13,27 +11,34 @@
 #define EHCI_MAX_QTD_CACHE_MASK (EHCI_MAX_QTD_CACHE - 1)
 
 // cache
-static ehci_queue_head_node_t qh_cache[EHCI_MAX_QH_CACHE];
-static size_t qh_cache_head = 0;
-static size_t qh_cache_tail = 0;
+static ehci_queue_head_node_t qh_pool[EHCI_MAX_QH_CACHE];
+static uint16_t qh_ring[EHCI_MAX_QH_CACHE]; // isi = index ke pool
+static size_t qh_ring_head = 0;
+static size_t qh_ring_tail = 0;
 
-static ehci_queue_task_descriptor_node_t qtd_cache[EHCI_MAX_QTD_CACHE];
-static size_t qtd_cache_head = 0;
-static size_t qtd_cache_tail = 0;
+static ehci_queue_task_descriptor_node_t qtd_pool[EHCI_MAX_QTD_CACHE];
+static uint16_t qtd_ring[EHCI_MAX_QTD_CACHE]; // isi = index ke pool
+static size_t qtd_ring_head = 0;
+static size_t qtd_ring_tail = 0;
 
 // used qh
 static ehci_queue_head_node_t* main_qh = 0;
 
 void EHCIModule::init_controller() {
 
-	// init cache
+	static_assert(sizeof(ehci_queue_head) % 32 == 0,
+		      "ehci_queue_head must be 32-byte aligned");
+	static_assert(sizeof(ehci_queue_task_descriptor) % 32 == 0,
+		      "ehci_queue_task_descriptor must be 32-byte aligned");
+
+	size_t alloc_count = 0;
+	// init qh
 	{
 		size_t ehci_qh_block_per_alloc =
 			0x1000 / sizeof(ehci_queue_head);
-		size_t alloc_count = 0;
 
 		for (size_t i = 0; i < EHCI_MAX_QH_CACHE;
-		     i += ehci_qh_block_per_alloc) {
+		     i += ehci_qh_block_per_alloc, alloc_count++) {
 
 			uintptr_t physaddr = 0;
 			uintptr_t vaddr = (uintptr_t) IOUtils::DMAAlloc(
@@ -54,18 +59,23 @@ void EHCIModule::init_controller() {
 								   + offset);
 
 				// qh[i+ j]->physaddr = (uint32_t) (physaddr + offset);
-				qh_cache[i + j].head = qh;
-				qh_cache[i + j].physaddr =
+				qh_pool[i + j].head = qh;
+				qh_pool[i + j].physaddr =
 					(uint32_t) (physaddr + offset);
-				qh_cache[i + j].next = 0;
-			}
-			alloc_count++;
-		}
+				qh_pool[i + j].next = 0;
 
+				qh_ring[i + j] = i + j;
+			}
+		}
+		qh_ring_head = 0;
+		qh_ring_tail = EHCI_MAX_QH_CACHE;
+	}
+
+	{
 		size_t ehci_qtd_block_per_alloc =
 			0x1000 / sizeof(ehci_queue_task_descriptor);
 		for (size_t i = 0; i < EHCI_MAX_QTD_CACHE;
-		     i += ehci_qtd_block_per_alloc) {
+		     i += ehci_qtd_block_per_alloc, alloc_count++) {
 
 			uintptr_t physaddr = 0;
 			uintptr_t vaddr = (uintptr_t) IOUtils::DMAAlloc(
@@ -76,8 +86,8 @@ void EHCIModule::init_controller() {
 
 			ioforge_memset((void*) vaddr, 0, 0x1000);
 
-			for (int j = 0; j < ehci_qh_block_per_alloc; j++) {
-				if ((i + j) >= EHCI_MAX_QH_CACHE)
+			for (size_t j = 0; j < ehci_qtd_block_per_alloc; j++) {
+				if ((i + j) >= EHCI_MAX_QTD_CACHE)
 					break;
 
 				uint32_t offset =
@@ -87,39 +97,64 @@ void EHCIModule::init_controller() {
 					 ehci_queue_task_descriptor*) (vaddr
 								       + offset);
 
-				qtd_cache[i + j].physaddr =
+				qtd_pool[i + j].physaddr =
 					(uint32_t) (physaddr + offset);
-				qtd_cache[i + j].task_descriptor = qtd;
-				qtd_cache[i + j].next = 0;
+				qtd_pool[i + j].task_descriptor = qtd;
+				qtd_pool[i + j].next = 0;
+
+				qtd_ring[i + j] = i + j;
 			}
-			alloc_count++;
 		}
 
-		qh_cache_tail = EHCI_MAX_QH_CACHE;
-		qtd_cache_tail = EHCI_MAX_QTD_CACHE;
+		qtd_ring_head = 0;
+		qtd_ring_tail = EHCI_MAX_QTD_CACHE;
 
 		log(mod, "allocate %d Kb for queue cache (%d QH and %d QTD)",
 		    alloc_count * 0x1000 / 1024, EHCI_MAX_QH_CACHE,
 		    EHCI_MAX_QTD_CACHE);
 	}
 
+	// verifikasi allignment
+	// Cek node pertama dan kedua — kalau selisihnya bukan 32 kelipatan, struct salah
+	{
+		uint32_t p0 = qh_pool[0].physaddr;
+		uint32_t p1 = qh_pool[1].physaddr;
+		if ((p1 - p0) % 32 != 0) {
+			log(mod,
+			    "ERROR: QH alignment salah! sizeof=%d, diff=%d",
+			    sizeof(ehci_queue_head), p1 - p0);
+			return;
+		}
+
+		uint32_t q0 = qtd_pool[0].physaddr;
+		uint32_t q1 = qtd_pool[1].physaddr;
+		if ((q1 - q0) % 32 != 0) {
+			log(mod,
+			    "ERROR: qTD alignment salah! sizeof=%d, diff=%d",
+			    sizeof(ehci_queue_task_descriptor), q1 - q0);
+			return;
+		}
+
+		log(mod, "alignment OK — QH stride=%d, qTD stride=%d", p1 - p0,
+		    q1 - q0);
+	}
+
 	// init first queue head
 	ehci_queue_head_node_t* qh_node = 0;
-	if (!retrieve_qh(qh_node))
+	if (!retrieve_qh(&qh_node))
 		return;
 
-	// struct ehci_queue_head* qh = qh_node->head;
+	struct ehci_queue_head* qh = qh_node->head;
+	qh->qhlp = qh_node->physaddr | EHCI_Q_SELECT_QH;
+	qh->altTD = EHCI_QTD_TERMINATE;
+	qh->nextTD = EHCI_QTD_TERMINATE;
+	qh->currentTD = 0;
+	qh->ch |= EHCI_QH_CAP_HEAD_OF_RECLAMATION | 0;
 
-	// qh->qhlp = EHCI_QTD_TERMINATE | EHCI_Q_SELECT_QH;
-	// qh->altTD = EHCI_QTD_TERMINATE;
-	// qh->nextTD = EHCI_QTD_TERMINATE;
-	// qh->currentTD = 0;
-	// qh->ch |= EHCI_QH_CAP_HEAD_OF_RECLAMATION | 0;
-
-	// log(mod, "first qh: 0x%x", qh);
-	// main_qh = qh_node;
-	// ehci_op->asynclistaddr = (uint32_t) (uintptr_t) qh_node->physaddr;
-	// ehci_op->usbcmd |= EHCI_START_ASYNC_SCHEDULE;
+	log(mod, "first qh: 0x%x", qh);
+	main_qh = qh_node;
+	ehci_op->asynclistaddr = (uint32_t) (uintptr_t) qh_node->physaddr;
+	ehci_op->usbcmd |= EHCI_START_ASYNC_SCHEDULE;
 }
 
 void EHCIModule::reset_device() {
@@ -268,20 +303,20 @@ void EHCIModule::probe() {
 			log(mod, "USB Number of Configuration : %d",
 			    dev->bNumConfigurations);
 			log(mod, "USB Vendor ID : %d", dev->idVendor);
-			// char iManufacturer[64] = {0};
-			// usb_get_string_descriptor(addr, dev->iManufacturer,
-			// 			  iManufacturer,
-			// 			  sizeof(iManufacturer));
-			// log(mod, "USB Manufacturer: %s", iManufacturer);
-			// char iProduct[64] = {0};
-			// usb_get_string_descriptor(addr, dev->iProduct, iProduct,
-			// 			  sizeof(iProduct));
-			// log(mod, "USB Product: %s", iProduct);
-			// char iSerialNumber[64] = {0};
-			// usb_get_string_descriptor(addr, dev->iSerialNumber,
-			// 			  iSerialNumber,
-			// 			  sizeof(iSerialNumber));
-			// log(mod, "USB Serial Number: %s", iSerialNumber);
+			char iManufacturer[64] = {0};
+			usb_get_string_descriptor(addr, dev->iManufacturer,
+						  iManufacturer,
+						  sizeof(iManufacturer));
+			log(mod, "USB Manufacturer: %s", iManufacturer);
+			char iProduct[64] = {0};
+			usb_get_string_descriptor(addr, dev->iProduct, iProduct,
+						  sizeof(iProduct));
+			log(mod, "USB Product: %s", iProduct);
+			char iSerialNumber[64] = {0};
+			usb_get_string_descriptor(addr, dev->iSerialNumber,
+						  iSerialNumber,
+						  sizeof(iSerialNumber));
+			log(mod, "USB Serial Number: %s", iSerialNumber);
 
 			uint8_t dev_class = dev->bDeviceClass;
 			uint8_t dev_sub_class = dev->bDeviceSubClass;
@@ -363,8 +398,6 @@ void EHCIModule::probe() {
 
 				for (int k = 0; k < interface->bNumEndpoints;
 				     k++) {
-					// 1. Print semua data untuk endpoint ke-k
-					// Menggunakan 'k' agar log-nya dinamis: [Endpoint 0], [Endpoint 1], dst.
 					log(mod, " [Endpoint %d] length : %d",
 					    k, endpoint->bLength);
 					log(mod, " [Endpoint %d] type : %d", k,
@@ -458,263 +491,159 @@ void EHCIModule::port_reset(int port) {
 	IOUtils::sleep(10);
 }
 
-void EHCIModule::sendAsync(uint32_t data_phys, size_t size) {
-	if (!data_phys || !size) {
-		return;
-	}
-
-	uintptr_t head_phys_addr = 0;
-	struct ehci_queue_head* head =
-		(struct ehci_queue_head*) IOUtils::DMAAlloc(
-			sizeof(struct ehci_queue_head), &head_phys_addr);
-
-	uintptr_t head2_phys_addr = 0;
-	struct ehci_queue_head* head2 =
-		(struct ehci_queue_head*) IOUtils::DMAAlloc(
-			sizeof(struct ehci_queue_head), &head2_phys_addr);
-
-	uintptr_t setup_phys_addr = 0;
-	struct ehci_queue_task_descriptor* setup =
-		(struct ehci_queue_task_descriptor*) IOUtils::DMAAlloc(
-			sizeof(struct ehci_queue_task_descriptor),
-			&setup_phys_addr);
-
-	uintptr_t status_phys_addr = 0;
-	struct ehci_queue_task_descriptor* status =
-		(struct ehci_queue_task_descriptor*) IOUtils::DMAAlloc(
-			sizeof(struct ehci_queue_task_descriptor),
-			&status_phys_addr);
-
-	setup->link = (uint32_t) status_phys_addr;
-	setup->altlink = EHCI_QTD_TERMINATE;
-	setup->token = EHCI_QTD_TOKEN_LENGTH(size);
-	setup->token |= EHCI_QTD_TOKEN_PID_SETUP;
-	setup->token |= EHCI_QTD_TOKEN_STATUS_ACTIVE;
-	setup->token |= EHCI_QTD_TOKEN_ERROR_COUNT_3;
-	setup->buffer[0] = data_phys;
-
-	status->altlink = EHCI_QTD_TERMINATE;
-	status->link = EHCI_QTD_TERMINATE;
-	status->token = EHCI_QTD_TOKEN_PID_IN;
-	status->token |= EHCI_QTD_TOKEN_STATUS_ACTIVE;
-	status->token |= EHCI_QTD_TOKEN_ERROR_COUNT_3;
-	status->token |= EHCI_QTD_TOKEN_DATA;
-	status->token |= (1 << 15);
-
-	head2->altTD = EHCI_QTD_TERMINATE;
-	head2->nextTD = (uint32_t) (uintptr_t) setup_phys_addr;
-	head2->qhlp =
-		((uint32_t) (uintptr_t) head_phys_addr) | EHCI_Q_SELECT_QH;
-	head2->currentTD = 0;
-	head2->ch |= EHCI_QH_CAP_DTC;
-	head2->ch |= EHCI_QH_CAP_MAX_PACKET_LENGTH(16);
-	head2->cap = EHCI_QH_CAP_MULT_1;
-
-	head->qhlp = (uint32_t) head2_phys_addr | EHCI_Q_SELECT_QH;
-	head->altTD = EHCI_QTD_TERMINATE;
-	head->nextTD = EHCI_QTD_TERMINATE;
-	head->currentTD = 0;
-	head->ch |= EHCI_QH_CAP_HEAD_OF_RECLAMATION | 0;
-
-	ehci_op->asynclistaddr = (uint32_t) (uintptr_t) head2_phys_addr;
-
-	is_trasaction_is_running = 1;
-	procces_async(status);
-
-	// TODO : freeing
-}
-
-// will be deprecated
 void EHCIModule::send_async_with_response(uint8_t addr, uint32_t data_phys,
 					  size_t size, uint32_t response,
 					  size_t response_size) {
-
-	if (!data_phys || !size) {
+	if (!data_phys || !size)
 		return;
-	}
 
-	uintptr_t head_phys_addr = 0;
-	struct ehci_queue_head* head =
-		(struct ehci_queue_head*) IOUtils::DMAAlloc(
-			sizeof(struct ehci_queue_head), &head_phys_addr);
+	// Alokasi QH
+	ehci_queue_head_node_t* qh_node;
+	retrieve_qh(&qh_node);
+	uintptr_t qh_phys = qh_node->physaddr;
+	struct ehci_queue_head* qh = qh_node->head;
+	IOUtils::memset(qh, 0, sizeof(struct ehci_queue_head));
 
-	uintptr_t head2_phys_addr = 0;
-	struct ehci_queue_head* head2 =
-		(struct ehci_queue_head*) IOUtils::DMAAlloc(
-			sizeof(struct ehci_queue_head), &head2_phys_addr);
-
-	uintptr_t setup_phys_addr = 0;
+	// Alokasi qTD setup
+	ehci_queue_task_descriptor_node_t* setup_node;
+	retrieve_qtd(&setup_node);
+	uintptr_t setup_phys = setup_node->physaddr;
 	struct ehci_queue_task_descriptor* setup =
-		(struct ehci_queue_task_descriptor*) IOUtils::DMAAlloc(
-			sizeof(struct ehci_queue_task_descriptor),
-			&setup_phys_addr);
+		(struct ehci_queue_task_descriptor*)
+			setup_node->task_descriptor;
+	IOUtils::memset(setup, 0, sizeof(struct ehci_queue_task_descriptor));
 
-	uintptr_t data_phys_addr = 0;
-	struct ehci_queue_task_descriptor* data =
-		(struct ehci_queue_task_descriptor*) IOUtils::DMAAlloc(
-			sizeof(struct ehci_queue_task_descriptor),
-			&data_phys_addr);
-
-	uintptr_t status_phys_addr = 0;
+	// Alokasi qTD status
+	ehci_queue_task_descriptor_node_t* status_node;
+	retrieve_qtd(&status_node);
+	uintptr_t status_phys = status_node->physaddr;
 	struct ehci_queue_task_descriptor* status =
-		(struct ehci_queue_task_descriptor*) IOUtils::DMAAlloc(
-			sizeof(struct ehci_queue_task_descriptor),
-			&status_phys_addr);
+		(struct ehci_queue_task_descriptor*)
+			status_node->task_descriptor;
+	IOUtils::memset(status, 0, sizeof(struct ehci_queue_task_descriptor));
 
-	setup->link = (uint32_t) data_phys_addr;
-	setup->altlink = EHCI_QTD_TERMINATE;
-	setup->token = EHCI_QTD_TOKEN_LENGTH(size);   // setup size
-	setup->token |= EHCI_QTD_TOKEN_STATUS_ACTIVE; // actief
-	setup->token |= EHCI_QTD_TOKEN_PID_SETUP;     // type is setup
-	setup->token |= (0x3 << 10);		      // maxerror
-	setup->buffer[0] = (uint32_t) data_phys;
+	// Bangun chain qTD
+	ehci_queue_task_descriptor_node_t* data_node = 0;
+	if (response && response_size > 0) {
 
-	data->link = (uint32_t) status_phys_addr;
-	data->altlink = (uint32_t) status_phys_addr;
-	// data->altlink = EHCI_QTD_TERMINATE;
-	data->token = (response_size << 16);  // setup size
-	data->token |= (1 << 7);	      // aktif
-	data->token |= (1 << 31);	      // toggle
-	data->token |= EHCI_QTD_TOKEN_PID_IN; // type is in
-	data->token |= (0x3 << 10);	      // maxerror
-	data->buffer[0] = (uint32_t) (uintptr_t) response;
+		retrieve_qtd(&data_node);
+		uintptr_t data_qtd_phys = data_node->physaddr;
+		struct ehci_queue_task_descriptor* data_qtd =
+			(struct ehci_queue_task_descriptor*)
+				data_node->task_descriptor;
+		IOUtils::memset(data_qtd, 0,
+				sizeof(struct ehci_queue_task_descriptor));
 
-	status->altlink = EHCI_QTD_TERMINATE;
-	status->link = EHCI_QTD_TERMINATE;
-	status->token = EHCI_QTD_TOKEN_PID_IN;
-	status->token |= EHCI_QTD_TOKEN_STATUS_ACTIVE;
-	status->token |= EHCI_QTD_TOKEN_ERROR_COUNT_3;
-	status->token |= EHCI_QTD_TOKEN_DATA;
-	status->token |= (1 << 15);
+		// Setup → Data
+		setup->link = (uint32_t) data_qtd_phys;
+		setup->altlink = EHCI_QTD_TERMINATE;
+		setup->token = EHCI_QTD_TOKEN_LENGTH(size);
+		setup->token |= EHCI_QTD_TOKEN_STATUS_ACTIVE;
+		setup->token |= EHCI_QTD_TOKEN_PID_SETUP;
+		setup->token |= EHCI_QTD_TOKEN_ERROR_COUNT_3;
+		setup->buffer[0] =
+			(uint32_t) data_phys; // ← packet setup 8 byte
 
-	// head2->altTD = EHCI_QTD_TERMINATE;
-	// head2->nextTD = (uint32_t) (uintptr_t) setup_phys_addr;
-	// head2->qhlp =
-	// 	((uint32_t) (uintptr_t) head_phys_addr) | EHCI_Q_SELECT_QH;
-	// head2->currentTD = 0;
-	// head2->ch |= EHCI_QH_CAP_DTC;
-	// head2->ch |= EHCI_QH_CAP_MAX_PACKET_LENGTH(64);
-	// head2->ch |= addr;
-	// head2->cap = EHCI_QH_CAP_MULT_1;
+		// Data IN
+		data_qtd->link = (uint32_t) status_phys;
+		data_qtd->altlink = (uint32_t) status_phys;
+		data_qtd->token = EHCI_QTD_TOKEN_LENGTH(response_size);
+		data_qtd->token |= EHCI_QTD_TOKEN_STATUS_ACTIVE;
+		data_qtd->token |= EHCI_QTD_TOKEN_DATA; // DATA1 toggle
+		data_qtd->token |= EHCI_QTD_TOKEN_PID_IN;
+		data_qtd->token |= EHCI_QTD_TOKEN_ERROR_COUNT_3;
+		data_qtd->buffer[0] = (uint32_t) response;
 
-	head2->altTD = EHCI_QTD_TERMINATE;
-	head2->nextTD = (uint32_t) (uintptr_t) setup_phys_addr;
-	head2->qhlp =
-		((uint32_t) (uintptr_t) head_phys_addr) | EHCI_Q_SELECT_QH;
-	head2->currentTD = 0;
-	head2->ch = EHCI_QH_CAP_DTC; // Data Toggle Control (diurus qTD)
-	head2->ch |= EHCI_QH_CAP_MAX_PACKET_LENGTH(64); // 🎯 Fix Max Packet 64
-	head2->ch |= (2 << 12); // 🎯 Fix High-Speed EPS
-	head2->ch |= addr; // Alamat perangkat (biasanya 0 saat awal enumerasi)
-	head2->cap = EHCI_QH_CAP_MULT_1;
+		// Status OUT (kebalikan data IN)
+		status->link = EHCI_QTD_TERMINATE;
+		status->altlink = EHCI_QTD_TERMINATE;
+		status->token = EHCI_QTD_TOKEN_LENGTH(0);
+		status->token |= EHCI_QTD_TOKEN_STATUS_ACTIVE;
+		status->token |= EHCI_QTD_TOKEN_DATA; // DATA1
+		status->token |=
+			EHCI_QTD_TOKEN_PID_OUT; // OUT karena data stage IN
+		status->token |= EHCI_QTD_TOKEN_ERROR_COUNT_3;
+		status->token |= EHCI_QTD_TOKEN_IOC;
 
-	head->qhlp = (uint32_t) head2_phys_addr | EHCI_Q_SELECT_QH;
-	head->altTD = EHCI_QTD_TERMINATE;
-	head->nextTD = EHCI_QTD_TERMINATE;
-	head->currentTD = 0;
-	head->ch = 0;
-	head->ch |= EHCI_QH_CAP_HEAD_OF_RECLAMATION;
-	head->ch |= EHCI_QH_CAP_DTC;
-	head->ch |= EHCI_QH_CAP_MAX_PACKET_LENGTH(64);
-	head->ch |= (2 << 12);
-	head->ch |= 0;
-	// head->ch |= EHCI_QH_CAP_HEAD_OF_RECLAMATION | 0;
+	} else {
+		// Tidak ada data stage (contoh: SET_ADDRESS)
+		// Setup → Status langsung
+		setup->link = (uint32_t) status_phys;
+		setup->altlink = EHCI_QTD_TERMINATE;
+		setup->token = EHCI_QTD_TOKEN_LENGTH(size);
+		setup->token |= EHCI_QTD_TOKEN_STATUS_ACTIVE;
+		setup->token |= EHCI_QTD_TOKEN_PID_SETUP;
+		setup->token |= EHCI_QTD_TOKEN_ERROR_COUNT_3;
+		setup->buffer[0] = (uint32_t) data_phys;
 
-	ehci_op->asynclistaddr = (uint32_t) (uintptr_t) head_phys_addr;
-
-	is_trasaction_is_running = 1;
-	procces_async(status);
-}
-
-void EHCIModule::send_async_with_response2(uint8_t addr, uint32_t data_phys,
-					   size_t size, uint32_t response,
-					   size_t response_size) {
-
-	if (!data_phys || !size) {
-		return;
+		// Status IN (no-data control transfer selalu IN)
+		status->link = EHCI_QTD_TERMINATE;
+		status->altlink = EHCI_QTD_TERMINATE;
+		status->token = EHCI_QTD_TOKEN_LENGTH(0);
+		status->token |= EHCI_QTD_TOKEN_STATUS_ACTIVE;
+		status->token |= EHCI_QTD_TOKEN_DATA;
+		status->token |= EHCI_QTD_TOKEN_PID_IN;
+		status->token |= EHCI_QTD_TOKEN_ERROR_COUNT_3;
+		status->token |= EHCI_QTD_TOKEN_IOC;
 	}
 
-	ehci_queue_head_node_t* head = 0;
-	if (!retrieve_qh(head))
-		return;
+	// ── Bangun QH ────────────────────────────────────────────────────────
+	qh->altTD = EHCI_QTD_TERMINATE;
+	qh->nextTD = (uint32_t) setup_phys;
+	qh->currentTD = 0;
+	qh->ch = EHCI_QH_CAP_DTC;
+	qh->ch |= EHCI_QH_CAP_MAX_PACKET_LENGTH(64);
+	qh->ch |= (2 << 12);	 // EPS = High Speed
+	qh->ch |= (addr & 0x7f); // device address
+	qh->cap = EHCI_QH_CAP_MULT_1;
 
-	ehci_queue_task_descriptor_node_t* setup = 0;
-	if (!retrieve_qtd(setup))
-		return;
+	// ── Insert ke async schedule yang sedang jalan ───────────────────────
+	// Urutan WAJIB: isi qhlp QH baru dulu, barrier, baru patch main_qh
+	struct ehci_queue_head* mq = main_qh->head;
+	uint32_t saved_next = mq->qhlp; // simpan link lama main_qh
 
-	ehci_queue_task_descriptor_node_t* data = 0;
-	if (!retrieve_qtd(data))
-		return;
+	qh->qhlp = saved_next; // QH baru → (dulu penerus main_qh)
+	__sync_synchronize();
+	mq->qhlp = (uint32_t) qh_phys | EHCI_Q_SELECT_QH; // main_qh → QH baru
 
-	// uintptr_t status_phys_addr = 0;
-	// struct ehci_queue_task_descriptor* status =
-	// 	(struct ehci_queue_task_descriptor*) IOUtils::DMAAlloc(
-	// 		sizeof(struct ehci_queue_task_descriptor),
-	// 		&status_phys_addr);
+	// ── Poll sampai status qTD selesai ───────────────────────────────────
+	bool done = false;
+	for (int i = 0; i < 500 && !done; i++) {
+		IOUtils::sleep(10);
 
-	// setup->link = (uint32_t) data_phys_addr;
-	// setup->altlink = EHCI_QTD_TERMINATE;
-	// setup->token = EHCI_QTD_TOKEN_LENGTH(size);   // setup size
-	// setup->token |= EHCI_QTD_TOKEN_STATUS_ACTIVE; // actief
-	// setup->token |= EHCI_QTD_TOKEN_PID_SETUP;     // type is setup
-	// setup->token |= (0x3 << 10);		      // maxerror
-	// setup->buffer[0] = (uint32_t) data_phys;
+		uint32_t tok = status->token;
 
-	// data->link = (uint32_t) status_phys_addr;
-	// data->altlink = (uint32_t) status_phys_addr;
-	// // data->altlink = EHCI_QTD_TERMINATE;
-	// data->token = (response_size << 16);  // setup size
-	// data->token |= (1 << 7);	      // aktif
-	// data->token |= (1 << 31);	      // toggle
-	// data->token |= EHCI_QTD_TOKEN_PID_IN; // type is in
-	// data->token |= (0x3 << 10);	      // maxerror
-	// data->buffer[0] = (uint32_t) (uintptr_t) response;
+		if (tok & EHCI_QTD_TOKEN_STATUS_ACTIVE)
+			continue; // masih jalan
 
-	// status->altlink = EHCI_QTD_TERMINATE;
-	// status->link = EHCI_QTD_TERMINATE;
-	// status->token = EHCI_QTD_TOKEN_PID_IN;
-	// status->token |= EHCI_QTD_TOKEN_STATUS_ACTIVE;
-	// status->token |= EHCI_QTD_TOKEN_ERROR_COUNT_3;
-	// status->token |= EHCI_QTD_TOKEN_DATA;
-	// status->token |= (1 << 15);
+		if (tok & (1 << 6))
+			log(mod, "send_async: HALTED");
+		else if (tok & (1 << 5))
+			log(mod, "send_async: Data Buffer Error");
+		else if (tok & (1 << 4))
+			log(mod, "send_async: Babble");
+		else if (tok & (1 << 3))
+			log(mod, "send_async: Transaction Error");
+		else
+			log(mod, "send_async: OK");
 
-	// // head2->altTD = EHCI_QTD_TERMINATE;
-	// // head2->nextTD = (uint32_t) (uintptr_t) setup_phys_addr;
-	// // head2->qhlp =
-	// // 	((uint32_t) (uintptr_t) head_phys_addr) | EHCI_Q_SELECT_QH;
-	// // head2->currentTD = 0;
-	// // head2->ch |= EHCI_QH_CAP_DTC;
-	// // head2->ch |= EHCI_QH_CAP_MAX_PACKET_LENGTH(64);
-	// // head2->ch |= addr;
-	// // head2->cap = EHCI_QH_CAP_MULT_1;
+		done = true;
+	}
 
-	// head2->altTD = EHCI_QTD_TERMINATE;
-	// head2->nextTD = (uint32_t) (uintptr_t) setup_phys_addr;
-	// head2->qhlp =
-	// 	((uint32_t) (uintptr_t) head_phys_addr) | EHCI_Q_SELECT_QH;
-	// head2->currentTD = 0;
-	// head2->ch = EHCI_QH_CAP_DTC; // Data Toggle Control (diurus qTD)
-	// head2->ch |= EHCI_QH_CAP_MAX_PACKET_LENGTH(64); // 🎯 Fix Max Packet 64
-	// head2->ch |= (2 << 12); // 🎯 Fix High-Speed EPS
-	// head2->ch |= addr; // Alamat perangkat (biasanya 0 saat awal enumerasi)
-	// head2->cap = EHCI_QH_CAP_MULT_1;
+	if (!done)
+		log(mod, "send_async: TIMEOUT");
 
-	// head->qhlp = (uint32_t) head2_phys_addr | EHCI_Q_SELECT_QH;
-	// head->altTD = EHCI_QTD_TERMINATE;
-	// head->nextTD = EHCI_QTD_TERMINATE;
-	// head->currentTD = 0;
-	// head->ch = 0;
-	// head->ch |= EHCI_QH_CAP_HEAD_OF_RECLAMATION;
-	// head->ch |= EHCI_QH_CAP_DTC;
-	// head->ch |= EHCI_QH_CAP_MAX_PACKET_LENGTH(64);
-	// head->ch |= (2 << 12);
-	// head->ch |= 0;
-	// // head->ch |= EHCI_QH_CAP_HEAD_OF_RECLAMATION | 0;
+	// ── Detach QH dari schedule ──────────────────────────────────────────
+	// Bypass: main_qh langsung nunjuk ke penerus QH yang mau dilepas
+	__sync_synchronize();
+	mq->qhlp = qh->qhlp;
 
-	// ehci_op->asynclistaddr = (uint32_t) (uintptr_t) head_phys_addr;
-
-	// is_trasaction_is_running = 1;
-	// procces_async(status);
+	// TODO: DMAFree qh, setup, data_qtd, status setelah doorbell ack
+	store_qh(&qh_node);
+	store_qtd(&setup_node);
+	store_qtd(&status_node);
+	if (data_node)
+		store_qtd(&data_node);
 }
 
 void EHCIModule::procces_async(ehci_queue_task_descriptor* qtd) {
@@ -769,7 +698,11 @@ void EHCIModule::assign_address(int address) {
 	cmd->wLength = 0;
 	log(mod, "cmd : 0x%x", cmd_phys_addr);
 
-	sendAsync((uint32_t) cmd_phys_addr, sizeof(usb_setup_packet));
+	// sendAsync((uint32_t) cmd_phys_addr, sizeof(usb_setup_packet));
+	send_async_with_response(0, (uint32_t) cmd_phys_addr,
+				 sizeof(usb_setup_packet), 0, 0);
+
+	IOUtils::sleep(2);
 }
 
 void EHCIModule::usb_get_descriptor(uint8_t addr, uint8_t type, uint8_t index,
@@ -827,61 +760,85 @@ void EHCIModule::set_controller(ioforge_usb_controller_service* controller) {
 }
 
 // cache
-boolean_t EHCIModule::retrieve_qh(ehci_queue_head_node_t* out) {
-	size_t h = __atomic_load_n(&qh_cache_head, __ATOMIC_ACQUIRE);
-	size_t t = __atomic_load_n(&qh_cache_tail, __ATOMIC_ACQUIRE);
+boolean_t EHCIModule::retrieve_qh(ehci_queue_head_node_t** out) {
+	size_t h, t;
+	do {
+		h = __atomic_load_n(&qh_ring_head, __ATOMIC_ACQUIRE);
+		t = __atomic_load_n(&qh_ring_tail, __ATOMIC_ACQUIRE);
+		if (h == t)
+			return false;
+	} while (!__atomic_compare_exchange_n(&qh_ring_head, &h, h + 1, false,
+					      __ATOMIC_ACQ_REL,
+					      __ATOMIC_ACQUIRE));
 
-	if (h == t) {
-		serial2_printf("retrieve_qh: EMPTY\n");
-		return false;
-	}
-	*out = qh_cache[h & EHCI_MAX_QH_CACHE_MASK];
-
-	__atomic_store_n(&qh_cache_head, h + 1, __ATOMIC_RELEASE);
+	uint16_t idx = qh_ring[h & EHCI_MAX_QH_CACHE_MASK];
+	*out = &qh_pool[idx];
 	return true;
 }
 
-boolean_t EHCIModule::retrieve_qtd(ehci_queue_task_descriptor_node_t* out) {
-	size_t h = __atomic_load_n(&qtd_cache_head, __ATOMIC_ACQUIRE);
-	size_t t = __atomic_load_n(&qtd_cache_tail, __ATOMIC_ACQUIRE);
+boolean_t EHCIModule::retrieve_qtd(ehci_queue_task_descriptor_node_t** out) {
+	size_t h, t;
+	do {
+		h = __atomic_load_n(&qtd_ring_head, __ATOMIC_ACQUIRE);
+		t = __atomic_load_n(&qtd_ring_tail, __ATOMIC_ACQUIRE);
+		if (h == t)
+			return false;
 
-	if (h == t)
-		return false;
-
-	*out = qtd_cache[h & EHCI_MAX_QTD_CACHE_MASK];
-
-	__atomic_store_n(&qtd_cache_head, h + 1, __ATOMIC_RELEASE);
+	} while (!__atomic_compare_exchange_n(&qtd_ring_head, &h, h + 1, false,
+					      __ATOMIC_ACQ_REL,
+					      __ATOMIC_ACQUIRE));
+	uint16_t idx = qtd_ring[h & EHCI_MAX_QTD_CACHE_MASK];
+	*out = &qtd_pool[idx];
 	return true;
 }
 
-void EHCIModule::store_qh(ehci_queue_head_node_t* in) {
-	size_t t = __atomic_load_n(&qh_cache_tail, __ATOMIC_RELAXED);
-	size_t h = __atomic_load_n(&qh_cache_head, __ATOMIC_ACQUIRE);
-
-	if (t - h >= EHCI_MAX_QH_CACHE) {
-		serial2_printf("[EHCI] store_qh: FULL, drop vaddr=%p\n", in);
+void EHCIModule::store_qh(ehci_queue_head_node_t** in) {
+	if (!in || !*in)
 		return;
-	}
 
-	size_t slot = t & EHCI_MAX_QH_CACHE_MASK;
-	qh_cache[slot] = *in;
+	ioforge_memset((*in)->head, 0, sizeof(ehci_queue_head));
 
-	__atomic_store_n(&qh_cache_tail, t + 1, __ATOMIC_RELEASE);
+	uint16_t idx = (uint16_t) ((*in) - &qh_pool[0]); // hitung index
+
+	size_t t, h;
+	do {
+		t = __atomic_load_n(&qh_ring_tail, __ATOMIC_ACQUIRE);
+		h = __atomic_load_n(&qh_ring_head, __ATOMIC_ACQUIRE);
+		if (t - h >= EHCI_MAX_QH_CACHE) {
+			*in = 0;
+			return;
+		}
+	} while (!__atomic_compare_exchange_n(&qh_ring_tail, &t, t + 1, false,
+					      __ATOMIC_ACQ_REL,
+					      __ATOMIC_ACQUIRE));
+
+	qh_ring[t & EHCI_MAX_QH_CACHE_MASK] = idx;
+	*in = 0;
 }
 
-void EHCIModule::store_qtd(ehci_queue_task_descriptor_node_t* in) {
-	size_t h = __atomic_load_n(&qtd_cache_head, __ATOMIC_ACQUIRE);
-	size_t t = __atomic_load_n(&qtd_cache_tail, __ATOMIC_RELAXED);
-
-	if (t - h >= EHCI_MAX_QTD_CACHE) {
-		serial2_printf("[EHCI] store_qh: FULL, drop vaddr=%p\n", in);
+void EHCIModule::store_qtd(ehci_queue_task_descriptor_node_t** in) {
+	if (!in || !*in)
 		return;
-	}
 
-	size_t slot = t & EHCI_MAX_QTD_CACHE_MASK;
-	qtd_cache[slot] = *in;
+	ioforge_memset((*in)->task_descriptor, 0,
+		       sizeof(ehci_queue_task_descriptor));
 
-	__atomic_store_n(&qtd_cache_tail, t + 1, __ATOMIC_RELEASE);
+	uint16_t idx = (uint16_t) ((*in) - &qtd_pool[0]); // hitung index
+
+	size_t t, h;
+	do {
+		t = __atomic_load_n(&qtd_ring_tail, __ATOMIC_ACQUIRE);
+		h = __atomic_load_n(&qtd_ring_head, __ATOMIC_ACQUIRE);
+		if (t - h >= EHCI_MAX_QTD_CACHE) {
+			*in = 0;
+			return;
+		}
+	} while (!__atomic_compare_exchange_n(&qtd_ring_tail, &t, t + 1, false,
+					      __ATOMIC_ACQ_REL,
+					      __ATOMIC_ACQUIRE));
+
+	qtd_ring[t & EHCI_MAX_QTD_CACHE_MASK] = idx;
+	*in = 0;
 }
 
 // hanya software link, tetep perlu atur flag manual

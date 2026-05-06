@@ -49,8 +49,8 @@ struct ehci_queue_head {
 	volatile uint32_t buffer[5];	/* Buffer Pointers */
 	volatile uint32_t extbuffer[5]; /* Extended Buffer Pointers */
 
-	// internal (batas yang diakses hardware)
-};
+	uint32_t _pad[7];
+} __attribute__((aligned(32)));
 
 typedef struct ehci_queue_head_node ehci_queue_head_node_t;
 struct ehci_queue_head_node {
@@ -68,10 +68,7 @@ struct ehci_queue_task_descriptor {
 
 	boolean_t used; /* Whether this QTD is in use */
 	uint32_t next;	/* Next QTD in chain */
-
-	// internal
-	uint32_t physaddr;
-} __attribute__((packed));
+} __attribute__((aligned(32)));
 
 typedef struct ehci_queue_task_descriptor_node
 	ehci_queue_task_descriptor_node_t;
@@ -97,13 +94,11 @@ class EHCIModule : public IOforgePCI {
 	void stop_periodic();
 	void probe();
 	void port_reset(int port);
-	void sendAsync(uint32_t data_phys, size_t size);
+
 	void
 	send_async_with_response(uint8_t addr, uint32_t data_phys, size_t size,
 				 uint32_t response, size_t response_size);
-	void
-	send_async_with_response2(uint8_t addr, uint32_t data_phys, size_t size,
-				  uint32_t response, size_t response_size);
+
 	void procces_async(ehci_queue_task_descriptor* qtd);
 	void assign_address(int address);
 	void usb_get_descriptor(uint8_t addr, uint8_t type, uint8_t index,
@@ -128,15 +123,22 @@ class EHCIModule : public IOforgePCI {
 	uintptr_t qh1_paddr, qh2_paddr;
 	uint32_t* framelist;
 
+	void attach_qh_to_async(ehci_queue_head_node_t* head_node,
+				ehci_queue_head_node_t* main_node);
+
 	// cache
-	boolean_t retrieve_qh(ehci_queue_head_node_t* out);
-	boolean_t retrieve_qtd(ehci_queue_task_descriptor_node_t* out);
-	void store_qh(ehci_queue_head_node_t* in);
-	void store_qtd(ehci_queue_task_descriptor_node_t* in);
+	boolean_t retrieve_qh(ehci_queue_head_node_t** out);
+	boolean_t retrieve_qtd(ehci_queue_task_descriptor_node_t** out);
+	void store_qh(ehci_queue_head_node_t** in);
+	void store_qtd(ehci_queue_task_descriptor_node_t** in);
 
 	// qh utils
 	void push_to_qh(ehci_queue_head_node_t* qh);
 	void pop_from_qh(ehci_queue_head_node_t* qh);
+
+	void wait_async_advance();
+	void detach_qh_from_async(ehci_queue_head_node_t* head_node,
+				  ehci_queue_head_node_t* prev_node);
 
 	ioforge_usb_controller_service* controller;
 };
@@ -200,6 +202,7 @@ class EHCIModule : public IOforgePCI {
 /* QTD Token Bits */
 #define EHCI_QTD_TOKEN_LENGTH(l) (l << 16)
 #define EHCI_QTD_TOKEN_DATA (1 << 31)
+#define EHCI_QTD_TOKEN_IOC (1 << 15)
 
 /* Queue Type Selector */
 enum EHCI_Q_SELECT {
