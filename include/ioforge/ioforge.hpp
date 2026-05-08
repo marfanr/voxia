@@ -1,46 +1,76 @@
 #ifndef __IOFORGE__IOFORGE_HPP__
 #define __IOFORGE__IOFORGE_HPP__
 
-#include "type.h"
+#include "ioforge.h"
+#include <stddef.h>
 
-#define IoForgeModuleConstructor(Class)                                                            \
-    static Class    instance;                                                                      \
-    extern "C" void load()                                                                         \
-    {                                                                                              \
-        instance.load();                                                                           \
-    }
+#define IoForgeModuleConstructor(Class)                                        \
+	static Class instance;                                                 \
+	extern "C" void load() {                                               \
+		instance.load();                                               \
+	}
 
-extern "C" void     serial_printf(const char *fmt, ...);
-extern "C" uint16_t coreGetCpuID();
-#define log(mod, fmt, ...)                                                                         \
-    serial_printf("[INFO][%s][CORE %d] " fmt "\n", mod, coreGetCpuID(), ##__VA_ARGS__)
+#define log(mod, fmt, ...)                                                     \
+	serial2_printf("[INFO][%s][CORE %d] " fmt "\n", mod, coreGetCpuID(),   \
+		       ##__VA_ARGS__)
 
-class IOForge
-{
-  public:
-    IOForge(const char *mod);
-
-    class IOUtils
-    {
+class IOForge {
       public:
-        static void     *DMAAlloc(size_t size, uintptr_t *paddr);
-        static void      DMAFree(void *paddr, void *vaddr, size_t size);
-        static void     *alloc(size_t size);
-        static void      memset(void *ptr, uint8_t value, size_t num);
-        static void      memcpy(void *dst, void *src, size_t num);
-        static void      sleep(uint32_t us);
-        static void      irq_register(uint8_t n, void *handler);
-        static void      isr_map(uint8_t irq, uint8_t vector);
-        static void      strcopy(char *dst, char *src);
-        static uintptr_t mMapPhys(uintptr_t paddr, size_t size);
-    };
+	inline IOForge(const char* mod) : mod(mod) {
+	}
 
-  protected:
-    const char *mod;
+	class IOUtils {
+	      public:
+		// NOTE!: operasi DMA minimal alokasi 1 block (4kb)
+		inline static void* DMAAlloc(size_t size, uintptr_t* paddr) {
+			return ioforge_dma_alloc(size, paddr);
+		}
+		inline static void sleep(uint32_t us) {
+			ioforge_sleep(us);
+		}
+		inline static void isr_map(uint8_t irq, uint8_t vector) {
+			ioforge_map_isr(irq, vector);
+		}
+		inline static uint16_t irq_alloc_entry() {
+			return ioforge_irq_alloc_entry();
+		}
+		inline static void irq_register(uint8_t n, void* handler) {
+			ioforge_irq_register(n, handler);
+		}
+		inline static uint32_t isr_get_vector(uint8_t irq) {
+			return ioforge_isr_get_vector(irq);
+		}
+		inline static void* alloc(size_t size) {
+			return ioforge_alloc(size);
+		}
+		inline static void free(void* ptr, size_t size) {
+			ioforge_free(ptr, size);
+		}
+		inline static void
+		DMAFree(void* paddr, void* vaddr, size_t size) {
+			ioforge_dma_free(paddr, vaddr, size);
+		}
+		inline static void
+		memset(void* ptr, uint8_t value, size_t num) {
+			ioforge_memset(ptr, value, num);
+		}
+		inline static void memcpy(void* dst, void* src, size_t num) {
+			ioforge_memcpy(dst, src, num);
+		}
+		inline static void strcopy(char* dst, char* src) {
+			IOforgeStrCopy(dst, src);
+		}
+		inline static void strncopy(char* dst, char* src, size_t len) {
+			IOforgeStrnCopy(dst, src, len);
+		}
+	};
 
-  private:
+      protected:
+	const char* mod;
+
+	//   private:
 };
 
 // memory allocation
-void *operator new(size_t size);
+// void* operator new(size_t size) { return IOForge::IOUtils::alloc(size); }
 #endif // __IOFORGE__IOFORGE_HPP__

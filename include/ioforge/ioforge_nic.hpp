@@ -4,10 +4,11 @@
 #include "ioforge/ioforge.h"
 #include "ioforge/ioforge_nic.h"
 
-class IoForgeNIC
-{
-  public:
-    static void create(ioforge_nic_service *nic);
+class IoForgeNIC {
+      public:
+	inline static void create(ioforge_nic_service* nic) {
+		ioforge_register_nic(nic);
+	}
 };
 
 #endif // __IOFORGE__IOFORGE_NIC_HPP__
