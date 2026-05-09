@@ -25,7 +25,7 @@ void KERNEL_API ioforge_find_usb_device_by_devclass(
 	if (!ioforge_can_contain_usb_device(node->type))
 		return;
 
-	struct ioforge_usb_service* usb = (struct ioforge_usb_service*) node;
+	struct ioforge_usb_device* usb = (struct ioforge_usb_device*) node;
 	if (usb->class_code == devclass) {
 		callback(usb, ctx);
 	}

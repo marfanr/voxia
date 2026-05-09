@@ -1,4 +1,5 @@
 #include "ehci/ehci.hpp"
+#include "ioforge/ioforge.h"
 #include <ioforge/ioforge_usb.h>
 #include <ioforge/ioforge.hpp>
 
@@ -41,7 +42,7 @@ void EHCIModule::load() {
 
 	log(mod, "EHCI setup done");
 
-	// init_periodic();
+	init_periodic();
 
 	serial2_printf("EHCI interrupt line: %d\n", device->interrupt_line);
 
@@ -53,6 +54,7 @@ void EHCIModule::load() {
 		auto irq = IOUtils::irq_alloc_entry();
 		IOUtils::isr_map(device->interrupt_line, irq);
 		IOUtils::irq_register(irq, (void*) EHCIModule::fireHandler);
+		controller->irq = irq;
 	}
 
 	ehci_op->usbsts = 0x3f;
@@ -67,26 +69,38 @@ void EHCIModule::load() {
 }
 
 extern "C" void
-sendAsyncCWrapper(uint32_t addr, uint32_t data_phys, size_t request_size,
-		  uint32_t response_phys, size_t response_size) {
-	instance.send_async_with_response(addr, data_phys, request_size,
-					  response_phys, response_size);
+send_async_c_wrapper(uint32_t addr, uint8_t endpoint, uint32_t data_phys,
+		     size_t request_size, uint32_t response_phys,
+		     size_t response_size) {
+	instance.send_async_with_response(addr, endpoint, data_phys,
+					  request_size, response_phys,
+					  response_size);
 }
 
-// harusnya ini dipanggil sebelum kernel module di load
+extern "C" void
+get_data_periodic_c_wrapper(uint8_t addr, uint16_t ring, uint8_t endpoint,
+			    uint32_t response, size_t response_size) {
+	instance.get_data_periodic(addr, ring, endpoint, response,
+				   response_size);
+}
+
 __attribute__((constructor)) static void ehci_constructor() {
 	// registering controller
 	struct ioforge_usb_controller_service* usb_controller =
 		(struct ioforge_usb_controller_service*)
 			IOForge::IOUtils::alloc(
 				sizeof(struct ioforge_usb_controller_service));
+	usb_controller->service.type = IOFORGE_USB_CONTROLLER;
 
-	usb_controller->ops.send = sendAsyncCWrapper;
+	usb_controller->ops.send = send_async_c_wrapper;
 
 	IOForge::IOUtils::strcopy((char*) usb_controller->service.name,
 				  (char*) "EHCI");
-	usb_controller->ops.send = sendAsyncCWrapper;
+
+	usb_controller->ops.send = send_async_c_wrapper;
+	usb_controller->ops.get_data_periodic = get_data_periodic_c_wrapper;
 
 	instance.set_controller(usb_controller);
-	ioforge_register_usb_controller(usb_controller);
+
+	ioforge_attach(ioforge_get_usb_ctrl_root(), &usb_controller->service);
 }

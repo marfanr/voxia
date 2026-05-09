@@ -16,14 +16,14 @@ struct UsbControllerOp {
 	void (*send)(uint32_t addr, uint8_t endpoint, uint32_t data_phys,
 		     size_t request_size, uint32_t response_phys,
 		     size_t response_size);
-	void (*put_into_periodic)(uint8_t addr, uint16_t ring, uint8_t endpoint,
-				  uint32_t data_phys, size_t size,
+	void (*get_data_periodic)(uint8_t addr, uint16_t ring, uint8_t endpoint,
 				  uint32_t response, size_t response_size);
 };
 
 struct ioforge_usb_controller_service {
 	struct ioforge_device service;
 	struct UsbControllerOp ops;
+	uint32_t irq;
 };
 
 struct ioforge_usb_endpoint {
@@ -33,7 +33,7 @@ struct ioforge_usb_endpoint {
 	uint8_t interval;    // polling interval (ms, untuk Interrupt/Iso)
 };
 
-struct ioforge_usb_service {
+struct ioforge_usb_device {
 	struct ioforge_device base;
 	const char serial_number[64];
 
@@ -53,12 +53,14 @@ struct ioforge_usb_service {
 
 	struct ioforge_usb_controller_service* controller;
 	struct ioforge_usb_endpoint endpoints[16];
+
+	void* pipe; // InterruptPipe (c++)
 };
 
 struct ioforge_device* ioforge_get_usb_ctrl_root();
 struct ioforge_device* ioforge_get_usb_devices_root();
 
-typedef void (*ioforge_usb_visitor_fn)(struct ioforge_usb_service* dev,
+typedef void (*ioforge_usb_visitor_fn)(struct ioforge_usb_device* dev,
 				       void* ctx);
 
 void ioforge_find_usb_device_by_devclass(struct ioforge_device* node,

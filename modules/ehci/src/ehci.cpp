@@ -1,13 +1,15 @@
+#include "type.h"
+#include "usb.h"
 #include "ehci/ehci.hpp"
 #include "ioforge/ioforge.h"
 #include "ioforge/ioforge.hpp"
+#include "ehci/ehci_pipe.hpp"
 #include "ioforge/ioforge_usb.h"
-#include "type.h"
-#include "usb.h"
+#include <ioforge/ioforge_new.hpp>
 
-#define EHCI_MAX_QH_CACHE 128
+#define EHCI_MAX_QH_CACHE 4096
 #define EHCI_MAX_QH_CACHE_MASK (EHCI_MAX_QH_CACHE - 1)
-#define EHCI_MAX_QTD_CACHE 512
+#define EHCI_MAX_QTD_CACHE 4096
 #define EHCI_MAX_QTD_CACHE_MASK (EHCI_MAX_QTD_CACHE - 1)
 
 // cache
@@ -21,8 +23,11 @@ static uint16_t qtd_ring[EHCI_MAX_QTD_CACHE]; // isi = index ke pool
 static size_t qtd_ring_head = 0;
 static size_t qtd_ring_tail = 0;
 
+// for periodic
+static ehci_queue_head_node_t* framelist_node[1024];
+
 // used qh
-static ehci_queue_head_node_t* main_qh = 0;
+static ehci_queue_head_node_t* main_async_qh = 0;
 
 void EHCIModule::init_controller() {
 
@@ -152,7 +157,7 @@ void EHCIModule::init_controller() {
 	qh->ch |= EHCI_QH_CAP_HEAD_OF_RECLAMATION | 0;
 
 	log(mod, "first qh: 0x%x", qh);
-	main_qh = qh_node;
+	main_async_qh = qh_node;
 	ehci_op->asynclistaddr = (uint32_t) (uintptr_t) qh_node->physaddr;
 	ehci_op->usbcmd |= EHCI_START_ASYNC_SCHEDULE;
 }
@@ -192,13 +197,7 @@ void EHCIModule::start_device() {
 }
 
 void EHCIModule::init_periodic() {
-	log(mod, "EHCI: init_que_hea");
-	uintptr_t qh_phys_addr = 0;
-	struct ehci_queue_head* qh_ =
-		(struct ehci_queue_head*) IOUtils::DMAAlloc(
-			sizeof(struct ehci_queue_head), &qh_phys_addr);
-
-	log(mod, "qh_ : 0x%x (0x%x)", qh_, qh_phys_addr);
+	log(mod, "periodic: init_que_head");
 
 	// init framelist
 	uintptr_t framelist_phys_addr = 0;
@@ -206,21 +205,121 @@ void EHCIModule::init_periodic() {
 						  &framelist_phys_addr);
 	IOUtils::memset(framelist, 0, 1024 * sizeof(uint32_t));
 
-	qh_->altTD = 1;
-	qh_->nextTD = 1;
-	qh_->qhlp = 1;
-	qh_->currentTD = 0;
-	qh_->ch = 0;
-	qh_->token = 0x40;
+	ehci_queue_head_node_t* qh_node = 0;
+	retrieve_qh(&qh_node);
+	struct ehci_queue_head* qh = qh_node->head;
+	IOUtils::memset(qh, 0, sizeof(*qh));
+	qh->qhlp = qh_node->physaddr | EHCI_Q_SELECT_QH;
+	qh->altTD = EHCI_QTD_TERMINATE;
+	qh->nextTD = EHCI_QTD_TERMINATE;
+	qh->currentTD = 0;
+	qh->token = 0;
+	qh->ch = EHCI_QH_CAP_HEAD_OF_RECLAMATION;
+	qh->cap = 0xFF;
 
 	for (int i = 0; i < 1024; i++) {
-		framelist[i] = ((uint32_t) (uintptr_t) qh_phys_addr) | (1 << 1);
+		framelist[i] = ((uint32_t) (uintptr_t) qh_node->physaddr)
+			       | EHCI_Q_SELECT_QH;
+		framelist_node[i] = qh_node;
 	}
 
 	log(mod, "framelist : 0x%x (0x%x)", framelist, framelist_phys_addr);
 	ehci_op->frindex = 0;
 	ehci_op->periodiclistbase = (uint32_t) (uintptr_t) framelist_phys_addr;
-	ehci_op->usbcmd |= (1 << 4);
+
+	start_periodic();
+}
+
+void EHCIModule::arm_periodic_qtd(struct ehci_periodic_transfer_ctx* ctx) {
+	struct ehci_queue_task_descriptor* data_qtd =
+		ctx->data_node->task_descriptor;
+	struct ehci_queue_head* qh = ctx->qh_node->head;
+
+	// Reset qTD
+	data_qtd->link = EHCI_QTD_TERMINATE;
+	data_qtd->altlink = EHCI_QTD_TERMINATE;
+	data_qtd->token = EHCI_QTD_TOKEN_LENGTH(ctx->response_size)
+			  | EHCI_QTD_TOKEN_STATUS_ACTIVE
+			  | ctx->toggle // DATA0 atau DATA1
+			  | EHCI_QTD_TOKEN_PID_IN | EHCI_QTD_TOKEN_ERROR_COUNT_3
+			  | EHCI_QTD_TOKEN_IOC;
+	data_qtd->buffer[0] = ctx->response_buf;
+
+	// Toggle untuk transfer berikutnya
+	ctx->toggle ^= EHCI_QTD_TOKEN_DATA;
+
+	// Re-link ke QH — pastikan overlay token di QH bersih dulu
+	qh->token = 0;
+	__sync_synchronize();
+	qh->nextTD = ctx->data_node->physaddr;
+}
+
+struct ehci_periodic_transfer_ctx* test_ctx = 0;
+
+void EHCIModule::get_data_periodic(uint8_t addr, uint16_t ring,
+				   uint8_t endpoint, uint32_t response,
+				   size_t response_size) {
+
+	test_ctx = (struct ehci_periodic_transfer_ctx*) IOUtils::alloc(
+		sizeof(struct ehci_periodic_transfer_ctx));
+
+	uintptr_t data_paadr = 0;
+	auto data = (uintptr_t) IOUtils::DMAAlloc(4096, &data_paadr);
+	IOUtils::memset((void*) data, 0, 4096);
+
+	test_ctx->response_buf = data_paadr;
+	test_ctx->response_size = response_size;
+	test_ctx->response = data;
+	test_ctx->toggle = 0;
+
+	// Alokasi QH
+	retrieve_qh(&test_ctx->qh_node);
+	struct ehci_queue_head* qh = test_ctx->qh_node->head;
+	IOUtils::memset(qh, 0, sizeof(struct ehci_queue_head));
+
+	qh->altTD = EHCI_QTD_TERMINATE;
+	qh->currentTD = 0;
+	qh->ch = (addr & 0x7F);
+	qh->ch |= ((endpoint & 0xF) << 8);
+	qh->ch |= (2 & 0x3) << 12;		 // EPS High Speed
+	qh->ch |= (response_size & 0x7FF) << 16; // Max Packet
+	qh->cap = (1 << 0);			 // S-mask
+	qh->cap |= EHCI_QH_CAP_MULT_1;		 // ← FIX 2
+
+	// qtd
+	retrieve_qtd(&test_ctx->data_node);
+	IOUtils::memset(test_ctx->data_node->task_descriptor, 0,
+			sizeof(struct ehci_queue_task_descriptor));
+
+	arm_periodic_qtd(test_ctx);
+
+	// putting into periodic
+	auto curr_node = framelist_node[ring];
+	struct ehci_queue_head* mq = curr_node->head;
+	uint32_t saved_next = mq->qhlp;
+	qh->qhlp = saved_next;
+	__sync_synchronize();
+	mq->qhlp = (uint32_t) test_ctx->qh_node->physaddr | EHCI_Q_SELECT_QH;
+
+	// JANGAN print di sini — data belum ada, baca di fireHandler
+	log(mod, "periodic transfer armed for addr=%d ep=%d", addr, endpoint);
+}
+
+void EHCIModule::insert_periodic(ehci_queue_head_node_t* qh_node,
+				 uint16_t interval_ms) {
+	// TODO: handle interval ms
+	// Cari slot di framelist yang sesuai dengan interval
+	int ring = 0;
+
+	auto curr_node = framelist_node[ring];
+	struct ehci_queue_head* mq = curr_node->head;
+	uint32_t saved_next = mq->qhlp;
+	qh_node->head->qhlp = saved_next;
+	__sync_synchronize();
+	mq->qhlp = (uint32_t) qh_node->physaddr | EHCI_Q_SELECT_QH;
+
+	log(mod, "QH dengan interval %d ms dimasukkan ke slot %d", interval_ms,
+	    ring);
 }
 
 void EHCIModule::start_periodic() {
@@ -257,6 +356,7 @@ void EHCIModule::usb_get_string_descriptor(uint8_t addr, uint8_t index,
 }
 
 void EHCIModule::probe() {
+	// TODO: buat fungsi untuk umount device
 
 	if (!controller) {
 		log("EHCI", "ERROR: controller must be set");
@@ -272,13 +372,14 @@ void EHCIModule::probe() {
 		boolean_t available = ehci_op->portsc[i] & EHCI_PORT_ENABLED;
 
 		if (available) {
-			log(mod, "Port %d Available", i);
 			assign_address(addr);
+			log(mod, "Port %d Available", i);
 
 			// save ke ioforge
-			struct ioforge_usb_service* usbDevice =
-				(struct ioforge_usb_service*) IOUtils::alloc(
-					sizeof(struct ioforge_usb_service));
+			struct ioforge_usb_device* usbDevice =
+				(struct ioforge_usb_device*) IOUtils::alloc(
+					sizeof(struct ioforge_usb_device));
+			IOUtils::memset(usbDevice, 0, sizeof(*usbDevice));
 
 			uint8_t* data = (uint8_t*) IOUtils::alloc(0x1000);
 			usb_get_descriptor(addr, 1, 0,
@@ -313,10 +414,19 @@ void EHCIModule::probe() {
 						  sizeof(iProduct));
 			log(mod, "USB Product: %s", iProduct);
 			char iSerialNumber[64] = {0};
-			usb_get_string_descriptor(addr, dev->iSerialNumber,
-						  iSerialNumber,
-						  sizeof(iSerialNumber));
-			log(mod, "USB Serial Number: %s", iSerialNumber);
+			if (dev->iSerialNumber != 0) {
+				usb_get_string_descriptor(
+					addr, dev->iSerialNumber, iSerialNumber,
+					sizeof(iSerialNumber));
+				log(mod, "USB Serial Number: %s",
+				    iSerialNumber);
+			} else {
+				// Jika tidak ada serial number, berikan nilai default atau biarkan kosong
+				log(mod, "USB Serial Number: [Not Provided]");
+				IOUtils::strcopy(iSerialNumber, (char*) "None");
+			}
+			IOUtils::strcopy((char*) usbDevice->serial_number,
+					 iSerialNumber);
 
 			uint8_t dev_class = dev->bDeviceClass;
 			uint8_t dev_sub_class = dev->bDeviceSubClass;
@@ -359,7 +469,7 @@ void EHCIModule::probe() {
 				usb_get_string_descriptor(
 					addr, config->iConfiguration,
 					iConfiguration, sizeof(iConfiguration));
-				log(mod, "USB Configuration: %s\n",
+				log(mod, "USB Configuration Name: %s\n",
 				    iConfiguration);
 
 				// ioforge
@@ -371,17 +481,20 @@ void EHCIModule::probe() {
 					(struct
 					 usb_interface*) ((uintptr_t) config
 							  + config->bLength);
-				log(mod, " Interface length : %d",
+				log(mod, "[Interface] Interface length : %d",
 				    interface->bLength);
-				log(mod, " Interface type : %d",
+				log(mod, "[Interface] Interface number : %d",
+				    interface->bInterfaceNumber);
+				log(mod, "[Interface] Interface type : %d",
 				    interface->bDescriptorType);
-				log(mod, " Interface class : %d",
+				log(mod, "[Interface] Interface class : %d",
 				    interface->bInterfaceClass);
-				log(mod, "  USB Device sub class : %d ",
+				log(mod,
+				    "[Interface]  USB Device sub class : %d ",
 				    interface->bInterfaceSubClass);
-				log(mod, " Protocol : %d",
+				log(mod, "[Interface] Protocol : %d",
 				    interface->bInterfaceProtocol);
-				log(mod, " number endpoint : %d",
+				log(mod, "[Interface] number endpoint : %d",
 				    interface->bNumEndpoints);
 
 				if (dev_class == 0 && dev_sub_class == 0) {
@@ -394,10 +507,27 @@ void EHCIModule::probe() {
 
 				// endpoint
 				// Ambil pointer endpoint pertama (berada tepat setelah interface descriptor)
-				struct usb_endpoint_descriptor* endpoint = (struct usb_endpoint_descriptor*)((uintptr_t)interface + interface->bLength);
+				uint8_t* ptr = (uint8_t*)((uintptr_t)interface + interface->bLength);
 
 				for (int k = 0; k < interface->bNumEndpoints;
 				     k++) {
+
+					while (ptr
+					       < (uint8_t*) data
+							 + config->wTotalLength) {
+						uint8_t desc_len = ptr[0];
+						uint8_t desc_type = ptr[1];
+						if (desc_type == 0x05)
+							break; // Endpoint descriptor
+						if (desc_len == 0)
+							break; // Safety: hindari infinite loop
+						ptr += desc_len;
+					}
+
+					struct usb_endpoint_descriptor* endpoint =
+						(struct
+						 usb_endpoint_descriptor*) ptr;
+
 					log(mod, " [Endpoint %d] length : %d",
 					    k, endpoint->bLength);
 					log(mod, " [Endpoint %d] type : %d", k,
@@ -405,20 +535,30 @@ void EHCIModule::probe() {
 					log(mod,
 					    " [Endpoint %d] address : 0x%x", k,
 					    endpoint->bEndpointAddress);
+					log(mod,
+					    " [Endpoint %d] attributes : 0x%x",
+					    k, endpoint->bmAttributes);
+					log(mod, " [Endpoint %d] interval : %d",
+					    k, endpoint->bInterval);
 
-					// (Opsional) Ambil atribut untuk tahu ini Bulk, Interrupt, atau Isochronous
-					// log(mod, " [Endpoint %d] attributes : 0x%x", k, endpoint->bmAttributes);
+					auto& current_endpoint =
+						usbDevice->endpoints
+							[endpoint_count];
+					current_endpoint.address =
+						endpoint->bEndpointAddress;
+					current_endpoint.attributes =
+						endpoint->bmAttributes;
+					current_endpoint.interval =
+						endpoint->bInterval;
+					current_endpoint.max_packet =
+						endpoint->wMaxPacketSize;
 
-					// 2. SETELAH SELESAI, baru majukan pointer untuk iterasi berikutnya
 					endpoint =
 						(struct
 						 usb_endpoint_descriptor*) ((uintptr_t)
 										    endpoint
 									    + endpoint->bLength);
 				}
-
-				// auto& current_endpoint =
-				// 	usbDevice->endpoints[endpoint_count];
 
 				// current_endpoint.
 				endpoint_count += interface->bNumEndpoints;
@@ -443,14 +583,18 @@ void EHCIModule::probe() {
 					4096, &in_data_paddr);
 
 				send_async_with_response(
-					addr, (uint32_t) setup_paddr,
+					addr, 0, (uint32_t) setup_paddr,
 					sizeof(usb_setup_packet), in_data_paddr,
 					32);
+
 				log(mod, "Report Descriptor : ");
 				for (int i = 0; i < 32; i++) {
 					serial2_printf("0x%x ", in_data[i]);
 				}
 				serial2_printf("\n");
+
+				IOUtils::DMAFree((void*) in_data_paddr, in_data,
+						 4096);
 			}
 
 			usbDevice->vendor_id = dev->idVendor;
@@ -467,32 +611,44 @@ void EHCIModule::probe() {
 			if (dev_class == 0x3) {
 				if (dev_protocol == 1) {
 					IOUtils::strcopy(
-						(char*) usbDevice->service.name,
+						(char*) usbDevice->base.name,
 						(char*) "Keyboard");
 					serial2_printf(
 						"HID Device : Keyboard\n");
 				} else if (dev_protocol == 2) {
 					IOUtils::strcopy(
-						(char*) usbDevice->service.name,
+						(char*) usbDevice->base.name,
 						(char*) "Mouse");
 					serial2_printf("HID Device : Mouse\n");
 				}
 			}
 
-			// save to ioforge
+			usbDevice->base.type = IOFORGE_USB_DEVICE;
+
+			// TODO: handle free ini kalau dev nya di umount
+			void* mem = IOForge::IOUtils::alloc(sizeof(EHCIPipe));
+			EHCIPipe* pipe = new (mem) EHCIPipe(this);
+
+			usbDevice->pipe = pipe;
+
+			ioforge_attach(ioforge_get_usb_devices_root(),
+				       &usbDevice->base);
 		}
 	}
 }
 
 void EHCIModule::port_reset(int port) {
-	ehci_op->portsc[port] |= EHCI_PORT_RESET;
+	uint32_t val = ehci_op->portsc[port];
+	val &= ~(0x2A);
+	ehci_op->portsc[port] = val | EHCI_PORT_RESET;
 	log(mod, "EHCI: resetting port %d ...", port);
-	ehci_op->portsc[port] &= ~EHCI_PORT_RESET;
+	ehci_op->portsc[port] = val & ~EHCI_PORT_RESET;
 	IOUtils::sleep(10);
 }
 
-void EHCIModule::send_async_with_response(uint8_t addr, uint32_t data_phys,
-					  size_t size, uint32_t response,
+void EHCIModule::send_async_with_response(uint8_t addr, uint8_t endpoint,
+					  uint32_t data_phys, size_t size,
+					  uint32_t response,
 					  size_t response_size) {
 	if (!data_phys || !size)
 		return;
@@ -587,7 +743,6 @@ void EHCIModule::send_async_with_response(uint8_t addr, uint32_t data_phys,
 		status->token |= EHCI_QTD_TOKEN_IOC;
 	}
 
-	// ── Bangun QH ────────────────────────────────────────────────────────
 	qh->altTD = EHCI_QTD_TERMINATE;
 	qh->nextTD = (uint32_t) setup_phys;
 	qh->currentTD = 0;
@@ -596,17 +751,11 @@ void EHCIModule::send_async_with_response(uint8_t addr, uint32_t data_phys,
 	qh->ch |= (2 << 12);	 // EPS = High Speed
 	qh->ch |= (addr & 0x7f); // device address
 	qh->cap = EHCI_QH_CAP_MULT_1;
+	qh->cap |= ((endpoint & 0xF) << 8);
 
-	// ── Insert ke async schedule yang sedang jalan ───────────────────────
-	// Urutan WAJIB: isi qhlp QH baru dulu, barrier, baru patch main_qh
-	struct ehci_queue_head* mq = main_qh->head;
-	uint32_t saved_next = mq->qhlp; // simpan link lama main_qh
+	push_to_qh(qh_node);
 
-	qh->qhlp = saved_next; // QH baru → (dulu penerus main_qh)
-	__sync_synchronize();
-	mq->qhlp = (uint32_t) qh_phys | EHCI_Q_SELECT_QH; // main_qh → QH baru
-
-	// ── Poll sampai status qTD selesai ───────────────────────────────────
+	// pooling
 	bool done = false;
 	for (int i = 0; i < 500 && !done; i++) {
 		IOUtils::sleep(10);
@@ -624,8 +773,6 @@ void EHCIModule::send_async_with_response(uint8_t addr, uint32_t data_phys,
 			log(mod, "send_async: Babble");
 		else if (tok & (1 << 3))
 			log(mod, "send_async: Transaction Error");
-		else
-			log(mod, "send_async: OK");
 
 		done = true;
 	}
@@ -635,10 +782,27 @@ void EHCIModule::send_async_with_response(uint8_t addr, uint32_t data_phys,
 
 	// ── Detach QH dari schedule ──────────────────────────────────────────
 	// Bypass: main_qh langsung nunjuk ke penerus QH yang mau dilepas
+	auto mq = main_async_qh->head;
 	__sync_synchronize();
 	mq->qhlp = qh->qhlp;
 
-	// TODO: DMAFree qh, setup, data_qtd, status setelah doorbell ack
+	// doorbell
+	ehci_op->usbcmd |= (1 << 6);
+
+	// Hardware akan merespons dengan menge-set bit ke-5 (IAA) di USBSTS
+	// Beri batas waktu (timeout) agar sistem tidak hang/freeze
+	int timeout = 1000;
+	while (!(ehci_op->usbsts & (1 << 5)) && timeout > 0) {
+		IOUtils::sleep(1);
+		timeout--;
+	}
+
+	if (timeout == 0) {
+		log(mod, "ERROR: Asynchronous Advance Doorbell timeout!");
+	}
+
+	ehci_op->usbsts |= (1 << 5);
+
 	store_qh(&qh_node);
 	store_qtd(&setup_node);
 	store_qtd(&status_node);
@@ -650,7 +814,6 @@ void EHCIModule::procces_async(ehci_queue_task_descriptor* qtd) {
 	ehci_op->usbcmd |= EHCI_START_ASYNC_SCHEDULE;
 
 	for (int i = 0; i < 100; i++) {
-		// while (is_trasaction_is_running)
 		IOUtils::sleep(100);
 		// {
 		if (qtd->token & (1 << 6)) {
@@ -699,7 +862,7 @@ void EHCIModule::assign_address(int address) {
 	log(mod, "cmd : 0x%x", cmd_phys_addr);
 
 	// sendAsync((uint32_t) cmd_phys_addr, sizeof(usb_setup_packet));
-	send_async_with_response(0, (uint32_t) cmd_phys_addr,
+	send_async_with_response(0, 0, (uint32_t) cmd_phys_addr,
 				 sizeof(usb_setup_packet), 0, 0);
 
 	IOUtils::sleep(2);
@@ -707,28 +870,70 @@ void EHCIModule::assign_address(int address) {
 
 void EHCIModule::usb_get_descriptor(uint8_t addr, uint8_t type, uint8_t index,
 				    uint8_t len, uint8_t* data) {
-	uintptr_t cmd_phys_addr = 0;
-	struct usb_setup_packet* cmd =
-		(struct usb_setup_packet*) IOUtils::DMAAlloc(
-			sizeof(struct usb_setup_packet), &cmd_phys_addr);
+
+	size_t total_size = sizeof(struct usb_setup_packet) + len;
+	uintptr_t base_phys_addr = 0;
+	uint8_t* base_vaddr =
+		(uint8_t*) IOUtils::DMAAlloc(total_size, &base_phys_addr);
+
+	struct usb_setup_packet* cmd = (struct usb_setup_packet*) base_vaddr;
+
 	cmd->bRequest = 0x06;
 	cmd->bmRequestType = 0x80; // recieve
 	cmd->wValue = (type << 8) | index;
 	cmd->wIndex = 0;
 	cmd->wLength = len;
-	// log(mod, "cmd : 0x%x", cmd_phys_addr);
 
-	size_t aligned_size = (len + 0x1000 - 1) / 0x1000;
-	uintptr_t data_phys_addr = 0;
-	uint8_t* data_ = (uint8_t*) IOUtils::DMAAlloc(aligned_size * 0x1000,
-						      &data_phys_addr);
-	// log(mod, "data : 0x%x", data_phys_addr);
-	send_async_with_response(addr, (uint32_t) cmd_phys_addr,
-				 sizeof(usb_setup_packet), data_phys_addr, len);
+	uint8_t* data_buf = base_vaddr + sizeof(usb_setup_packet);
+	uintptr_t data_phys = base_phys_addr + sizeof(usb_setup_packet);
 
-	IOUtils::memcpy((void*) data, (void*) data_, len);
+	send_async_with_response(addr, 0, (uint32_t) base_phys_addr,
+				 sizeof(usb_setup_packet), data_phys, len);
 
-	IOUtils::DMAFree((void*) data_phys_addr, data_, aligned_size);
+	IOUtils::memcpy((void*) data, (void*) data_buf, len);
+	IOUtils::DMAFree((void*) base_phys_addr, (void*) base_vaddr,
+			 total_size);
+}
+
+void EHCIModule::call_completion_callback(ioforge_device* dev) {
+	if (!dev)
+		return;
+
+	if (dev->type == IOFORGE_USB_DEVICE) {
+
+		auto usb = (ioforge_usb_device*) dev;
+		if (usb->pipe != nullptr) {
+			EHCIPipe* pipe = (EHCIPipe*) usb->pipe;
+			if (pipe->data_node_) {
+				auto token = pipe->data_node_->task_descriptor
+						     ->token;
+				if (token & EHCI_QTD_TOKEN_STATUS_ACTIVE)
+					goto next;
+
+				bool is_error = false;
+				if (token & (1 << 6)) {
+					log("EHCI IRQ", "→ HALTED");
+					is_error = true;
+				}
+				if (token & (1 << 5)) {
+					log("EHCI IRQ", "→ Data Buffer Error");
+					is_error = true;
+				}
+				if (token & (1 << 3)) {
+					log("EHCI IRQ", "→ Transaction Error");
+					is_error = true;
+				}
+
+				log(mod, "interrupt dari %s", dev->name);
+				pipe->on_complete(0, 0, is_error);
+			}
+			// pipe->qh_node_->physaddr ==
+		}
+	}
+
+next:
+	call_completion_callback(dev->first_child);
+	call_completion_callback(dev->next_sibling);
 }
 
 void EHCIModule::fireHandler() {
@@ -743,8 +948,8 @@ void EHCIModule::fireHandler() {
 	if (status & (1 << 0)) {
 		// USBINT → transfer complete
 		log("EHCI IRQ", "transfer complete");
-		if (module->is_trasaction_is_running)
-			module->is_trasaction_is_running = 0;
+		auto node = ioforge_get_usb_devices_root();
+		module->call_completion_callback(node);
 	}
 
 	if (status & (1 << 2)) {
@@ -842,10 +1047,11 @@ void EHCIModule::store_qtd(ehci_queue_task_descriptor_node_t** in) {
 }
 
 // hanya software link, tetep perlu atur flag manual
-void EHCIModule::push_to_qh(ehci_queue_head_node_t* qh) {
-	auto last = &main_qh;
-	while (*last) {
-		last = &(*last)->next;
-	}
-	*last = qh;
+void EHCIModule::push_to_qh(ehci_queue_head_node_t* qh_node) {
+	struct ehci_queue_head* mq = main_async_qh->head;
+	uint32_t saved_next = mq->qhlp;
+	qh_node->head->qhlp = saved_next; // QH baru → (dulu penerus main_qh)
+	__sync_synchronize();
+	mq->qhlp = (uint32_t) qh_node->physaddr
+		   | EHCI_Q_SELECT_QH; // main_qh → QH baru
 }

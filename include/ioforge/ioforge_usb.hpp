@@ -3,7 +3,6 @@
 
 #include "ioforge/ioforge.hpp"
 #include "ioforge/ioforge_usb.h"
-#include <cstdint>
 #include <usb.h>
 
 class IoForgeUSB : public IOForge {
@@ -23,14 +22,14 @@ class IoForgeUSB : public IOForge {
 		// Bungkus lambda ke dalam void* ctx
 		ioforge_find_usb_device_by_devclass(
 			node, devclass,
-			[](struct ioforge_usb_service* dev, void* ctx) {
+			[](struct ioforge_usb_device* dev, void* ctx) {
 				(*reinterpret_cast<Fn*>(ctx))(dev);
 			},
 			reinterpret_cast<void*>(&fn));
 	};
 
 	inline static uint8_t
-	get_configuration(struct ioforge_usb_service* dev) {
+	get_configuration(struct ioforge_usb_device* dev) {
 		uintptr_t setup_addr = 0;
 		struct usb_setup_packet* setup =
 			(struct usb_setup_packet*) IOUtils::DMAAlloc(
@@ -61,21 +60,22 @@ class IoForgeUSB : public IOForge {
 	}
 
 	inline static void
-	set_configuration(struct ioforge_usb_service* dev, uint8_t val) {
+	set_configuration(struct ioforge_usb_device* dev, uint8_t val) {
 		uintptr_t setup_addr = 0;
 		struct usb_setup_packet* setup =
 			(struct usb_setup_packet*) IOUtils::DMAAlloc(
 				sizeof(struct usb_setup_packet), &setup_addr);
 
-		setup->bRequest = 0x08;
-		setup->bmRequestType = 0b10000000;
+		setup->bmRequestType = 0x0;
+		setup->bRequest = 0x09;
 		setup->wValue = val;
 		setup->wIndex = 0;
 		setup->wLength = 0;
 
 		// todo: modify send method to add endpoint parameter
 		dev->controller->ops.send(dev->addr, 0, setup_addr,
-					  sizeof(*setup), 0, 0);
+					  sizeof(struct usb_setup_packet), 0,
+					  0);
 		IOUtils::DMAFree((void*) setup_addr, (void*) setup,
 				 sizeof(*setup));
 	}

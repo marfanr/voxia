@@ -1,0 +1,14 @@
+name: USB-HID
+description: usb-hid driver
+license: MIT
+version: 0.2
+author: mohammad arfan
+
+main: usb-hid.elf
+
+cap:
+  - pci
+  - interrupt
+
+dependency:
+  - EHCI

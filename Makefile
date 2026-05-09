@@ -1,7 +1,14 @@
 # Variabel umum
 QEMU=qemu-system-x86_64
-QEMU_FLAGS=-m 4G -cpu host -M q35,hpet=on -smp 8  -enable-kvm -rtc base=localtime
+QEMU_FLAGS=-m 3G -cpu host -M q35 -smp 2  -enable-kvm -rtc base=localtime -acpitable file=acpi_test/battery.aml
 QEMU_USB=-device usb-ehci,id=ehci -device usb-kbd,bus=ehci.0,port=1,id=kbd
+# 	-device usb-mouse,bus=ehci.0,port=2,id=mouse
+# QEMU_NETWORK= -netdev user,id=net0,hostfwd=tcp::1234-:1234\
+#   -device e1000,netdev=net0
+QEMU_NETWORK=-netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
+-device e1000e,netdev=net0
+# QEMU_NETWORK=-netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
+# -device e1000-82544gc,netdev=net0
 ISO=naya.iso
 HDD=barebones.hdd
 BIOS_OVMF=ovmf-x64/OVMF.fd
@@ -13,14 +20,16 @@ export ROOT
 all: lib kernel lib modules iso 
 
 modules: lib
+	$(MAKE) -C ./modules/e1000
 	$(MAKE) -C ./modules/ehci
 	$(MAKE) -C ./modules/usb-hid
-	$(MAKE) -C ./modules/e1000
+# 	$(MAKE) -C ./modules/virtio-vga
+# 	$(MAKE) -C ./modules/ahci
 # 	$(MAKE) -C ./modules/runtimeinit all
 
 lib:
 	echo "aaa"
-	$(MAKE) -C ./library/ioforge
+# 	$(MAKE) -C ./library/ioforge
 
 lib-clean:
 	$(MAKE) -C ./library/ioforge clean
@@ -32,28 +41,33 @@ all-hdd: $(HDD)
 .PHONY: run run-host run-debug run-gdb run-uefi run-hdd run-hdd-uefi
 
 run:
-	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) -vga std -device virtio-serial-pci -s \
-	-d int -D qemu.log -serial stdio
+	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d  $(QEMU_NETWORK) $(QEMU_USB) -vga none  -device virtio-serial-pci -s \
+	-monitor stdio -serial file:qemu.log -d trace:usb_ehci_* -D aqemu.log \
+	-nographic
+
+debug:
+	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) -vga none  -device virtio-serial-pci -S -s \
+	-monitor stdio -serial file:qemu.log -d trace:ahci* -D aqemu.log \
+	-nographic
 
 run-gpu: 
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) -vga none  -device virtio-serial-pci -s \
 	-d int -D qemu.log  \
-  	-display sdl,gl=on -device virtio-vga-gl \
+	  -display sdl,gl=on -device virtio-vga-gl \
 	 -serial stdio
 
 run-gpu2: 
-	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) -vga none  -device virtio-serial-pci -s \
-  	-display sdl,gl=on \
-	-device virtio-vga-gl \
-	-machine accel=kvm \
-	-monitor stdio -serial file:qemu.log -d trace:usb_ehci_opreg* -D aqemu.log 
+	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) $(QEMU_NETWORK) \
+	-display sdl,gl=on,full-screen=on \
+	-device virtio-gpu-gl-pci,xres=1920,yres=1080 \
+	-monitor stdio -serial file:qemu.log -d trace:e1000* -D aqemu.log
 
 run-efi: ovmf-x64
 	$(QEMU) $(QEMU_FLAGS)  -bios $(BIOS_OVMF) -cdrom $(ISO) -boot d $(QEMU_USB) -vga none  -device virtio-serial-pci -s \
-  	-display sdl,gl=on \
+	  -display sdl,gl=on \
 	-device virtio-vga-gl \
 	-machine accel=kvm \
-	-monitor stdio -serial file:qemu.log -d trace:usb_ehci_opreg* -D aqemu.log 
+	-monitor stdio -serial file:qemu.log -d trace:ahci* -D aqemu.log 
 
 
 TPM_STATE_DIR = /tmp/tpmstate
@@ -62,7 +76,7 @@ TPM_SOCKET    = /tmp/mytpm-sock
 run-tpm: stop clean_tpm start_tpm
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) -vga none  -device virtio-serial-pci -s \
 	-d int -D qemu.log  \
-  	-display sdl,gl=on \
+	  -display sdl,gl=on \
 	-device virtio-vga-gl \
 	-chardev socket,id=chrtpm,path=$(TPM_SOCKET) \
 	-tpmdev emulator,id=tpm0,chardev=chrtpm \
@@ -120,6 +134,7 @@ limine:
 
 kernel:
 	mkdir -p build/kernel
+# 	$(MAKE) -C rust
 	$(MAKE) -C kernel	
 
 # Build ISO
@@ -128,6 +143,7 @@ iso: limine
 	mkdir -p iso_root
 # 	cp -r build/modules ./initrd
 	cd initrd; tar -F ustar -cvf ../iso_root/initrd.tar *; cd ..
+	cp -r root/* ./iso_root/
 	cp build/kernel.elf limine.cfg limine/limine.sys limine/limine-cd.bin limine/limine-eltorito-efi.bin iso_root/
 	xorriso -as mkisofs -b limine-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
@@ -188,7 +204,27 @@ clean: lib-clean
 	$(MAKE) -C modules/ehci clean
 	$(MAKE) -C modules/usb-hid clean
 	$(MAKE) -C modules/e1000 clean
+	$(MAKE) -C modules/virtio-vga clean
+	$(MAKE) -C modules/ahci clean
+
 
 distclean: clean
 	rm -rf limine ovmf-x64
 	$(MAKE) -C kernel distclean
+
+defconfig:
+	@yes "" | kconfig-conf --oldconfig Kconfig > .config
+	@make config
+
+menuconfig:
+	kconfig-mconf Kconfig
+	make config
+
+config: .config
+	@mkdir -p generated
+	@echo "// Auto-generated from .config" > generated/autoconf.h
+	@grep -E '^CONFIG_' .config | sed \
+		-e 's/=y/ 1/' \
+		-e 's/=n/ 0/' \
+		-e 's/=/ /' \
+		-e 's/^CONFIG_/ #define VOXIA_/' >> generated/autoconf.h

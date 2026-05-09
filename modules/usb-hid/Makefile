@@ -5,7 +5,7 @@ ROOT        ?= $(realpath ../..)
 
 LIB_INCLUDE_DIR := $(ROOT)/include
 
-MODULE_NAME := ehci
+MODULE_NAME := usb-hid
 OUT_ELF     := $(MODULE_NAME).elf
 OUT_VOXMO   := ../../initrd/modules/$(MODULE_NAME).voxmo
 
@@ -16,10 +16,9 @@ CXXFLAGS := -Wall -Wextra -O2 -pipe \
     -ffreestanding -nostdlib -fno-exceptions -fno-rtti -fno-builtin \
     -fno-use-cxa-atexit -fno-asynchronous-unwind-tables -fno-common \
     -mno-red-zone -std=c++20 -ggdb -g -fPIC \
-	-std=c++17 \
     -I$(LIB_INCLUDE_DIR) -I$(INCLUDE_DIR)
 
-LDFLAGS := -shared -m elf_x86_64
+LDFLAGS := -shared -m elf_x86_64 -e module_init
 
 SRCS := $(shell find $(SRC_DIR) -type f -name '*.cpp')
 OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(SRCS))

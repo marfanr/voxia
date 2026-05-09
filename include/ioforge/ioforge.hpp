@@ -2,7 +2,6 @@
 #define __IOFORGE__IOFORGE_HPP__
 
 #include "ioforge.h"
-#include <stddef.h>
 
 #define IoForgeModuleConstructor(Class)                                        \
 	static Class instance;                                                 \

@@ -16,7 +16,7 @@ else
 	E := @echo
 endif
 
-CFLAGS := -Wall -Wextra -O0 -pipe -ggdb -g \
+CFLAGS := -Wall -Wextra -O0 -pipe -ggdb -g -fno-strict-aliasing \
 					-std=gnu2x -ffreestanding \
 					-fno-stack-protector -fno-pie \
 					-mno-80387 -mno-3dnow \

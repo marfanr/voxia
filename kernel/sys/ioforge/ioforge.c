@@ -40,8 +40,8 @@ void KERNEL_API print_device_tree(struct ioforge_device* node, int indent) {
 			(struct ioforge_pci_device*) node;
 		serial2_printf("pci %d:%d\n", pd->vendor_id, pd->device_id);
 	} else if (node->type == IOFORGE_USB_DEVICE) {
-		struct ioforge_usb_service* d =
-			(struct ioforge_usb_service*) node;
+		struct ioforge_usb_device* d =
+			(struct ioforge_usb_device*) node;
 		serial2_printf("usb device: %s %s\n", d->base.name,
 			       d->serial_number);
 	} else {
