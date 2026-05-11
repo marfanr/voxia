@@ -1,0 +1,11 @@
+name: EHCI
+description: usb 2.0 host controller driver
+license: MIT
+version: 0.2
+author: mohammad arfan
+
+main: ehci.elf
+
+cap:
+  - pci
+  - interrupt

@@ -5,7 +5,7 @@
 
 using InterruptCallback = void (*)(const uint8_t* data, size_t len);
 
-struct InterruptPipeDesc {
+struct USBInterruptPipeDesc {
 	uint8_t dev_addr;
 	uint8_t endpoint;
 	uint8_t speed;	      // 0=Full, 1=Low, 2=High/Super
@@ -13,13 +13,13 @@ struct InterruptPipeDesc {
 	size_t buffer_size;
 };
 
-class InterruptPipe {
+class USBInterruptPipe {
       public:
-	virtual ~InterruptPipe() = default;
+	virtual ~USBInterruptPipe() = default;
 
 	// Mulai polling — callback dipanggil tiap ada data
 	virtual bool
-	open(const InterruptPipeDesc& desc, InterruptCallback cb) = 0;
+	open(const USBInterruptPipeDesc& desc, InterruptCallback cb) = 0;
 
 	// Hentikan polling dan bebaskan resource
 	virtual void close() = 0;

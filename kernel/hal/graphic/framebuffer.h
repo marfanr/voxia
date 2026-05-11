@@ -1,7 +1,7 @@
 #ifndef __HAL_GRAPHIC_FRAMEBUFFER_H__
 #define __HAL_GRAPHIC_FRAMEBUFFER_H__
 
-#include <libk/type.h>
+#include <type.h>
 
 typedef struct __attribute__((aligned(32))) {
 	uint64_t framebuffer_addr;

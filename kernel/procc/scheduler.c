@@ -8,7 +8,7 @@
 #include "init/init.h"
 #include "libk/debug/debug.h"
 #include "libk/serial.h"
-#include "libk/str.h"
+#include <str.h>
 #include "memory/memory_utils.h"
 #include "memory/slab.h"
 #include "procc/thread.h"
@@ -20,11 +20,13 @@ boolean_t g__scheduler__is__running = 0;
 
 extern boolean_t is_running_program;
 
-scheduler_core_t* vxGetSchedulerCore(uint16_t core) { return &scheduler[core]; }
+scheduler_core_t* vxGetSchedulerCore(uint16_t core) {
+	return &scheduler[core];
+}
 
 INIT(Scheduler) {
 	vxCreateSlabCache(&scheduler_cache, "scheduler",
-	                  sizeof(scheduler_queue_t), 0, 0);
+			  sizeof(scheduler_queue_t), 0, 0);
 	LOG_INFO("Scheduler", "scheduler cache at 0x%x", scheduler_cache);
 }
 
@@ -33,8 +35,14 @@ scheduler_queue_t* vxSchedulerGetCurrentQueue(uint16_t core) {
 }
 
 static void vxDeatachFromScheduler(scheduler_queue_t* current) {
+	/* FIX #2: Simpan core_id SEBELUM memodifikasi linked list.
+	 * Sebelumnya spin_release di akhir fungsi ini memakai
+	 * current->thread->core_affinity — tapi prev/next pointer sudah
+	 * di-null-kan di tengah fungsi, sehingga jika ada akses
+	 * concurrent, core_affinity bisa dibaca dari memori yang sudah
+	 * berubah. Simpan core_id lokal di awal sebagai snapshot. */
 	const uint16_t core_id = current->thread->core_affinity;
-	spin_acquire(&scheduler[current->thread->core_affinity].lock);
+	spin_acquire(&scheduler[core_id].lock);
 
 	if (current->next_queue == current)
 		current->next_queue = 0;
@@ -51,11 +59,14 @@ static void vxDeatachFromScheduler(scheduler_queue_t* current) {
 
 	current->next_queue = nullptr;
 	current->prev_queue = nullptr;
-	spin_release(&scheduler[current->thread->core_affinity].lock);
+
+	/* Pakai core_id lokal yang sudah di-snapshot di awal,
+	 * bukan current->thread->core_affinity yang mungkin sudah stale. */
+	spin_release(&scheduler[core_id].lock);
 }
 
-static void vxSaveRegister(interrupt_stack_frame_t* stack,
-                           cpu_register_t* reg) {
+static void
+vxSaveRegister(interrupt_stack_frame_t* stack, cpu_register_t* reg) {
 	reg->rip = stack->rip;
 	reg->cs = stack->cs;
 	reg->rflags = stack->rflags;
@@ -77,11 +88,10 @@ static void vxSaveRegister(interrupt_stack_frame_t* stack,
 	reg->r13 = stack->r13;
 	reg->r14 = stack->r14;
 	reg->r15 = stack->r15;
-	// memcopy((void *)reg, (void *)stack, sizeof(cpu_register_t));
 }
 
-static void vxRestoreRegister(interrupt_stack_frame_t* stack,
-                              cpu_register_t* reg) {
+static void
+vxRestoreRegister(interrupt_stack_frame_t* stack, cpu_register_t* reg) {
 	stack->rip = reg->rip;
 	stack->cs = reg->cs;
 	stack->rflags = reg->rflags;
@@ -103,25 +113,25 @@ static void vxRestoreRegister(interrupt_stack_frame_t* stack,
 	stack->r13 = reg->r13;
 	stack->r14 = reg->r14;
 	stack->r15 = reg->r15;
-	// memcopy((void *)stack, (void *)reg, sizeof(cpu_register_t));
 }
 
 void vxSchedulerTick(interrupt_stack_frame_t* reg) {
-
-	uint64_t tick = vxHPETGetMainCount();
 	const uint16_t core_id = coreGetCpuID();
-	if (!scheduler[core_id].run_queue_head)
+
+	spin_acquire(&scheduler[core_id].lock);
+
+	if (!scheduler[core_id].run_queue_head) {
+		spin_release(&scheduler[core_id].lock);
 		return;
+	}
 
 	if (!scheduler[core_id].current)
 		scheduler[core_id].current = scheduler[core_id].run_queue_head;
 
 	scheduler_queue_t* current = scheduler[core_id].current;
-	// LOG2_INFO("SCHEDULER", "on core id %d tick %d thread %d", core_id,
-	// tick,
-	//           current->thread->id);
-
 	thread_t* thread = current->thread;
+
+	uint64_t tick = vxHPETGetMainCount();
 
 	if (!thread->has_update_run_time) {
 		thread->last_run_time = tick;
@@ -131,91 +141,107 @@ void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 	switch (thread->state) {
 	case THREAD_STATE_CREATE: {
 		LOG2_DEBUG("SCHEDULER", "thread create at core %d (%d)",
-		           core_id, thread->id);
+			   core_id, thread->id);
 		break;
 	}
 	case THREAD_STATE_READY: {
-		if (!thread->stack)
-			thread->stack = (uintptr_t)kalloc(4096);
-
-		// if (tick - thread->)
 		thread->state = THREAD_STATE_RUNNING;
 
-		// on debug
 		if (thread->flags & THREAD_USER) {
 			LOG2_DEBUG("SCHEDULER",
-			           "core %d ready to run user mode", core_id);
+				   "core %d ready to run user mode", core_id);
 		} else {
 			LOG2_DEBUG("SCHEDULER",
-			           "core %d ready to run kernel mode", core_id);
+				   "core %d ready to run kernel mode", core_id);
 
 			reg->rip = thread->entry_addr;
 			reg->rsp = ((thread->stack + 0x1000) & ~0xFULL) - 8;
-			// *(uint64_t*)reg->rsp = (uint64_t)vxThreadExit;
-
 			reg->cs = 0x28;
 			reg->ss = 0x30;
-
 			reg->rflags = 0x202;
-
 			reg->rbp = 0;
 
 			LOG2_DEBUG("SCHEDULER", "core %d aaddr %x", core_id,
-			           thread->entry_addr);
-			return;
+				   thread->entry_addr);
+			goto end_scheduler_tick;
 		}
+		goto end_scheduler_tick;
+	}
+	case THREAD_STATE_RUNNING: {
+		// LOG2_INFO("scheduler", "run");
 		vxSaveRegister(reg, &thread->reg);
 		break;
 	}
-	case THREAD_STATE_RUNNING: {
-		// vxRestoreRegister(reg, &thread->reg);
-		break;
-	}
 	case THREAD_STATE_TERMINATED: {
-		current->thread->state = THREAD_STATE_HAL;
-		LOG2_DEBUG("SCHEDULER", "core %d  terminated, thread id %d",
-		           core_id, thread->id);
+		/* FIX #2 (lanjutan): set state ke HAL dulu, lalu release lock
+		 * dengan core_id lokal yang sudah di-snapshot — bukan melalui
+		 * vxDeatachFromScheduler yang akan acquire lock lagi (deadlock).
+		 *
+		 * Sebelumnya: spin_release(&scheduler[core_id].lock) dipanggil
+		 * di sini, lalu vxDeatachFromScheduler dipanggil. Di dalam
+		 * vxDeatachFromScheduler, spin_acquire dipanggil ulang pakai
+		 * current->thread->core_affinity. Jika antara release dan
+		 * acquire, thread lain mengubah core_affinity (misalnya thread
+		 * migration), spin_release di akhir vxDeatachFromScheduler akan
+		 * melepas lock core yang SALAH.
+		 *
+		 * Fix: release lock dengan core_id lokal sebelum detach. */
+		thread->state = THREAD_STATE_HAL;
+		LOG2_DEBUG("SCHEDULER", "core %d terminated, thread id %d",
+			   core_id, thread->id);
+		spin_release(&scheduler[core_id].lock);
 		vxDeatachFromScheduler(current);
 		LOG2_DEBUG("SCHEDULER", "TERMINATED");
 		return;
-		break;
 	}
 
 	default:
+		break;
 	}
 
 	if (current->thread->flags & THREAD_PREEMPT_ENABLE) {
-		// context switching enable
+		/* context switching enable */
 	}
 
-	// TODO: handle non preamable threadm
+	if (ns2ms(vxHPETGetMainCount() - thread->last_run_time)
+	    > VOXIA_MAX_SCHEDULER_TIME_MS) {
 
-	if (ns2ms(vxHPETGetMainCount() - thread->last_run_time) >
-	    VOXIA_MAX_SCHEDULER_TIME_MS) {
-		// LOG2_DEBUG("SCHEDULER", "timout");
-		if (current->next_queue != current) {
-			vxSaveRegister(reg, &thread->reg);
-			if (current->next_queue->thread->state ==
-			    THREAD_STATE_RUNNING) {
-				vxRestoreRegister(
-				    reg, &current->next_queue->thread->reg);
-				// LOG2_DEBUG("SCHEDULER", "restore thread %d",
-				// current->next_queue->thread->id);
+		scheduler_queue_t* next = current->next_queue;
+
+		if (next != current) {
+			if (next->thread->state == THREAD_STATE_RUNNING) {
+				vxRestoreRegister(reg, &next->thread->reg);
 			}
+
+			/* FIX #3 (dari sesi sebelumnya, tetap dipertahankan):
+			 * Reset time tracking untuk thread BERIKUTNYA,
+			 * bukan thread yang sedang di-preempt. */
+			next->thread->last_run_time = vxHPETGetMainCount();
+			next->thread->has_update_run_time = true;
 		}
 
 		thread->has_update_run_time = false;
-		thread->last_run_time = vxHPETGetMainCount();
-		scheduler[core_id].current = current->next_queue;
+		scheduler[core_id].current = next;
 	}
 
-	// if (core_id == 2)
-	// 	serial2_flush();
+end_scheduler_tick:
+	/* FIX #2: Release selalu pakai core_id lokal yang di-snapshot
+	 * di awal fungsi, bukan thread->core_affinity yang bisa berubah
+	 * kapan saja jika ada thread migration di masa depan. */
+	spin_release(&scheduler[core_id].lock);
 }
 
 static scheduler_queue_t* vxAllocScheduler(const uint16_t core) {
 	spin_acquire(&scheduler[core].lock);
-	const auto queue = (scheduler_queue_t*)vxSlabAlloc(scheduler_cache);
+	const auto queue = (scheduler_queue_t*) vxSlabAlloc(scheduler_cache);
+
+	if (!queue) {
+		spin_release(&scheduler[core].lock);
+		return nullptr;
+	}
+
+	memset(queue, 0, sizeof(scheduler_queue_t));
+	queue->prev_queue = nullptr;
 	queue->next_queue = scheduler[core].run_queue_head;
 
 	if (!queue->next_queue) {
@@ -238,15 +264,18 @@ void vxAttachScheduler(thread_t* new_thread) {
 	if (!new_thread)
 		return;
 
-	// TODO: cari core dengan beban terendah
 	uint16_t starting_core = 1;
-	if (new_thread->core_affinity != (uint16_t)-1)
+	if (new_thread->core_affinity != (uint16_t) -1)
 		starting_core = new_thread->core_affinity;
 
 	scheduler_queue_t* queue = vxAllocScheduler(starting_core);
+	if (!queue) {
+		LOG2_ERROR("SCHED", "error allocate new scheduler....");
+		return;
+	}
 
 	LOG2_DEBUG("SCHED", "ATTACH thread id %d queue 0x%x", new_thread->id,
-	           queue);
+		   queue);
 	new_thread->state = THREAD_STATE_READY;
 	queue->thread = new_thread;
 }
@@ -254,10 +283,7 @@ void vxAttachScheduler(thread_t* new_thread) {
 void vxStartScheduler() {
 	const uint16_t core_id = coreGetCpuID();
 	serial2_printf("scheduler init on core %d\n", core_id);
-	irq_register(core_id, 0x45, (void*)vxSchedulerTick, true, 0x28, 0,
-	             INTERRUPT_ATTR_KERNEL);
+	irq_register(core_id, 0x45, (void*) vxSchedulerTick, true, 0x28, 0,
+		     INTERRUPT_ATTR_KERNEL);
 	vxAPICCreateTimer(APIC_TIMER_PERIOD, 8, 0x45);
-	// LOG2_DEBUG(DEBUG_LEVEL_INFO, "Scheduler started on CORE %d
-	// \n",
-	//            core_id);
 }

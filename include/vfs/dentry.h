@@ -1,23 +1,40 @@
 #ifndef __VFS__DENTRY_H__
 #define __VFS__DENTRY_H__
 
-#include <libk/string.h>
-#include <libk/type.h>
-#include <libk/vector.h>
+#include "llist.h"
+#include "vfs/cache.h"
+#include "vfs/rcu.h"
+#include <string.h>
+#include <type.h>
+#include <vector.h>
+
+#define DENTRY_PINNED (1 << 0)
+#define DENTRY_NEGATIVE (1 << 1)
+#define DENTRY_MOUNTPOINT (1 << 2)
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct dentry dentry_t;
 typedef struct dentry* dentry_ptr;
-define_vector(dentry_ptr);
 
 struct vnode;
 
+struct hlist_node;
+struct hlist_head;
 struct dentry {
-	string name;
+	atomic_t refcount;
+	uint32_t hash;
+	uint32_t flags;
+	kstring name;
 	struct vnode* vnode;
 	dentry_ptr parent;
-	vector(dentry_ptr) children;
-	uintptr_t addr;
-} __attribute__((aligned(32)));
+	struct hlist_node hash_node;  /* masuk dcache hash table */
+	struct llist_head child_list; /* list anak-anak direktori ini */
+	struct llist_head siblings;   /* posisi kita di child_list parent */
+	struct rcu_head rcu;
+} __attribute__((aligned(64)));
 
 /**
  * @brief Resolves a file path to a directory entry (dentry).
@@ -52,7 +69,8 @@ int vxNamei(char* path, dentry_ptr* out);
  *
  * @return dentry_ptr A pointer to the newly allocated and initialized dentry.
  */
-dentry_ptr vxCreateDentry(string name, struct vnode* vnode);
+dentry_ptr KERNEL_API create_dentry(kstring name, struct vnode* vnode,
+				    dentry_ptr parent);
 
 void vxSetDentryAsRoot(dentry_ptr dentry);
 dentry_ptr vxGetRootDirectory();
@@ -88,13 +106,21 @@ enum {
  * returns the index of the missing component in the path.
  */
 int vxResolveDentry(char* path, dentry_ptr parent, dentry_ptr* out,
-                    uint8_t flag);
+		    uint8_t flag);
 
-void vxAttachDentryToParent(dentry_ptr dentry, dentry_ptr parent);
 void vxFreeDentry(dentry_ptr dentry);
 void vxFreeDentryWithChildren(dentry_ptr dentry);
 
 typedef struct vnode* vnode_ptr_t;
 void vxAttachDentryToVnode(dentry_ptr dentry, vnode_ptr_t vnode);
+
+uint32_t hash_dentry(const char* name, dentry_ptr parent);
+
+void dentry_put(dentry_ptr dentry);
+void dentry_get(dentry_ptr dentry);
+void delete_dentry(dentry_t* node);
+#ifdef __cplusplus
+}
+#endif
 
 #endif // __VFS__DENTRY_H__

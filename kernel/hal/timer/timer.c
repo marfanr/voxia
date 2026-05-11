@@ -19,12 +19,12 @@ void usleep_backend(interrupt_stack_frame_t* _) {
 
 	if (core->core_id > 1)
 		LOG2_DEBUG("TIMER", "usleep backend triggerred on core %d",
-		           core->core_id);
+			   core->core_id);
 }
 
 void usleep(const double time_ns) {
 	if (time_ns < 1e6 && vxHPETIsAvailable()) {
-		vxHPETSleep((uint64_t)(time_ns));
+		vxHPETSleep((uint64_t) (time_ns));
 		return;
 	}
 
@@ -42,8 +42,8 @@ INIT(Timer) {
 
 	vxInitializeAPICTimer();
 	// LOG_INFO("TIMER", "APIC timer initialized");
-	irq_register(coreGetCpuID(), 0x24, (void*)usleep_backend, true, 0x28, 0,
-	             INTERRUPT_ATTR_KERNEL);
+	irq_register(coreGetCpuID(), 0x24, (void*) usleep_backend, true, 0x28,
+		     0, INTERRUPT_ATTR_KERNEL);
 
 	// LOG_DEBUG("TIMER", "uslep test 5us");
 	// usleep(5);
@@ -59,8 +59,8 @@ uint64_t vxTimerCounterCount(time_counter_t* counter) {
 }
 
 double vxTimerCounterCountInMs(time_counter_t* counter) {
-	return ns2ms((double)(vxHPETGetMainCount() - counter->current) *
-	             vxHPETMinTickNs());
+	return ns2ms((double) (vxHPETGetMainCount() - counter->current)
+		     * vxHPETMinTickNs());
 }
 
 double vxTimerCounterCountInNs(time_counter_t* counter) {

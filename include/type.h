@@ -93,4 +93,17 @@ typedef uint8_t boolean_t;
 #define KERNEL_API                                                             \
 	__attribute__((used, visibility("default"), section(".export")))
 
+#define DEPRECATED                                                             \
+	__attribute__((deprecated("This function is deprecated and may be "    \
+				  "removed in future versions.")))
+
+#if defined(__clang__) || defined(__GNUC__)
+#define offsetof(type, member) __builtin_offsetof(type, member)
+#else
+#define offsetof(type, member) ((size_t) & (((type*) 0)->member))
+#endif
+
+#define container_of(ptr, type, member)                                        \
+	((type*) ((char*) (ptr) - offsetof(type, member)))
+
 #endif // __TYPE_H__

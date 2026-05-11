@@ -1,4 +1,5 @@
-#include "type.h"
+#include "memory/kalloc.h"
+#include <type.h>
 #include "usb.h"
 #include "ehci/ehci.hpp"
 #include "ioforge/ioforge.h"
@@ -230,81 +231,6 @@ void EHCIModule::init_periodic() {
 	start_periodic();
 }
 
-void EHCIModule::arm_periodic_qtd(struct ehci_periodic_transfer_ctx* ctx) {
-	struct ehci_queue_task_descriptor* data_qtd =
-		ctx->data_node->task_descriptor;
-	struct ehci_queue_head* qh = ctx->qh_node->head;
-
-	// Reset qTD
-	data_qtd->link = EHCI_QTD_TERMINATE;
-	data_qtd->altlink = EHCI_QTD_TERMINATE;
-	data_qtd->token = EHCI_QTD_TOKEN_LENGTH(ctx->response_size)
-			  | EHCI_QTD_TOKEN_STATUS_ACTIVE
-			  | ctx->toggle // DATA0 atau DATA1
-			  | EHCI_QTD_TOKEN_PID_IN | EHCI_QTD_TOKEN_ERROR_COUNT_3
-			  | EHCI_QTD_TOKEN_IOC;
-	data_qtd->buffer[0] = ctx->response_buf;
-
-	// Toggle untuk transfer berikutnya
-	ctx->toggle ^= EHCI_QTD_TOKEN_DATA;
-
-	// Re-link ke QH — pastikan overlay token di QH bersih dulu
-	qh->token = 0;
-	__sync_synchronize();
-	qh->nextTD = ctx->data_node->physaddr;
-}
-
-struct ehci_periodic_transfer_ctx* test_ctx = 0;
-
-void EHCIModule::get_data_periodic(uint8_t addr, uint16_t ring,
-				   uint8_t endpoint, uint32_t response,
-				   size_t response_size) {
-
-	test_ctx = (struct ehci_periodic_transfer_ctx*) IOUtils::alloc(
-		sizeof(struct ehci_periodic_transfer_ctx));
-
-	uintptr_t data_paadr = 0;
-	auto data = (uintptr_t) IOUtils::DMAAlloc(4096, &data_paadr);
-	IOUtils::memset((void*) data, 0, 4096);
-
-	test_ctx->response_buf = data_paadr;
-	test_ctx->response_size = response_size;
-	test_ctx->response = data;
-	test_ctx->toggle = 0;
-
-	// Alokasi QH
-	retrieve_qh(&test_ctx->qh_node);
-	struct ehci_queue_head* qh = test_ctx->qh_node->head;
-	IOUtils::memset(qh, 0, sizeof(struct ehci_queue_head));
-
-	qh->altTD = EHCI_QTD_TERMINATE;
-	qh->currentTD = 0;
-	qh->ch = (addr & 0x7F);
-	qh->ch |= ((endpoint & 0xF) << 8);
-	qh->ch |= (2 & 0x3) << 12;		 // EPS High Speed
-	qh->ch |= (response_size & 0x7FF) << 16; // Max Packet
-	qh->cap = (1 << 0);			 // S-mask
-	qh->cap |= EHCI_QH_CAP_MULT_1;		 // ← FIX 2
-
-	// qtd
-	retrieve_qtd(&test_ctx->data_node);
-	IOUtils::memset(test_ctx->data_node->task_descriptor, 0,
-			sizeof(struct ehci_queue_task_descriptor));
-
-	arm_periodic_qtd(test_ctx);
-
-	// putting into periodic
-	auto curr_node = framelist_node[ring];
-	struct ehci_queue_head* mq = curr_node->head;
-	uint32_t saved_next = mq->qhlp;
-	qh->qhlp = saved_next;
-	__sync_synchronize();
-	mq->qhlp = (uint32_t) test_ctx->qh_node->physaddr | EHCI_Q_SELECT_QH;
-
-	// JANGAN print di sini — data belum ada, baca di fireHandler
-	log(mod, "periodic transfer armed for addr=%d ep=%d", addr, endpoint);
-}
-
 void EHCIModule::insert_periodic(ehci_queue_head_node_t* qh_node,
 				 uint16_t interval_ms) {
 	// TODO: handle interval ms
@@ -334,7 +260,7 @@ void EHCIModule::stop_periodic() {
 
 void EHCIModule::usb_get_string_descriptor(uint8_t addr, uint8_t index,
 					   char* data, size_t size) {
-	uint8_t* buffer = (uint8_t*) IOUtils::alloc(255);
+	uint8_t* buffer = (uint8_t*) kalloc(255);
 	usb_get_descriptor(addr, 0x3, index, 255, buffer);
 
 	struct usb_string_descriptor* str =
@@ -377,11 +303,11 @@ void EHCIModule::probe() {
 
 			// save ke ioforge
 			struct ioforge_usb_device* usbDevice =
-				(struct ioforge_usb_device*) IOUtils::alloc(
+				(struct ioforge_usb_device*) kalloc(
 					sizeof(struct ioforge_usb_device));
 			IOUtils::memset(usbDevice, 0, sizeof(*usbDevice));
 
-			uint8_t* data = (uint8_t*) IOUtils::alloc(0x1000);
+			uint8_t* data = (uint8_t*) kalloc(0x1000);
 			usb_get_descriptor(addr, 1, 0,
 					   sizeof(usb_device_descriptor), data);
 
@@ -626,7 +552,7 @@ void EHCIModule::probe() {
 			usbDevice->base.type = IOFORGE_USB_DEVICE;
 
 			// TODO: handle free ini kalau dev nya di umount
-			void* mem = IOForge::IOUtils::alloc(sizeof(EHCIPipe));
+			void* mem = kalloc(sizeof(EHCIPipe));
 			EHCIPipe* pipe = new (mem) EHCIPipe(this);
 
 			usbDevice->pipe = pipe;
@@ -924,7 +850,7 @@ void EHCIModule::call_completion_callback(ioforge_device* dev) {
 					is_error = true;
 				}
 
-				log(mod, "interrupt dari %s", dev->name);
+				// log(mod, "interrupt dari %s", dev->name);
 				pipe->on_complete(0, 0, is_error);
 			}
 			// pipe->qh_node_->physaddr ==
@@ -947,7 +873,7 @@ void EHCIModule::fireHandler() {
 
 	if (status & (1 << 0)) {
 		// USBINT → transfer complete
-		log("EHCI IRQ", "transfer complete");
+		// log("EHCI IRQ", "transfer complete");
 		auto node = ioforge_get_usb_devices_root();
 		module->call_completion_callback(node);
 	}

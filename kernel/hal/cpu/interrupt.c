@@ -10,7 +10,7 @@
 #include <libk/debug/debug.h>
 #include <libk/io.h>
 #include <libk/serial.h>
-#include <libk/str.h>
+#include <str.h>
 #include <memory/memory_utils.h>
 #include <memory/vm_manager.h>
 #include <procc/scheduler.h>
@@ -18,32 +18,29 @@
 
 static interrupt_per_core_data_t interrupt_per_core_data[VOXIA_MAX_CORE] = {0};
 
-void interrupt_io_wait() { outb(0x80, 0); }
+void interrupt_io_wait() {
+	outb(0x80, 0);
+}
 
 static void interrupt_pic_remap(void) {
-	// start initialization sequence
 	outb(PIC1_COMMAND, ICW1_INIT | ICW1_ICW4);
 	outb(PIC2_COMMAND, ICW1_INIT | ICW1_ICW4);
 	interrupt_io_wait();
-	// set offsets
 	outb(PIC1_DATA, 0x20);
 	outb(PIC2_DATA, 0x28);
 	interrupt_io_wait();
-	// set master-slave relationship
 	outb(PIC1_DATA, 4);
 	outb(PIC2_DATA, 2);
 	interrupt_io_wait();
-	// set 8086 mode
 	outb(PIC1_DATA, ICW4_8086);
 	outb(PIC2_DATA, ICW4_8086);
-
-	// mematikan pic
 	outb(PIC1_DATA, 0xFF);
 	outb(PIC2_DATA, 0xFF);
 }
+
 void interrupt_reload(interrupt_pointers_t* ptr, interrupt_entry_t* tbl) {
 	ptr->limit = MAX_INTERRUPTS * sizeof(interrupt_entry_t) - 1;
-	ptr->base = (uint64_t)&tbl[0];
+	ptr->base = (uint64_t) &tbl[0];
 	asm volatile("lidt %0" : : "m"(*ptr));
 	asm volatile("sti");
 }
@@ -52,96 +49,128 @@ extern void* int_table[];
 extern void syscall_interupt();
 
 void interrupt_register(interrupt_entry_t* entries, uint8_t n, void* handler,
-                        uint16_t selector, uint8_t ist, uint8_t type_attr) {
-	entries[n].offset_low = (uint64_t)handler;
+			uint16_t selector, uint8_t ist, uint8_t type_attr) {
+	entries[n].offset_low = (uint64_t) handler;
 	entries[n].selector = selector;
 	entries[n].ist = ist;
 	entries[n].type_attr = type_attr;
-	entries[n].offset_mid = (uint64_t)handler >> 16;
-	entries[n].offset_high = (uint64_t)handler >> 32;
+	entries[n].offset_mid = (uint64_t) handler >> 16;
+	entries[n].offset_high = (uint64_t) handler >> 32;
 	entries[n].zero = 0;
 }
 
 void irq_register(uint8_t core, uint8_t n, void* handler,
-                  boolean_t use_default_isr, uint16_t selector, uint8_t ist,
-                  uint8_t type_attr) {
-	interrupt_per_core_data[core].irq_entries[n].handler = handler;
-	interrupt_per_core_data[core].irq_entries[n].use_default_isr =
-	    use_default_isr;
-	interrupt_per_core_data[core].irq_entries[n].configured = true;
+		  boolean_t use_default_isr, uint16_t selector, uint8_t ist,
+		  uint8_t type_attr) {
+
+	irq_entry_t* entry = &interrupt_per_core_data[core].irq_entries[n];
+	int slot = -1;
+
+	for (;;) {
+		uint8_t old = __atomic_load_n(&entry->mask, __ATOMIC_ACQUIRE);
+		if (old == 0xFF)
+			return;
+
+		uint8_t free_mask = (uint8_t) ~old;
+		int e = __builtin_ctz(free_mask);
+		uint8_t new = old | (1 << e);
+
+		if (__atomic_compare_exchange_n(&entry->mask, &old, new, false,
+						__ATOMIC_ACQ_REL,
+						__ATOMIC_RELAXED)) {
+			slot = e;
+			break;
+		}
+	}
+
+	entry->handler[slot] = handler;
+	__atomic_store_n(&entry->use_default_isr, use_default_isr,
+			 __ATOMIC_RELAXED);
+	__atomic_store_n(&entry->configured, true, __ATOMIC_RELEASE);
 
 	if (use_default_isr) {
 		interrupt_register(
-		    interrupt_per_core_data[core].interrupt_entries, n,
-		    (void*)(uint64_t)int_table[n], selector, ist, type_attr);
+			interrupt_per_core_data[core].interrupt_entries, n,
+			(void*) (uint64_t) int_table[n], selector, ist,
+			type_attr);
 	} else {
 		interrupt_register(
-		    interrupt_per_core_data[core].interrupt_entries, n, handler,
-		    selector, ist, type_attr);
+			interrupt_per_core_data[core].interrupt_entries, n,
+			handler, selector, ist, type_attr);
 	}
 }
 
+uint16_t irq_alloc_entry(uint8_t core) {
+	for (uint16_t i = 32; i < MAX_INTERRUPTS; i++) {
+		boolean_t expected = false;
+		if (__atomic_compare_exchange_n(&interrupt_per_core_data[core]
+							 .irq_entries[i]
+							 .configured,
+						&expected, true, false,
+						__ATOMIC_ACQUIRE,
+						__ATOMIC_RELAXED)) {
+			return i;
+		}
+	}
+	return 0xFFFF;
+}
+
 void irq_setup(uint16_t core) {
+	memset(&interrupt_per_core_data[core], 0,
+	       sizeof(interrupt_per_core_data_t));
 	for (int i = 0; i < MAX_INTERRUPTS; i++)
 		interrupt_register(
-		    interrupt_per_core_data[core].interrupt_entries, i,
-		    (void*)(uint64_t)int_table[i], 0x28, 0,
-		    INTERRUPT_ATTR_KERNEL);
+			interrupt_per_core_data[core].interrupt_entries, i,
+			(void*) (uint64_t) int_table[i], 0x28, 0,
+			INTERRUPT_ATTR_KERNEL);
 
 	interrupt_pic_remap();
 	interrupt_reload(&interrupt_per_core_data[core].interrupt_pointers,
-	                 interrupt_per_core_data[core].interrupt_entries);
+			 interrupt_per_core_data[core].interrupt_entries);
 
 	interrupt_register(interrupt_per_core_data[core].interrupt_entries,
-	                   0x73, (void*)(uint64_t)syscall_interupt, 0x28, 0,
-	                   INTERRUPT_ATTR_USER);
+			   0x73, (void*) (uint64_t) syscall_interupt, 0x28, 0,
+			   INTERRUPT_ATTR_USER);
 }
 
-// Setup on BSP
 INIT(Interrupt) {
 	coreUpdateGs(0);
 	irq_setup(0);
-
-	// LOG_INFO("INTERRUPT", "interrupt initialized");
 }
 
-// default ISR
 static const char* exception_messages[] = {
-    "Division By Zero",
-    "Debug",
-    "Non Maskable Interrupt",
-    "Breakpoint",
-    "Into Detected Overflow",
-    "Out of Bounds",
-    "Invalid Opcode",
-    "No Coprocessor",
-
-    "Double Fault",
-    "Coprocessor Segment Overrun",
-    "Bad TSS",
-    "Segment Not Present",
-    "Stack Fault",
-    "General Protection Fault",
-
-    "Page Fault",
-    "reserved",
-    "x87 FPU Floating Point Error",
-    "Alignment Check",
-    "Machine Check",
-    "SIMD Floating Point Exception",
-
-    "reserved",
-    "reserved",
-    "reserved",
-    "reserved",
-    "reserved",
-    "reserved",
-    "reserved",
-    "reserved",
-    "reserved",
-    "reserved",
-    "reserved",
-    "reserved",
+	"Division By Zero",
+	"Debug",
+	"Non Maskable Interrupt",
+	"Breakpoint",
+	"Into Detected Overflow",
+	"Out of Bounds",
+	"Invalid Opcode",
+	"No Coprocessor",
+	"Double Fault",
+	"Coprocessor Segment Overrun",
+	"Bad TSS",
+	"Segment Not Present",
+	"Stack Fault",
+	"General Protection Fault",
+	"Page Fault",
+	"reserved",
+	"x87 FPU Floating Point Error",
+	"Alignment Check",
+	"Machine Check",
+	"SIMD Floating Point Exception",
+	"reserved",
+	"reserved",
+	"reserved",
+	"reserved",
+	"reserved",
+	"reserved",
+	"reserved",
+	"reserved",
+	"reserved",
+	"reserved",
+	"reserved",
+	"reserved",
 };
 
 enum EXCEPTION_ID {
@@ -153,14 +182,12 @@ enum EXCEPTION_ID {
 	OUT_OF_BOUNDS = 5,
 	INVALID_OPCODE = 6,
 	NO_COPROCESSOR = 7,
-
 	DOUBLE_FAULT = 8,
 	COPROCESSOR_SEGMENT_OVERRUN = 9,
 	BAD_TSS = 10,
 	SEGMENT_NOT_PRESENT = 11,
 	STACK_FAULT = 12,
 	GENERAL_PROTECTION_FAULT = 13,
-
 	PAGE_FAULT = 14,
 	X87_FPU_FLOATING_POINT_ERROR = 16,
 	ALIGNMENT_CHECK = 17,
@@ -168,7 +195,6 @@ enum EXCEPTION_ID {
 	SIMD_FLOATING_POINT_EXCEPTION = 19,
 	VIRTUALIZATION_EXCEPTION = 20,
 	CONTORL_PROTECTION_EXCEPTION = 21,
-
 	HYPERVISOR_INJECTION_EXCEPTION = 28,
 	VMM_COMMUNICATION_EXCEPTION = 29,
 	SECURITY_EXCEPTION = 30
@@ -196,66 +222,77 @@ extern void vxInterruptHandler(interrupt_stack_frame_t* rsp) {
 
 	uint64_t int_number = rsp->int_no;
 
-	// handle exception
-	const scheduler_queue_t* queue = vxSchedulerGetCurrentQueue(cpu_id);
-	if (queue && int_number < 31) {
+	/* FIX #1 (root cause "pesan hilang di run ke-2"):
+	 * Sebelumnya blok exception (int_number < 31) ada DUA jalur:
+	 *   (a) jika queue != null  → terminate thread + redirect ke iddle, TIDAK print
+	 *   (b) jika queue == null  → print pesan lalu INFLOOP
+	 *
+	 * Masalah: di run pertama queue belum ada (scheduler belum attach thread),
+	 * sehingga jalur (b) diambil → pesan tercetak.
+	 * Di run ke-2 tanpa make clean, thread workqueue sudah di-attach dari
+	 * run sebelumnya (BSS/data tidak di-reset oleh incremental build),
+	 * sehingga queue != null → jalur (a) diambil → pesan TIDAK tercetak,
+	 * thread di-redirect ke iddle tanpa kita tahu apa yang salah.
+	 *
+	 * Fix: SELALU cetak pesan exception terlebih dahulu, baru kemudian
+	 * tentukan apakah mau terminate thread atau INFLOOP. */
+	if (int_number < 32) {
 		uintptr_t cr2 = 0;
+		KDEBUG(DEBUG_LEVEL_ERROR, "page fault\n");
+
 		asm volatile("mov %%cr2, %0" : "=r"(cr2));
 
-		LOG2_ERROR("INTERRUPT",
-		           "An Error detected %s (%d) on thread id %d at 0x%x",
-		           exception_messages[int_number], int_number,
-		           queue->thread->id, rsp->rip, cr2);
+		serial2_printf("\n\n[EXCEPTION] %s (vector %d)\n",
+			       exception_messages[int_number], int_number);
+		serial2_printf("  rip=0x%x  rsp=0x%x  err=0x%x  cr2=0x%x\n",
+			       rsp->rip, rsp->rsp, rsp->err_code, cr2);
+		serial2_printf("  rax=0x%x  rbx=0x%x  rcx=0x%x  rdx=0x%x\n",
+			       rsp->rax, rsp->rbx, rsp->rcx, rsp->rdx);
 
-		queue->thread->state = THREAD_STATE_TERMINATED;
-		rsp->rip = (uintptr_t)iddle;
-		goto end;
-	}
-	// if (elf_has_running && int_number == GENERAL_PROTECTION_FAULT)
-	// {
-	//     LOG_INFO("ELF", "elf terminated detected...");
-	//     for (;;)
-	//         ;
-	//     return;
-	// }
+		// serial_printf("\n\n[EXCEPTION] %s (vector %d)\n",
+		// 	      exception_messages[int_number], int_number);
+		// serial_printf("  rip=0x%lx  rsp=0x%lx  err=0x%lx  cr2=0x%lx\n",
+		// 	      rsp->rip, rsp->rsp, rsp->err_code, cr2);
+		// serial_printf("  rax=0x%lx  rbx=0x%lx  rcx=0x%lx  rdx=0x%lx\n",
+		// 	      rsp->rax, rsp->rbx, rsp->rcx, rsp->rdx);
+		// serial2_flush();
 
-	if (rsp->int_no <= 31) {
-		spin_acquire(&int_lock);
-		if (rsp->int_no != 14) {
-			serial_trace("\n\n %s \nexception rip %x\n",
-			             exception_messages[rsp->int_no], rsp->rip);
-
-			serial_trace("error code: 0b%b\n", rsp->err_code);
-			serial_trace("rip: 0x%x\n", rsp->rip);
-			serial_trace("rsp: 0x%x\n", rsp->rsp);
-			serial_trace("rax: 0x%x\n", rsp->rax);
-			serial_trace("rbx: 0x%x\n", rsp->rbx);
-
-			INFLOOP;
+		const scheduler_queue_t* queue =
+			vxSchedulerGetCurrentQueue(cpu_id);
+		if (queue && queue->thread) {
+			/* Ada thread aktif: tandai terminated, redirect ke iddle,
+			 * dan biarkan scheduler membersihkannya. */
+			LOG2_ERROR("INTERRUPT",
+				   "Exception %s on thread id %d at rip=0x%x "
+				   "cr2=0x%x",
+				   exception_messages[int_number],
+				   queue->thread->id, rsp->rip, cr2);
+			queue->thread->state = THREAD_STATE_TERMINATED;
+			rsp->rip = (uintptr_t) iddle;
 		} else {
-			uint64_t cr2 = 0;
-			asm volatile("mov %%cr2, %0" : "=r"(cr2));
-			// virtual_memory *vma_tree =
-			// vma_tree_find(ALIGN_DOWN(cr2, 0x1000));
-
-			// if (!vma_tree->start_address)
-			// {
-			serial2_printf("page fault at 0x%x\n", cr2);
-			serial2_printf("\n\n %s \nexception on %d\n",
-			               exception_messages[rsp->int_no],
-			               rsp->int_no);
-			serial2_flush();
+			/* Tidak ada thread — terjadi di konteks kernel awal,
+			* tidak bisa di-recover, halt. */
 			INFLOOP;
 		}
-		spin_release(&int_lock);
+
+		goto end;
 	}
 
-	// LOG_INFO("INT", "trigerred at %d at core %d", int_number, cpu_id);
-	irq_entry_t* irq =
-	    &interrupt_per_core_data[cpu_id].irq_entries[int_number];
-	if (irq->configured) {
-		if (irq->use_default_isr)
-			((void (*)(interrupt_stack_frame_t*))irq->handler)(rsp);
+	{
+		irq_entry_t* irq = &interrupt_per_core_data[cpu_id]
+					    .irq_entries[int_number];
+		if (irq->configured) {
+			if (irq->use_default_isr) {
+				auto m = __atomic_load_n(&irq->mask,
+							 __ATOMIC_ACQUIRE);
+				while (m) {
+					int i = __builtin_ctz(m);
+					((void (*)(interrupt_stack_frame_t*))
+						 irq->handler[i])(rsp);
+					m &= (m - 1);
+				}
+			}
+		}
 	}
 
 end:

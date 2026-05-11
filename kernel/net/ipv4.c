@@ -1,7 +1,7 @@
 #include "ipv4.h"
 #include "ethernet.h"
 #include "libk/serial.h"
-#include "libk/str.h"
+#include <str.h>
 #include "net/netdev.h"
 #include "net/netutils.h"
 

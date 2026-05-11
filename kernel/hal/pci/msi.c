@@ -3,7 +3,7 @@
 #include "libk/type.h"
 #include "pci.h"
 
-void KERNEL_API pci_enable_msi(struct ioforge_pci_service* pci, uint8_t vector,
+void KERNEL_API pci_enable_msi(struct ioforge_pci_device* pci, uint8_t vector,
 			       uint8_t cpu, uint16_t cap) {
 	if (!cap)
 		return;
@@ -46,7 +46,7 @@ void KERNEL_API pci_enable_msi(struct ioforge_pci_service* pci, uint8_t vector,
 	LOG2_INFO("PCI", "MSI enabled vector=%d cpu=%d", vector, cpu);
 }
 
-uintptr_t KERNEL_API pci_enable_msix(struct ioforge_pci_service* pci,
+uintptr_t KERNEL_API pci_enable_msix(struct ioforge_pci_device* pci,
 				     uint8_t vector, uint8_t cpu, uint8_t cap) {
 	if (!cap)
 		return 0;
@@ -93,7 +93,7 @@ uintptr_t KERNEL_API pci_enable_msix(struct ioforge_pci_service* pci,
 	return selected_bar;
 }
 
-uint16_t KERNEL_API pci_cap_find_msi(struct ioforge_pci_service* pci) {
+uint16_t KERNEL_API pci_cap_find_msi(struct ioforge_pci_device* pci) {
 	auto cap_ptr = pci->capability_ptr;
 	auto bus = pci->pci_bus;
 	auto device = pci->pci_dev;
@@ -115,7 +115,7 @@ uint16_t KERNEL_API pci_cap_find_msi(struct ioforge_pci_service* pci) {
 	return 0;
 }
 
-uint16_t KERNEL_API pci_cap_find_msix(struct ioforge_pci_service* pci) {
+uint16_t KERNEL_API pci_cap_find_msix(struct ioforge_pci_device* pci) {
 	auto cap_ptr = pci->capability_ptr;
 	auto bus = pci->pci_bus;
 	auto device = pci->pci_dev;

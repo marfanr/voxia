@@ -4,17 +4,22 @@
 #include "hal/graphic/framebuffer.h"
 #include "hal/graphic/graphic.h"
 #include "init/loader.h"
+#include "ioforge/ioforge.h"
 #include "ioforge/ioforge_nic.h"
+#include "libk/debug/debug.h"
 #include "libk/serial.h"
+#include "memory/phys_base_allocator.h"
+#include "net/netdev.h"
+#include "net/socket.h"
 #include "procc/proccess.h"
 #include "procc/thread.h"
-#include "vfs/enum.h"
-#include "vfs/vnode.h"
-#include <libk/debug/debug.h>
+#include <hal/acpi/hpet.h>
+#include <str.h>
+#include <net/netutils.h>
 
 static init_context_t ctx = {};
 void render_bmp32_with_alpha(uint8_t* pixels, int width, int height, int new_w,
-                             int new_h, int posx, int posy);
+			     int new_h, int posx, int posy);
 
 void kernel_init() {
 	execve("/dev/initrd/sbin/runner.elf", 0, 0);
@@ -27,21 +32,60 @@ extern void _start(struct stivale2_struct* stivale2_struct) {
 	serial_setup();
 	build_context_from_stivale2(stivale2_struct, &ctx);
 	run_all_init_calls(&ctx);
-
-	// tempat untuk test
-	auto n = IOforgeNICFindByName("E1000");
-	if (n) {
-		LOG2_INFO("NIC TEST", "NIC E1000 exit");
-
-		// uint8_t* a = kalloc(512);
-
-		// n->ops->send(a, 512);
-	}
+	// KDEBUG(DEBUG_LEVEL_INFO, "ok");
 
 	// for logger
-	irq_register(0, 0x45, (void*)serial2_flush, true, 0x28, 0,
-	             INTERRUPT_ATTR_KERNEL);
-	vxAPICCreateTimer(APIC_TIMER_PERIOD, 5, 0x45);
+	irq_register(0, 0x45, (void*) serial2_flush, true, 0x28, 0,
+		     INTERRUPT_ATTR_KERNEL);
+	vxAPICCreateTimer(APIC_TIMER_PERIOD, 1, 0x45);
+
+	pmm_log_usage();
+	KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...");
+
+	// tempat untuk test
+	// auto nic = IOforgeNICFindByName("E1000");
+	// if (nic) {
+	// 	LOG2_INFO("NIC TEST", "NIC E1000 exit");
+	// }
+
+	// TEST
+	// create_netdev("eth", NETDEV_TYPE_ETHERNET);
+
+	// bind netdev to nic
+	// auto dev = lookup_netdev("eth");
+	// if (!dev) {
+	// 	LOG2_ERROR("Netdev", "netdev gagal dibuat");
+	// 	return;
+	// }
+	// dev->ops->bind_nic(dev, nic);
+
+	// socket test, soon add a workqueue
+	// socket_t* test_sock = 0;
+	// vxSocket(AF_RAW, SOCK_RAW, 0, &test_sock);
+	// if (test_sock) {
+	// 	LOG2_DEBUG("init", "success create socket");
+
+	// 	if (test_sock->ops->set_sockopt(test_sock, SOL_SOCKET,
+	// 					SO_BINDTODEVICE, "eth", 0)
+	// 	    == SOCK_OK) {
+	// 		LOG2_DEBUG("init",
+	// 			   "success bind socket into eth device");
+	// 	}
+
+	// 	sockaddr_in_t addr = {
+	// 		.sin_family = AF_INET,
+	// 		.sin_port = vxHtons(3000),
+	// 		.sin_addr = vxInetAddr("127.0.0.1"),
+	// 	};
+
+	// 	test_sock->ops->bind(test_sock, &addr, sizeof(addr));
+
+	// 	uint8_t* buffer = (uint8_t*) kalloc(2048);
+
+	// 	while (true) {
+	// 		int n = test_sock->ops->recv(test_sock, buffer, 2048);
+	// 	}
+	// }
 
 	// LOG_INFO("INIT", "Hello from serial2_printf! Value: %d, okokok %x\n",
 	//          42, 0x76);
@@ -131,7 +175,7 @@ extern void _start(struct stivale2_struct* stivale2_struct) {
 extern framebuffer_t* g__fb;
 
 void render_bmp32_with_alpha(uint8_t* pixels, int width, int height, int new_w,
-                             int new_h, int posx, int posy) {
+			     int new_h, int posx, int posy) {
 	int* srcx_table = kalloc(new_w * sizeof(int));
 	int* srcy_table = kalloc(new_h * sizeof(int));
 
@@ -151,9 +195,9 @@ void render_bmp32_with_alpha(uint8_t* pixels, int width, int height, int new_w,
 			size_t idx = row_idx + srcx * 4;
 
 			pixel_t src = {.b = pixels[idx + 0],
-			               .g = pixels[idx + 1],
-			               .r = pixels[idx + 2],
-			               .a = pixels[idx + 3]};
+				       .g = pixels[idx + 1],
+				       .r = pixels[idx + 2],
+				       .a = pixels[idx + 3]};
 			put_pixel_alpha_fast(posx + x, posy + y, src);
 		}
 	}

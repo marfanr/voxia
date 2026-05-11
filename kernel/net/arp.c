@@ -1,6 +1,6 @@
 #include "arp.h"
 #include "ethernet.h"
-#include "libk/str.h"
+#include <str.h>
 #include "netutils.h"
 
 void arp_reply(netdev_t* dev, uint32_t ip, uint8_t out_mac[6]) {

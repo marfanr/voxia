@@ -2,7 +2,7 @@
 #include "init/init.h"
 #include "ioforge/ioforge.h"
 #include "memory/slab.h"
-#include <libk/str.h>
+#include <str.h>
 
 #define NETBUFF_MAX_TEMP 32
 

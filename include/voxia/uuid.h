@@ -1,7 +1,7 @@
 #ifndef __UUID_H__
 #define __UUID_H__
 
-#include "type.h"
+#include <type.h>
 
 uint32_t uuid();
 

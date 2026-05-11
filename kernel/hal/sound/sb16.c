@@ -3,9 +3,9 @@
 // #include <firmw/pci/pci.h>
 // #include <libk/io.h>
 // #include <libk/serial.h>
-// #include <libk/str.h>
+// #include <str.h>
 // #include <libk/timer.h>
-// #include <libk/type.h>
+// #include <type.h>
 // #include <memory/memory_utils.h>
 // #include <memory/phys_base_allocator.h>
 // #include <vfs/vfs.h>

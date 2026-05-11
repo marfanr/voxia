@@ -4,7 +4,7 @@
 #include <hal/cpu/paging.h>
 #include <libk/executable/elf.h>
 #include <libk/serial.h>
-#include <libk/str.h>
+#include <str.h>
 #include <memory/memory_utils.h>
 #include <memory/phys_base_allocator.h>
 #include <vfs/vfs.h>
@@ -14,24 +14,24 @@ static struct Library* libraries = NULL;
 void library_register(const char* path, enum LibraryType type) {
 	// TODO: buka file hanya ketika di load saja
 	dentry_ptr opened_dentry = 0;
-	vxResolveDentry((char*)path, 0, &opened_dentry, 0);
+	vxResolveDentry((char*) path, 0, &opened_dentry, 0);
 	if (!opened_dentry) {
 		LOG_ERROR("LIBRARY", "failed to open file %s", path);
 		return;
 	}
 
-	uint8_t* file_data = (uint8_t*)(kalloc(opened_dentry->vnode->size));
+	uint8_t* file_data = (uint8_t*) (kalloc(opened_dentry->vnode->size));
 	memset(file_data, 0, opened_dentry->vnode->size);
-	((vops_file_t*)opened_dentry->vnode->ops)
-	    ->read(opened_dentry->vnode, file_data, opened_dentry->vnode->size,
-	           0);
+	((vops_file_t*) opened_dentry->vnode->ops)
+		->read(opened_dentry->vnode, file_data,
+		       opened_dentry->vnode->size, 0);
 
 	struct Library* lib = (kalloc(sizeof(struct Library)));
-	memset((void*)lib, 0, sizeof(struct Library));
+	memset((void*) lib, 0, sizeof(struct Library));
 
 	lib->name = opened_dentry->name->c_str;
 	lib->type = type;
-	lib->entry = (uintptr_t)file_data;
+	lib->entry = (uintptr_t) file_data;
 
 	if (libraries == 0) {
 		libraries = lib;

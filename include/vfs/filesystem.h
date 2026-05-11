@@ -1,7 +1,11 @@
 #ifndef __VFS__FILESYSTEM_H__
 #define __VFS__FILESYSTEM_H__
 
-#include <libk/type.h>
+#include <type.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct vnode vnode_t;
 typedef struct dentry* dentry_ptr;
@@ -22,5 +26,9 @@ typedef filesystem_t* filesystem_ptr_t;
 
 int vxCreateFilesystem(const char name[16], filesystem_ptr_t fs);
 filesystem_ptr_t vxFindFilesystem(const char name[16]);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // __VFS__FILESYSTEM_H__

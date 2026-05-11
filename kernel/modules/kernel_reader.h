@@ -2,17 +2,16 @@
 #define __MODULES__KERNEL_HEADER_H__
 
 #include "libk/symbols.h"
-#include "libk/vector.h"
-#include <libk/type.h>
+#include <vector.h>
+#include <type.h>
 
-typedef struct
-{
-    const char *name;
-    uintptr_t   value;
-    size_t      size;
+typedef struct {
+	const char* name;
+	uintptr_t value;
+	size_t size;
 } kernel_symbol;
 
-kernel_symbol *kernel_resolve_symbol(const char *name);
-symbols_ptr    kernel_get_symbols();
+kernel_symbol* kernel_resolve_symbol(const char* name);
+symbols_ptr kernel_get_symbols();
 
 #endif // __MODULES__KERNEL_HEADER_H__

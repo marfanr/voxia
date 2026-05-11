@@ -3,15 +3,14 @@
 #include "libk/serial.h"
 #include "libk/type.h"
 #include "memory/memory_utils.h"
-#include <libk/str.h>
+#include <str.h>
 
 KERNEL_API void ioforge_register_nic(struct ioforge_nic_service* nic) {
-	struct ioforge_device* svc = (struct ioforge_device*) container_of(
-		nic, struct ioforge_nic_service, service);
+	struct ioforge_device* svc = &nic->service;
 	svc->type = IOFORGE_NIC;
 
 	LOG2_DEBUG("NIC", "registered NIC at 0x%x (%s)", nic, svc->name);
-	ioforge_attach(ioforge_get_root(), (struct ioforge_device*)nic);
+	ioforge_attach(ioforge_get_root(), (struct ioforge_device*) nic);
 }
 
 // KERNEL_API

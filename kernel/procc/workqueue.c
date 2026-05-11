@@ -4,51 +4,55 @@
 #include "hal/cpu/core.h"
 #include "hal/cpu/spinlock.h"
 #include "init/init.h"
+#include "libk/debug/debug.h"
 #include "libk/serial.h"
-#include "libk/type.h"
-#include "libk/vector.h"
+#include <type.h>
+#include <vector.h>
 #include "procc/thread.h"
 
 static void workqueue_process() {
 	each_core_data* core = vxGetCoreData();
 	LOG2_INFO("workqueue", "worker thread running on core %d",
-	          core->core_id);
+		  core->core_id);
 	while (true) {
-		if (!core->workqueue_count) {
+		if (!__atomic_load_n(&core->workqueue_count,
+				     __ATOMIC_ACQUIRE)) {
 			__asm__ volatile("pause");
 			continue;
 		}
 
-		// TODO: optimize this
 		for (uint16_t i = 0; i < VOXIA_MAX_WORKQUEUE_EACH_CORE; i++) {
-			// check dependency
 			auto workqueue = &core->workqueue[i];
-			if (!workqueue->in_use)
+
+			if (!__atomic_load_n(&workqueue->in_use,
+					     __ATOMIC_ACQUIRE))
 				continue;
 
-			// LOG_DEBUG("WORKQUEUE", "checking workqueue task in
-			// slot %d", i);
 			if (workqueue->dependency) {
 				boolean_t dependency_done = true;
-				// LOG_DEBUG("WORKQUEUE", "workqueue task in
-				// slot %d has dependency size %d", i,
-				//           workqueue->dependency->size);
 
 				for (size_t j = 0;
 				     j < workqueue->dependency->size; j++) {
 					auto dep =
-					    workqueue->dependency->data[j];
+						workqueue->dependency->data[j];
+
 					if (!dep) {
-						LOG_ERROR(
-						    "WORKQUEUE",
-						    "dependency %d is null", j);
-						return;
+						__atomic_store_n(
+							&workqueue->in_use,
+							false,
+							__ATOMIC_RELEASE);
+						__atomic_fetch_sub(
+							&core->workqueue_count,
+							1, __ATOMIC_RELEASE);
+						dependency_done = false;
+						// goto workqueue_skip;
+						break;
 					}
 
-					// LOG_DEBUG("WORKQUEUE", "checking
-					// dependency %d", j);
-					if (dep->in_use) {
+					if (__atomic_load_n(&dep->in_use,
+							    __ATOMIC_ACQUIRE)) {
 						dependency_done = false;
+						// goto workqueue_skip;
 						break;
 					}
 				}
@@ -56,13 +60,12 @@ static void workqueue_process() {
 					continue;
 			}
 
-			// LOG_INFO("workqueue", "core %d executing task in slot
-			// %d", core->core_id, i);
-			// core->workqueue[i].function(core->workqueue[i].data);
-			((void (*)())core->workqueue[i].function)();
+			((void (*)()) core->workqueue[i].function)();
 
-			core->workqueue[i].in_use = false;
-			core->workqueue_count -= 1;
+			__atomic_store_n(&core->workqueue[i].in_use, false,
+					 __ATOMIC_RELEASE);
+			__atomic_fetch_sub(&core->workqueue_count, 1,
+					   __ATOMIC_RELEASE);
 		}
 	}
 	vxThreadExit();
@@ -70,38 +73,74 @@ static void workqueue_process() {
 
 static spinlock_t lock;
 
-workqueue_t* vxAddWorkqueueTask(void (*task)(void*), void* arg,
-                                vector(workqueue_ptr_t) * dependency) {
-	// find core with lower workqueue count
-	each_core_data* core = vxGetCoreDataByCoreID(1);
-	LOG2_INFO("workqueue", "adding task to core %d", core->core_id);
-	spin_acquire(&lock);
-	uint16_t core_count = vxGetNumberOfCores();
+#define SLOT_EMPTY 0x00
+#define SLOT_BUSY 0xFF
 
-	// avoid bsp for now (core 0)
-	for (uint16_t i = 1; i < core_count; i++) {
-		each_core_data* other_core = vxGetCoreDataByCoreID(i);
-		if (other_core->workqueue_count < core->workqueue_count)
-			core = other_core;
+workqueue_t* vxAddWorkqueueTask(void (*task)(void*), void* arg,
+				vector(workqueue_ptr_t) * dependency) {
+	static int next_core_hint = 1;
+
+	// Ambil core secara bergiliran
+	uint16_t core_count = vxGetNumberOfCores();
+	int start_index =
+		__atomic_fetch_add(&next_core_hint, 1, __ATOMIC_RELAXED)
+		% core_count;
+
+	if (start_index == 0) {
+		// Jangan kirim ke core 0, karena biasanya core 0 juga menjalankan
+		// scheduler dan bisa menyebabkan deadlock jika worker thread menunggu
+		// task lain yang dijalankan di core 0.
+		start_index = 1;
 	}
 
+	each_core_data* core = vxGetCoreDataByCoreID(start_index);
+	spin_acquire(&lock);
+
+	if (core == 0) {
+		LOG2_ERROR("workqueue", "error null core");
+		return 0;
+	}
+
+	LOG2_INFO("workqueue", "adding task to core %d (0x%x), num work %d",
+		  core->core_id, core, core->workqueue_count);
+
 	for (uint16_t i = 0; i < VOXIA_MAX_WORKQUEUE_EACH_CORE; i++) {
-		if (!core->workqueue[i].in_use) {
+		uint8_t expected = SLOT_EMPTY;
+
+		/* 
+ * CAS (Compare and Swap):
+ * Jika in_use == 0x00, maka set ke 0xFF secara atomik dan kembalikan true.
+ * Jika in_use sudah 0xFF, maka kembalikan false (berarti slot sudah diambil orang lain).
+ */
+		if (__atomic_compare_exchange_n(
+			    &core->workqueue[i].in_use, &expected, SLOT_BUSY,
+			    false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+
+			/* Sekarang Anda pemilik sah slot 'i'. 
+     * Tidak akan ada thread lain yang bisa masuk ke blok ini untuk index yang sama. */
+
 			core->workqueue[i].function = task;
 			core->workqueue[i].data = arg;
-			core->workqueue[i].in_use = true;
-			if (dependency)
-				core->workqueue[i].dependency = dependency;
-			core->workqueue_count += 1;
-			LOG2_INFO("workqueue", "task added to core %d slot %d",
-			          core->core_id, i);
+			core->workqueue[i].dependency = dependency;
+
+			/* Gunakan Release Barrier agar penulisan data di atas 
+     * dipastikan selesai sebelum thread lain (consumer) memprosesnya. */
+			__atomic_fetch_add(&core->workqueue_count, 1,
+					   __ATOMIC_RELEASE);
+
+			LOG2_INFO("workqueue",
+				  "task added to core %d slot %d (0x%x), num "
+				  "work %d\n",
+				  core->core_id, i, &core->workqueue[i],
+				  core->workqueue_count);
+
 			spin_release(&lock);
 			return &core->workqueue[i];
 		}
 	}
-	LOG_ERROR("workqueue", "no available slot in workqueue on core %d",
-	          core->core_id);
 
+	LOG_ERROR("workqueue", "no available slot in workqueue on core %d",
+		  core->core_id);
 	spin_release(&lock);
 	return 0;
 }
@@ -114,7 +153,6 @@ INIT(Workqueue) {
 			continue;
 		}
 		serial2_printf("workqueue init on core %d\n", cpu_info->cpuid);
-		vxCreateThread((uintptr_t)workqueue_process, i, 1, 0);
+		vxCreateThread((uintptr_t) workqueue_process, i, 1, 0);
 	}
-	// vxCreateThread((uintptr_t)workqueue_process, 2, 1, 0);
 }

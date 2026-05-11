@@ -4,12 +4,13 @@
 #include "ehci/ehci.hpp"
 #include <ioforge/ioforge_int_pipe.hpp>
 
-class EHCIPipe : InterruptPipe {
+class EHCIPipe : USBInterruptPipe {
       public:
 	explicit EHCIPipe(EHCIModule* ehci) : ehci_(ehci) {
 	}
 
-	bool open(const InterruptPipeDesc& desc, InterruptCallback cb) override;
+	bool
+	open(const USBInterruptPipeDesc& desc, InterruptCallback cb) override;
 	void close() override;
 	void on_complete(uint8_t* buf, size_t len, bool error) override;
 
@@ -18,7 +19,7 @@ class EHCIPipe : InterruptPipe {
 
       private:
 	EHCIModule* ehci_;
-	InterruptPipeDesc desc_;
+	USBInterruptPipeDesc desc_;
 	InterruptCallback cb_;
 
 	uintptr_t response_;

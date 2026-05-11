@@ -5,50 +5,57 @@ ENTRY(_start)
 
 PHDRS
 {
-    null    PT_NULL    FLAGS(0) ;                  
-    text    PT_LOAD    FLAGS((1 << 0) | (1 << 2)) ;
-    rodata  PT_LOAD    FLAGS((1 << 2)) ;           
-    data    PT_LOAD    FLAGS((1 << 1) | (1 << 2)) ;
-    dynamic PT_DYNAMIC FLAGS((1 << 1) | (1 << 2)) ;
+    null    PT_NULL    FLAGS(0);
+    text    PT_LOAD    FLAGS((1 << 0) | (1 << 2)); /* RX */
+    rodata  PT_LOAD    FLAGS((1 << 2));            /* R  */
+    data    PT_LOAD    FLAGS((1 << 1) | (1 << 2)); /* RW */
+    dynamic PT_DYNAMIC FLAGS((1 << 1) | (1 << 2));
 }
 
 SECTIONS
 {
-
     . = 0xffffffff80200000;
 
-    .text : {
+    /* ========================================================= */
+    /* TEXT                                                      */
+    /* ========================================================= */
+
+    .text : ALIGN(4K)
+    {
         *(.text .text.*)
     } :text
 
     userspace_start = .;
-    .userspace : {
+
+    .userspace : ALIGN(4K)
+    {
         *(.userspace .userspace.*)
     } :text
+
     userspace_end = .;
 
-    
-    .export : {
+    .export : ALIGN(16)
+    {
         KEEP(*(.export))
     } :text
 
+    . = ALIGN(4K);
 
-    /* adding a space */
-    . = . + 0x1000;
-
-
-    .stivale2hdr : {
+    /* read only */
+    .stivale2hdr : ALIGN(16)
+    {
         KEEP(*(.stivale2hdr))
     } :rodata
 
-    .rodata : {
+    .rodata : ALIGN(4K)
+    {
         *(.rodata .rodata.*)
     } :rodata
 
-    .init_early : ALIGN(8) 
+    .init_early : ALIGN(8)
     {
         __init_early_start = .;
-        /* SEQUENCE MATTER */
+
         KEEP(*(.init_early.SIMD))
         KEEP(*(.init_early.Gdt))
         KEEP(*(.init_early.Interrupt))
@@ -60,76 +67,96 @@ SECTIONS
         KEEP(*(.init_early.acpi))
         KEEP(*(.init_early.Timer))
         KEEP(*(.init_early.Rand))
-        KEEP(*(.init_early.Vnode))
         KEEP(*(.init_early.VfsCache))
+        KEEP(*(.init_early.Vnode))
         KEEP(*(.init_early.Vfs))
         KEEP(*(.init_early.Dev))
         KEEP(*(.init_early.Mount))
         KEEP(*(.init_early.initrd))
+        
         KEEP(*(.init_early.graphic))
+
         KEEP(*(.init_early.ioforge))
         KEEP(*(.init_early.KernelReader))
 
-        /* scheduler thread core urutannya jangan terbalik */
         KEEP(*(.init_early.Scheduler))
         KEEP(*(.init_early.Thread))
         KEEP(*(.init_early.Core))
         KEEP(*(.init_early.Workqueue))
         KEEP(*(.init_early.ModuleRegister))
-        
-        /*
+
+        KEEP(*(.init_early.Netbuff))
+        KEEP(*(.init_early.Netdev))
+        KEEP(*(.init_early.Socket))
         KEEP(*(.init_early.Virtio))
         KEEP(*(.init_early.ProccessRegister))
-        KEEP(*(.init_early.*))
-        KEEP(*(.init_early.Task))
-        */
+        
+
+        /* KEEP(*(.init_early.*)) */
+
         __init_early_end = .;
     } :rodata
 
-    .cpu_trampoline : ALIGN(8)
+    .cpu_trampoline : ALIGN(4K)
     {
         __cpu_trampoline_start = .;
         KEEP(*(.cpu_trampoline.*))
         __cpu_trampoline_end = .;
     } :rodata
 
-    .per_core : ALIGN(8)
+    .per_core : ALIGN(4K)
     {
         __per_core_start = .;
         KEEP(*(.per_core.*))
         __per_core_end = .;
     } :rodata
 
-    . = . + 0x1000;
+    . = ALIGN(4K);
 
-    .data : {
-        *(.data*)
+    /* ========================================================= */
+    /* DATA                                                      */
+    /* ========================================================= */
+
+    .data : ALIGN(4K)
+    {
+        *(.data .data.*)
     } :data
 
-    .dynamic : {
+    .dynamic : ALIGN(16)
+    {
         *(.dynamic)
     } :data :dynamic
- 
-    /* NOTE: .bss needs to be the last thing mapped to :data, otherwise lots of */
-    /* unnecessary zeros will be written to the binary. */
-    /* If you need, for example, .init_array and .fini_array, those should be placed */
-    /* above this. */
-    .bss : {
+
+    .data.percpu : ALIGN(4K)
+    {
+        __data_percpu_start = .;
+        KEEP(*(.data.percpu))
+        __data_percpu_end = .;
+    } :data
+
+    /* ========================================================= */
+    /* BSS (MUST BE LAST IN :data SEGMENT)                       */
+    /* ========================================================= */
+
+    .bss : ALIGN(4K)
+    {
+        __bss_start = .;
+
         *(COMMON)
         *(.bss .bss.*)
+
+        __bss_end = .;
     } :data
 
-    . = . + 0x1000;
-    
-    __data_prcpu_start = .;
-    .data.percpu : ALIGN(4K) {
-      KEEP(*(.data.percpu))     
-    } :data
-    __data_percpu_end = .;
+    . = ALIGN(4K);
 
-    /* Discard .note.* and .eh_frame since they may cause issues on some hosts. */
-    /* /DISCARD/ : {
+    /* ========================================================= */
+    /* DISCARD                                                   */
+    /* ========================================================= */
+
+    /DISCARD/ :
+    {
         *(.eh_frame)
         *(.note .note.*)
-    } */
+    }
 }

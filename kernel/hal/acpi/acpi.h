@@ -1,7 +1,7 @@
 #ifndef __HAL__ACPI__ACPI_H_
 #define __HAL__ACPI__ACPI_H_
 
-#include <libk/type.h>
+#include <type.h>
 
 struct RSDP_t {
 	char Signature[8];

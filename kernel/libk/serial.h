@@ -1,7 +1,7 @@
 #ifndef __LIBK_SERIAL_H__
 #define __LIBK_SERIAL_H__
 
-#include <libk/type.h>
+#include <type.h>
 
 #define SERIAL_COM1 0x3f8
 #define SERIAL_COM2 0x2f8
@@ -23,7 +23,7 @@ void serial_setup();
 	serial_printf("[INFO][%s] " fmt "\n", mod, ##__VA_ARGS__)
 #define LOG_DEBUG(mod, fmt, ...)                                               \
 	serial_printf("[DEBUG][%s][%s:%d] " fmt "\n", mod, __FILE__, __LINE__, \
-	              ##__VA_ARGS__)
+		      ##__VA_ARGS__)
 #define LOG_ERROR(mod, fmt, ...)                                               \
 	serial_printf("[ERROR][%s] " fmt "\n", mod, ##__VA_ARGS__)
 #define LOG_WARN(mod, fmt, ...)                                                \
@@ -36,7 +36,7 @@ void serial2_flush();
 	serial2_printf("[INFO][%s] " fmt "\n", mod, ##__VA_ARGS__)
 #define LOG2_DEBUG(mod, fmt, ...)                                              \
 	serial2_printf("[DEBUG][%s][%s:%d] " fmt "\n", mod, __FILE__,          \
-	               __LINE__, ##__VA_ARGS__)
+		       __LINE__, ##__VA_ARGS__)
 #define LOG2_ERROR(mod, fmt, ...)                                              \
 	serial2_printf("[ERROR][%s] " fmt "\n", mod, ##__VA_ARGS__)
 #define LOG2_WARN(mod, fmt, ...)                                               \

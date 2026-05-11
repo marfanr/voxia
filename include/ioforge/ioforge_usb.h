@@ -16,8 +16,6 @@ struct UsbControllerOp {
 	void (*send)(uint32_t addr, uint8_t endpoint, uint32_t data_phys,
 		     size_t request_size, uint32_t response_phys,
 		     size_t response_size);
-	void (*get_data_periodic)(uint8_t addr, uint16_t ring, uint8_t endpoint,
-				  uint32_t response, size_t response_size);
 };
 
 struct ioforge_usb_controller_service {

@@ -1,0 +1,11 @@
+name: AHCI
+description: AHCI controller driver
+license: MIT
+version: 0.2
+author: mohammad arfan
+
+main: ahci.elf
+
+cap:
+  - pci
+  - interrupt

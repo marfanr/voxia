@@ -1,6 +1,7 @@
-#include "libk/str.h"
-#include "libk/vector.h"
+#include <str.h>
+#include <vector.h>
 #include "memory/kalloc.h"
+#include "type.h"
 
 extern void __fast__memcpy__(void* dst, void* val, size_t len);
 extern void __fast__memcpy_aligned__(void* dst, void* val, size_t len);
@@ -14,15 +15,15 @@ int strcmp(const char* s1, const char* s2) {
 		s1++;
 		s2++;
 	}
-	return *(unsigned char*)s1 - *(unsigned char*)s2;
+	return *(unsigned char*) s1 - *(unsigned char*) s2;
 }
 
 int strncmp(const char* s1, const char* s2, size_t n) {
 	if (!simd_has_avx) {
 		while (n-- != 0) {
 			if (*s1 != *s2++)
-				return *(unsigned char*)s1 -
-				       *(unsigned char*)--s2;
+				return *(unsigned char*) s1
+				       - *(unsigned char*) --s2;
 			if (*s1++ == 0)
 				break;
 		}
@@ -73,11 +74,11 @@ size_t strlen(const char* s) {
 }
 
 char* strchr(const char* s, int c) {
-	while (*s != (char)c) {
+	while (*s != (char) c) {
 		if (!*s++)
 			return 0;
 	}
-	return (char*)s;
+	return (char*) s;
 }
 
 size_t strspn(const char* s, const char* accept) {
@@ -129,9 +130,9 @@ char* strtok_r(char* str, const char* delim, char** saveptr) {
 	return str;
 }
 
-void memset(void* ptr, uint8_t value, size_t num) {
+void KERNEL_API memset(void* ptr, uint8_t value, size_t num) {
 	if (!simd_has_avx) {
-		uint8_t* ptr_ = (uint8_t*)ptr;
+		uint8_t* ptr_ = (uint8_t*) ptr;
 
 		uint64_t fill = 0;
 		for (size_t i = 0; i < 8; i++) {
@@ -142,7 +143,7 @@ void memset(void* ptr, uint8_t value, size_t num) {
 		size_t blocks = num / 8;
 		size_t tail = num % 8;
 
-		uint64_t* p64 = (uint64_t*)ptr_;
+		uint64_t* p64 = (uint64_t*) ptr_;
 		for (size_t i = 0; i < blocks; i++)
 			p64[i] = fill;
 
@@ -154,10 +155,51 @@ void memset(void* ptr, uint8_t value, size_t num) {
 	}
 
 	// check is ptr alignmen 32
-	if (((uintptr_t)ptr % 32) == 0)
+	if (((uintptr_t) ptr % 32) == 0)
 		__fast_memset_aligned__(ptr, value, num);
 	else
 		__fast_memset__(ptr, value, num);
+}
+
+char* strpbrk(const char* s, const char* accept) {
+	if (!s || !accept) {
+		return NULL;
+	}
+
+	while (*s != '\0') {
+		const char* a = accept;
+
+		while (*a != '\0') {
+			if (*a == *s) {
+				return (char*) s;
+			}
+			a++;
+		}
+		s++;
+	}
+
+	return NULL;
+}
+
+char* strsep2(char** stringp, const char* delim) {
+	char* start = *stringp;
+	char* p;
+
+	if (start == NULL) {
+		return NULL;
+	}
+
+	// strpbrk mencari karakter apa pun yang ada di dalam string delim
+	p = strpbrk(start, delim);
+
+	if (p) {
+		*p = '\0';
+		*stringp = p + 1;
+	} else {
+		*stringp = NULL;
+	}
+
+	return start;
 }
 
 const char* strsep(char** str, const char delim) {
@@ -183,15 +225,15 @@ const char* strsep(char** str, const char delim) {
 
 void memcopy(void* dest, void* src, size_t size) {
 	if (!simd_has_avx) {
-		uint8_t* d = (uint8_t*)dest;
-		uint8_t* s = (uint8_t*)src;
+		uint8_t* d = (uint8_t*) dest;
+		uint8_t* s = (uint8_t*) src;
 		for (size_t i = 0; i < size; i++) {
 			d[i] = s[i];
 		}
 		return;
 	}
 
-	if ((((uintptr_t)dest & 31) == 0) && (((uintptr_t)src & 31) == 0)) {
+	if ((((uintptr_t) dest & 31) == 0) && (((uintptr_t) src & 31) == 0)) {
 		__fast__memcpy_aligned__(dest, src, size);
 		return;
 	}
@@ -199,8 +241,8 @@ void memcopy(void* dest, void* src, size_t size) {
 }
 
 void* memmove(void* dest, const void* src, size_t n) {
-	unsigned char* d = (unsigned char*)dest;
-	const unsigned char* s = (const unsigned char*)src;
+	unsigned char* d = (unsigned char*) dest;
+	const unsigned char* s = (const unsigned char*) src;
 	if (d < s) {
 		while (n--)
 			*d++ = *s++;

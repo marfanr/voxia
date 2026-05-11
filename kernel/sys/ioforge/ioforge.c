@@ -9,7 +9,6 @@
 #include "ioforge/ioforge_pci.h"
 #include "libk/debug/debug.h"
 #include "libk/io.h"
-#include "libk/symbols.h"
 #include "libk/type.h"
 #include "memory/kalloc.h"
 #include "memory/memory_utils.h"
@@ -18,7 +17,7 @@
 #include "type.h"
 #include <hal/pci/pci.h>
 #include <libk/serial.h>
-#include <libk/str.h>
+#include <str.h>
 #include <ioforge/ioforge_usb.h>
 
 static struct ioforge_device* root = 0;
@@ -237,43 +236,36 @@ uintptr_t IOforgeMMapPhys(uintptr_t paddr, size_t size) {
 	return vaddr + offset_paddr;
 }
 
-KERNEL_API
-void ioforge_sleep(uint32_t time) {
+void KERNEL_API ioforge_sleep(uint32_t time) {
 	usleep(time);
 }
 
-KERNEL_API
-void ioforge_mmio_outl(uint32_t port, uint32_t value) {
+void KERNEL_API ioforge_mmio_outl(uint32_t port, uint32_t value) {
 	mmio_outl(port, value);
 }
 
-KERNEL_API
-uint32_t ioforge_mmio_inl(uint32_t port) {
+uint32_t KERNEL_API ioforge_mmio_inl(uint32_t port) {
 	return mmio_inl(port);
 }
 
-KERNEL_API
-uint16_t ioforge_irq_alloc_entry() {
+uint16_t KERNEL_API ioforge_irq_alloc_entry() {
 	auto core_id = coreGetCpuID();
 	auto irq = irq_alloc_entry(core_id);
 	LOG2_INFO("IOFORGE", "allocating irq on core %d = %d", core_id, irq);
 	return irq;
 }
 
-KERNEL_API
-uint32_t ioforge_isr_get_vector(uint8_t irq) {
+uint32_t KERNEL_API ioforge_isr_get_vector(uint8_t irq) {
 	return ioapic_isr_get_vector(irq);
 }
 
-KERNEL_API
-void ioforge_irq_register(uint8_t n, void* handler) {
+void KERNEL_API ioforge_irq_register(uint8_t n, void* handler) {
 	auto core_id = coreGetCpuID();
 	LOG2_INFO("IOFORGE", "registering irq %d on core %d", n, core_id);
 	irq_register(core_id, n, handler, true, 0x28, 0, INTERRUPT_ATTR_KERNEL);
 }
 
-KERNEL_API
-void ioforge_map_isr(uint8_t irq, uint8_t vector) {
+void KERNEL_API ioforge_map_isr(uint8_t irq, uint8_t vector) {
 	auto core_id = coreGetCpuID();
 	LOG2_INFO("IOFORGE", "mapping isr %d on core %d", irq, core_id);
 	vxIOAPICMapISR(irq, vector, core_id);
@@ -287,8 +279,8 @@ void KERNEL_API IOforgeStrnCopy(char* dst, char* src, size_t len) {
 	strncpy(dst, src, len);
 }
 
-KERNEL_API
-void registerBlockDevice(const char* name, block_device_operations_t* ops,
-			 void* identifier) {
+void KERNEL_API registerBlockDevice(const char* name,
+				    block_device_operations_t* ops,
+				    void* identifier) {
 	// block_register_device(name, ops, identifier);
 }

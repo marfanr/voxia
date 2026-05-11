@@ -9,7 +9,7 @@
 #include "hal/timer/timer.h"
 #include "init/init.h"
 #include "libk/serial.h"
-#include "libk/str.h"
+#include <str.h>
 #include "libk/type.h"
 #include "memory/phys_base_allocator.h"
 #include "memory/vm_manager.h"
@@ -268,8 +268,6 @@ INIT(Core) {
 			LOG_DEBUG("CORE", "core %d sudah ambil data", cpu_id);
 			core_info->status = Active;
 		}
-
-		serial2_flush();
 	}
 
 	LOG_INFO("core", "active core count %d", active_core_count);

@@ -1,6 +1,6 @@
 #include "icmp.h"
 #include "libk/serial.h"
-#include "libk/str.h"
+#include <str.h>
 #include "net/ethernet.h"
 #include "net/ip_type.h"
 #include "net/ipv4.h"

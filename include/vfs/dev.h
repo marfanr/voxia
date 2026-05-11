@@ -18,57 +18,48 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#ifndef __VFS__VNODE_H__
-#define __VFS__VNODE_H__
+#ifndef __HAL__BLOCK__BLOCK_H__
+#define __HAL__BLOCK__BLOCK_H__
 
-#include "libk/vector.h"
 #include "procc/thread.h"
-#include "type.h"
-#include "vfs/dentry.h"
+#include <type.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef char dev_name_t[128];
 
 enum {
-	VNODE_TYPE_FILE = 1,
-	VNODE_TYPE_DIR = 2,
-	VNODE_TYPE_DEV = 3,
-	VNODE_TYPE_CHR = 4,
-	VNODE_TYPE_BLK = 5,
-	VNODE_TYPE_FIFO = 6,
-	VNODE_TYPE_SOCK = 7,
-	VNODE_TYPE_LNK = 8
+	ERR_DEV_OPS_NOT_IMPLEMENTED = -3,
+	DEV_OK = 1,
 };
 
-typedef struct vnode vnode_t;
 typedef struct {
-	int (*read)(vnode_t* vnode, void* buf, size_t len, size_t offset);
-} vops_file_t;
+	int (*open)(void* data, int op_mode, thread_t* thread);
+	int (*read)(void* data, uintptr_t path, void* buf, size_t count);
+	int (*write)(void* data, uintptr_t path, void* buf, size_t count);
+	int (*close)(void* data);
+	void* data;
+} cdev_operations_t;
 
-typedef struct {
-	int (*open)(void* vdata, int op_mode, thread_t* thread);
-	int (*read)(void* vdata, uintptr_t addr, void* buf, size_t count);
-	int (*write)(void* vdata, uintptr_t addr, void* buf, size_t count);
-	int (*close)(void* vdata);
-	void* v_data;
-} vops_blk_t;
-
-typedef uint64_t vnode_id_t;
-
-/*
-General VNode
-*/
-struct vnode {
-	vnode_id_t id;
-	uint8_t type;
-	size_t size;
-	void* ops;
-	vector(dentry_ptr) dentry_list;
+typedef struct cdev {
+	dev_name_t name;
+	uint16_t major;
+	uint16_t minor;
 	uint32_t uuid;
 	uint16_t permission;
+	cdev_operations_t* ops;
+	struct cdev* next;
+} __attribute__((aligned(64))) cdev_t;
+typedef cdev_t* cdev_ptr_t;
 
-	void* fs;
-	void* private;
-};
-typedef struct vnode* vnode_ptr_t;
+int vxMakeDev(cdev_operations_t* ops, uint16_t minor, uint32_t uuid,
+	      uint16_t permission, dev_name_t name);
+cdev_ptr_t vxRetrieveDev(uint16_t major, uint16_t minor);
 
-void vxFreeVnode(vnode_ptr_t vnode);
+#ifdef __cplusplus
+}
+#endif
 
-#endif // __VFS__VNODE_H__
+#endif // __HAL__BLOCK__BLOCK_H__

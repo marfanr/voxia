@@ -1,7 +1,7 @@
 #include "ethernet.h"
 #include "ioforge/ioforge_nic.h"
 #include "libk/serial.h"
-#include "libk/str.h"
+#include <str.h>
 #include "net/netdev.h"
 #include <memory/memory_utils.h>
 
@@ -32,5 +32,5 @@ void ethernet_send_frame(netdev_t* dev, struct netbuff* netbuff,
 					 .wait_next_data = false};
 
 	//  TODO di dev ada ops sendiri buat send tidak langsung ke nic
-	dev->nic->ops->send(data, 1);
+	dev->nic->ops.send(data, 1);
 }

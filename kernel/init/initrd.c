@@ -23,8 +23,11 @@
 #include "hal/cpu/spinlock.h"
 #include "init/init.h"
 #include "libk/oct2bin.h"
-#include "libk/vector.h"
+#include <vector.h>
 
+#include "llist.h"
+#include "type.h"
+#include "vfs/cache.h"
 #include "vfs/dentry.h"
 #include "vfs/enum.h"
 #include "vfs/filesystem.h"
@@ -33,7 +36,7 @@
 
 #include <libk/fs/tar.h>
 #include <libk/serial.h>
-#include <libk/str.h>
+#include <str.h>
 
 #include <memory/kalloc.h>
 #include <memory/memory_utils.h>
@@ -64,37 +67,38 @@ filesystem_t* initrd_fs_impl();
 INIT(initrd) {
 	initrd_module_t* initrd_module = &ctx->initrd_module;
 	uint64_t paddr = VIRT2PHYS(initrd_module->start);
-	uint64_t paddr_alligned = (uint64_t)(paddr & ~(BLOCK_SIZE - 1));
+	uint64_t paddr_alligned = (uint64_t) (paddr & ~(BLOCK_SIZE - 1));
 	uint64_t offset = paddr - paddr_alligned;
 	uint64_t page_count =
-	    (initrd_module->size + offset + BLOCK_SIZE - 1) / BLOCK_SIZE;
+		(initrd_module->size + offset + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
 	vxMultipleMmap(paging_get_highest_page_map(), 0xFFFFE00000000000,
-	               paddr_alligned, page_count, 0b111);
+		       paddr_alligned, page_count, 0b111);
 	paging_reload(paging_get_highest_page_map());
 	__initrd_data.virt_addr = 0xFFFFE00000000000 + offset;
 
 	LOG_INFO("INITRD", "paddr 0x%x aligned to 0x%x off 0x%x", paddr, paddr,
-	         paddr_alligned - paddr);
+		 paddr_alligned - paddr);
 
 	LOG_INFO("INITRD",
-	         "initrd module found at 0x%x (size %d kb), alligned to %d kb",
-	         __initrd_data.virt_addr, initrd_module->size / 1024,
-	         page_count * BLOCK_SIZE / 1024);
+		 "initrd module found at 0x%x (size %d kb), alligned to %d kb",
+		 __initrd_data.virt_addr, initrd_module->size / 1024,
+		 page_count * BLOCK_SIZE / 1024);
 
 	__initrd_data.raw_addr = initrd_module->start;
 	__initrd_data.size = initrd_module->size;
 
 	// We dont need to create a cdev cause initrd already on memory
 	// create init directory
-	vxCreateFilesystem("initfs", initrd_fs_impl());
+	// vxCreateFilesystem("initfs", initrd_fs_impl());
 	dentry_ptr init_dentry = 0;
 	{
 		vxNamei("/init", &init_dentry);
-		auto inode = vxCreateAndAttachVnode();
+		auto inode = create_and_attach_vnode();
 		init_dentry->vnode = inode;
-		vector_push_back(&inode->dentry_list, init_dentry);
-		vxMakeDirectory(vxGetRootDirectory(), init_dentry, 440);
+		inode->permission = 660;
+		inode->type = VNODE_TYPE_DIR;
+
 		LOG_DEBUG("INITRD", "entry name %s", init_dentry->name->c_str);
 	}
 
@@ -104,76 +108,116 @@ INIT(initrd) {
 }
 
 int initrd_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
-	auto data = (struct initrd_internal_vnode_data*)vnode->private;
+	auto data = (struct initrd_internal_vnode_data*) vnode->vnode_private;
 	if (!data)
 		return -1;
 
 	auto off = data->offset;
-	uint8_t* addr = (uint8_t*)__initrd_data.virt_addr + off + offset;
+	uint8_t* addr = (uint8_t*) __initrd_data.virt_addr + off + offset;
 	memcopy(buf, addr, len);
 	return len;
 }
 
+static void print_dentry_tree(dentry_t* node, int depth) {
+	if (!node)
+		return;
+
+	// indent
+	char indent[128] = {0};
+	for (int i = 0; i < depth; i++) {
+		indent[i * 2] = ' ';
+		indent[i * 2 + 1] = ' ';
+	}
+
+	serial_printf("%s└── %s (0x%lx)\n", indent, node->name->c_str, node);
+
+	// rekursi ke semua child
+	struct llist_head* pos = node->child_list.next;
+	while (pos != &node->child_list) {
+		dentry_t* child = container_of(pos, dentry_t, siblings);
+		print_dentry_tree(child, depth + 1);
+		pos = pos->next;
+	}
+}
+
 void LoadIntoVfs(dentry_ptr dentry) {
-	uint8_t* addr = (uint8_t*)__initrd_data.virt_addr;
-	TarHeader* header = (TarHeader*)addr;
+	uint8_t* addr = (uint8_t*) __initrd_data.virt_addr;
+	TarHeader* header = (TarHeader*) addr;
+	uint64_t offset = 0;
 
 	vops_file_t* initrd_file_ops =
-	    (vops_file_t*)kalloc(sizeof(vops_file_t));
+		(vops_file_t*) kalloc(sizeof(vops_file_t));
 	initrd_file_ops->read = initrd_read;
 
-	uint64_t offset = 0;
-	while (strncmp(header->ustar, "ustar", 5) == 0) {
-		int size = oct2bin((unsigned char*)header->size, 11);
-		auto root = dentry->name->c_str;
+	LOG_DEBUG("INITRD", "loading initrd into vfs started from %s",
+		  dentry->name->c_str);
+
+	while (offset + sizeof(TarHeader) <= __initrd_data.size
+	       && strncmp(header->ustar, "ustar", 5) == 0) {
+
+		size_t size =
+			(size_t) oct2bin((unsigned char*) header->size, 11);
+
+		if (size > __initrd_data.size - offset) {
+			LOG_ERROR("INITRD",
+				  "invalid entry size %zu at offset %llu, "
+				  "aborting",
+				  size, offset);
+			break;
+		}
 
 		dentry_ptr last_dentry = 0;
 		if (vxResolveDentry(header->filename, dentry, &last_dentry,
-		                    CREATE_MISSING_ENTRY) != VFS_OK) {
+				    CREATE_MISSING_ENTRY)
+		    != VFS_OK) {
 			LOG_ERROR("VFS", "failed create dentry for %s",
-			          header->filename);
+				  header->filename);
+			goto next_entry;
 		}
 
-		// if dentry was successfuly created
 		if (last_dentry) {
-			auto vnode = vxCreateAndAttachVnode();
-			vxAttachDentryToVnode(last_dentry, vnode);
+			auto vnode = create_and_attach_vnode();
+			last_dentry->vnode = vnode;
 			vnode->permission =
-			    oct2bin((unsigned char*)header->mode, 8);
+				oct2bin((unsigned char*) header->mode, 8);
 			vnode->size = size;
-			vnode->ops = (vops_file_t*)initrd_file_ops;
+			vnode->ops = initrd_file_ops;
 
 			switch (header->typeflag) {
 			case '5':
 				vnode->type = VNODE_TYPE_DIR;
 				break;
-			case '0':
+			case '0': {
 				vnode->type = VNODE_TYPE_FILE;
 				struct initrd_internal_vnode_data* data =
-				    (struct initrd_internal_vnode_data*)kalloc(
-				        sizeof(
-				            struct initrd_internal_vnode_data));
+					(struct initrd_internal_vnode_data*)
+						kalloc(sizeof(
+							struct
+							initrd_internal_vnode_data));
 				data->offset = offset + 512;
-				vnode->private = (void*)data;
+				vnode->vnode_private = (void*) data;
 				break;
-			default:
 			}
-
-			// LOG_DEBUG("INITRD", "entry name %s vnode type %d",
-			//           last_dentry->name->c_str, vnode->type);
+			default:
+				LOG_WARN("INITRD",
+					 "unhandled typeflag '%c' for %s",
+					 header->typeflag, header->filename);
+				break;
+			}
 		}
 
-		// LOG_DEBUG("INITRD", "file name %s/%s, size : %d", root,
-		//   header->filename, size);
-
+	next_entry:
 		offset += 512 + ((size + 511) & ~511);
-		header = (TarHeader*)((uint8_t*)addr + offset);
+		header = (TarHeader*) (addr + offset);
 	}
+
+	LOG_DEBUG("INITRD", "done loading initrd into vfs");
+	print_dentry_tree(vxGetRootDirectory(), 0);
 }
 
 filesystem_t* initrd_fs_impl() {
-	filesystem_t* fs = (filesystem_t*)kalloc(sizeof(filesystem_t));
-	fs->ops = (fs_operations_t*)kalloc(sizeof(fs_operations_t));
+	filesystem_t* fs = (filesystem_t*) kalloc(sizeof(filesystem_t));
+	fs->ops = (fs_operations_t*) kalloc(sizeof(fs_operations_t));
 	return fs;
 }
 

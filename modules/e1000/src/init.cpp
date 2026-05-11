@@ -26,7 +26,7 @@ extern "C" void fireHandler() {
 #define IMS_OTHER (1 << 24) // Bit 24: Other Causes (LSC, dll)
 
 void E1000Module::load() {
-	// device = findDevice(0x8086, 0x100C);
+	device = findDevice(0x8086, 0x100C);
 	device = findDevice(0x8086, 0x10D3);
 	if (!device) {
 		log(mod, "Device not found");
@@ -97,6 +97,8 @@ void E1000Module::load() {
 
 		read(0x01580);
 		read(0x000C0);
+
+		msix = 1;
 	}
 
 	else if (msi_cap) {
@@ -105,6 +107,7 @@ void E1000Module::load() {
 		auto cpu = coreGetCpuID();
 		IOUtils::irq_register(irq, (void*) E1000Module::fireHandler);
 		pci_enable_msi(device, irq, cpu, msi_cap);
+		msix = 0;
 	}
 
 	else if (device->interrupt_line) {
@@ -113,6 +116,7 @@ void E1000Module::load() {
 		auto irq = IOUtils::irq_alloc_entry();
 		IOUtils::isr_map(device->interrupt_line, irq);
 		IOUtils::irq_register(irq, (void*) E1000Module::fireHandler);
+		msix = 0;
 	}
 
 	enableInterrupt();
@@ -142,20 +146,18 @@ __attribute__((constructor)) static void e100_constructor() {
 			sizeof(ioforge_nic_service));
 	log("E1000", "nic 0x%x", nic);
 
-	nic->ops = (ioforge_nic_operation*) IOForge::IOUtils::alloc(
-		sizeof(ioforge_nic_operation));
 	const char* service_name = "E1000";
 	IOForge::IOUtils::strcopy((char*) nic->service.name,
 				  (char*) service_name);
-	nic->ops->send = E1000SendPacketCWrapper;
-	// nic->ops->receive = E1000ReceivePacketCWraper;
-	nic->ops->get_mac_address = E1000GetMacAddressCWrapper;
-	nic->ops->storeBufferToPool = E1000StoreBufferToPoolCWrapper;
+	nic->ops.send = E1000SendPacketCWrapper;
+	// nic->ops.receive = E1000ReceivePacketCWraper;
+	nic->ops.get_mac_address = E1000GetMacAddressCWrapper;
+	nic->ops.storeBufferToPool = E1000StoreBufferToPoolCWrapper;
 
 	nic->pq_head = nic->pq_tail = 0;
 
 	E1000Module::getInstance()->setNIC(nic);
 
-	IoForgeNIC::create(nic);
+	// IoForgeNIC::create(nic);
 	serial2_printf("[E1000] Constructor selesai dijalankan\n");
 }

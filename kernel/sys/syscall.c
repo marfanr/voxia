@@ -3,7 +3,7 @@
 #include <libk/console/console.h>
 #include <libk/debug/debug.h>
 #include <libk/serial.h>
-#include <libk/str.h>
+#include <str.h>
 #include <memory/phys_base_allocator.h>
 #include <procc/scheduler.h>
 #include <procc/task.h>
@@ -14,7 +14,7 @@
 extern boolean_t g__scheduler__is__running;
 
 void syscall(void* stack_adr) {
-	unsigned long* stack = (unsigned long*)stack_adr;
+	unsigned long* stack = (unsigned long*) stack_adr;
 	uint64_t rax = stack[0];
 	uint64_t rdi = stack[1];
 	uint64_t rsi = stack[2];
@@ -26,23 +26,23 @@ void syscall(void* stack_adr) {
 	uint64_t ret = 0;
 	switch (rax) {
 	case SYSCALL_WRITE:
-		ret = sys_write(rdi, (const char*)rsi, rdx);
+		ret = sys_write(rdi, (const char*) rsi, rdx);
 		break;
 
 	case SYSCALL_READ:
-		ret = sys_read(rdi, (char*)rsi, rdx);
+		ret = sys_read(rdi, (char*) rsi, rdx);
 		break;
 
 	case SYSCALL_ALLOC:
-		ret = (unsigned long)sys_alloc(rdi);
+		ret = (unsigned long) sys_alloc(rdi);
 		break;
 
 	case SYSCALL_API:
-		ret = (unsigned long)sys_api(rdi, rsi);
+		ret = (unsigned long) sys_api(rdi, rsi);
 		break;
 
 	case SYSCALL_OPEN:
-		ret = (unsigned long)sys_open((const char*)rdi, rsi);
+		ret = (unsigned long) sys_open((const char*) rdi, rsi);
 		break;
 
 	case SYSCALL_EXIT:
@@ -50,7 +50,7 @@ void syscall(void* stack_adr) {
 		break;
 
 	case SYSCALL_FSTAT:
-		ret = (unsigned long)fstat(rdi, (uint8_t*)rsi);
+		ret = (unsigned long) fstat(rdi, (uint8_t*) rsi);
 		break;
 
 	default:
@@ -114,7 +114,7 @@ uint64_t sys_write(uint64_t descriptor, const char* buffer, uint64_t length) {
 }
 
 uint64_t sys_open(const char* path, uint64_t flags) {
-	char* path_ = (char*)(vxPhysBaseAlloc(1 + strlen(path) / 4096));
+	char* path_ = (char*) (vxPhysBaseAlloc(1 + strlen(path) / 4096));
 	memset(path_, 0, 1 + strlen(path) / 4096);
 	memcopy(path_, path, strlen(path));
 	// int x = vxVFSOpen(path_, 0);
@@ -122,10 +122,11 @@ uint64_t sys_open(const char* path, uint64_t flags) {
 	return 0;
 }
 
-void sys_load(const char* path) {}
+void sys_load(const char* path) {
+}
 
 uintptr_t sys_alloc(uint64_t size) {
-	uintptr_t buf = (uintptr_t)vxPhysBaseAlloc(size);
+	uintptr_t buf = (uintptr_t) vxPhysBaseAlloc(size);
 	// serial_trace("buf : 0x%x\n", buf);
 	return buf;
 }
@@ -144,9 +145,11 @@ uint64_t sys_api(uint64_t identifier, int version) {
 	return 0;
 }
 
-uint64_t sys_sbrk(uint64_t size) { return 0; }
+uint64_t sys_sbrk(uint64_t size) {
+	return 0;
+}
 
 uint64_t sys_mmap(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags,
-                  uint64_t fd, uint64_t offset) {
+		  uint64_t fd, uint64_t offset) {
 	return 0;
 }

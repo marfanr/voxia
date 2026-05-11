@@ -3,7 +3,7 @@
 #include "ioforge/ioforge.h"
 #include "libk/serial.h"
 #include "memory/memory_utils.h"
-#include "type.h"
+#include <type.h>
 
 static bool ioforge_can_contain_usb_device(IoForgeType type) {
 	switch (type) {

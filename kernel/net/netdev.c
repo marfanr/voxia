@@ -1,8 +1,8 @@
 #include "netdev.h"
 #include "init/init.h"
-#include "libk/hash.h"
+#include <hash.h>
 #include "libk/serial.h"
-#include "libk/str.h"
+#include <str.h>
 #include "memory/slab.h"
 #include <init/loader.h>
 
@@ -93,7 +93,7 @@ netdev_t* lookup_netdev(char* name) {
 // ops implementation
 static void bind_nic(netdev_t* netdev, struct ioforge_nic_service* nic) {
 	netdev->nic = nic;
-	nic->ops->get_mac_address(netdev->mac);
+	nic->ops.get_mac_address(netdev->mac);
 	LOG2_INFO("netdev", "netdev mac %x", netdev->mac[0]);
 }
 

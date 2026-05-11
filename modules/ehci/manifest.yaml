@@ -4,6 +4,10 @@ license: MIT
 version: 0.2
 author: mohammad arfan
 
+device:
+  pci:
+    - 32902:9421
+
 main: ehci.elf
 
 capability:

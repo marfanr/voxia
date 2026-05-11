@@ -1,11 +1,11 @@
-#include "filesystem.h"
+#include <vfs/filesystem.h>
 #include "vfs/enum.h"
-#include <libk/str.h>
+#include <str.h>
 
 static filesystem_t* registered_filesystems = 0;
 
 int vxCreateFilesystem(const char name[16], filesystem_t* fs) {
-	strcpy((char*)fs->name, name);
+	strcpy((char*) fs->name, name);
 	fs->next = 0;
 	if (registered_filesystems == 0) {
 		registered_filesystems = fs;

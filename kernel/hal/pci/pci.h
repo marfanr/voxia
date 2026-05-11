@@ -1,7 +1,7 @@
 #ifndef __HAL__PCI__PCI_H_
 #define __HAL__PCI__PCI_H_
 
-#include <libk/type.h>
+#include <type.h>
 
 #define MAX_PCI_BUS 256
 

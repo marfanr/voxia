@@ -2,7 +2,7 @@
 #define __HAL__USB__EHCI_H__
 
 #include <ioforge/ioforge_pci.h>
-#include <libk/type.h>
+#include <type.h>
 
 /*
  * EHCI Controller Structures
@@ -11,50 +11,47 @@
 /**
  * EHCI operation registers structure
  */
-struct ehci_operation
-{
-    volatile uint32_t usbcmd;           /* USB Command Register */
-    volatile uint32_t usbsts;           /* USB Status Register */
-    volatile uint32_t usbintr;          /* USB Interrupt Enable Register */
-    volatile uint32_t frindex;          /* USB Frame Index Register */
-    volatile uint32_t ctrldssegment;    /* 4G Segment Selector */
-    volatile uint32_t periodiclistbase; /* Frame List Base Address */
-    volatile uint32_t asynclistaddr;    /* Next Async List Address */
-    volatile uint32_t reserved[9];      /* Reserved */
-    volatile uint32_t configflag;       /* Configure Flag Register */
-    volatile uint32_t portsc[];         /* Port Status/Control Registers */
+struct ehci_operation {
+	volatile uint32_t usbcmd;	    /* USB Command Register */
+	volatile uint32_t usbsts;	    /* USB Status Register */
+	volatile uint32_t usbintr;	    /* USB Interrupt Enable Register */
+	volatile uint32_t frindex;	    /* USB Frame Index Register */
+	volatile uint32_t ctrldssegment;    /* 4G Segment Selector */
+	volatile uint32_t periodiclistbase; /* Frame List Base Address */
+	volatile uint32_t asynclistaddr;    /* Next Async List Address */
+	volatile uint32_t reserved[9];	    /* Reserved */
+	volatile uint32_t configflag;	    /* Configure Flag Register */
+	volatile uint32_t portsc[];	    /* Port Status/Control Registers */
 } __attribute__((packed));
 
 /**
  * EHCI Queue Head structure
  */
-struct ehci_queue_head
-{
-    uint32_t          qhlp;      /* Queue Head Link Pointer */
-    uint32_t          ch;        /* Endpoint Characteristics */
-    uint32_t          cap;       /* Endpoint Capabilities */
-    volatile uint32_t currentTD; /* Current TD Pointer */
+struct ehci_queue_head {
+	uint32_t qhlp;		     /* Queue Head Link Pointer */
+	uint32_t ch;		     /* Endpoint Characteristics */
+	uint32_t cap;		     /* Endpoint Capabilities */
+	volatile uint32_t currentTD; /* Current TD Pointer */
 
-    volatile uint32_t nextTD;       /* Next TD Pointer */
-    volatile uint32_t altTD;        /* Alternate Next TD Pointer */
-    volatile uint32_t token;        /* Token */
-    volatile uint32_t buffer[5];    /* Buffer Pointers */
-    volatile uint32_t extbuffer[5]; /* Extended Buffer Pointers */
+	volatile uint32_t nextTD;	/* Next TD Pointer */
+	volatile uint32_t altTD;	/* Alternate Next TD Pointer */
+	volatile uint32_t token;	/* Token */
+	volatile uint32_t buffer[5];	/* Buffer Pointers */
+	volatile uint32_t extbuffer[5]; /* Extended Buffer Pointers */
 };
 
 /**
  * EHCI Queue Task Descriptor
  */
-struct ehci_queue_task_descriptor
-{
-    volatile uint32_t link;         /* Next QTD Pointer */
-    volatile uint32_t altlink;      /* Alternate Next QTD Pointer */
-    volatile uint32_t token;        /* QTD Token */
-    volatile uint32_t buffer[5];    /* Buffer Page Pointers */
-    volatile uint32_t extbuffer[5]; /* Extended Buffer Page Pointers */
+struct ehci_queue_task_descriptor {
+	volatile uint32_t link;		/* Next QTD Pointer */
+	volatile uint32_t altlink;	/* Alternate Next QTD Pointer */
+	volatile uint32_t token;	/* QTD Token */
+	volatile uint32_t buffer[5];	/* Buffer Page Pointers */
+	volatile uint32_t extbuffer[5]; /* Extended Buffer Page Pointers */
 
-    boolean_t used; /* Whether this QTD is in use */
-    uint32_t  next; /* Next QTD in chain */
+	boolean_t used; /* Whether this QTD is in use */
+	uint32_t next;	/* Next QTD in chain */
 };
 
 /*
@@ -122,47 +119,42 @@ struct ehci_queue_task_descriptor
 #define EHCI_QTD_TOKEN_DATA (1 << 31)
 
 /* Queue Type Selector */
-enum EHCI_Q_SELECT
-{
-    EHCI_Q_SELECT_QTD  = (0 << 1),
-    EHCI_Q_SELECT_QH   = (1 << 1),
-    EHCI_Q_SELECT_SITD = (2 << 1),
-    EHCI_Q_SELECT_FSTN = (3 << 1),
+enum EHCI_Q_SELECT {
+	EHCI_Q_SELECT_ITD = (0 << 1),
+	EHCI_Q_SELECT_QH = (1 << 1),
+	EHCI_Q_SELECT_SITD = (2 << 1),
+	EHCI_Q_SELECT_FSTN = (3 << 1),
 };
 
 /* QTD PID Codes */
-enum EHCI_QTD_TOKEN_PID
-{
-    EHCI_QTD_TOKEN_PID_OUT   = (0 << 8),
-    EHCI_QTD_TOKEN_PID_IN    = (1 << 8),
-    EHCI_QTD_TOKEN_PID_SETUP = (2 << 8),
+enum EHCI_QTD_TOKEN_PID {
+	EHCI_QTD_TOKEN_PID_OUT = (0 << 8),
+	EHCI_QTD_TOKEN_PID_IN = (1 << 8),
+	EHCI_QTD_TOKEN_PID_SETUP = (2 << 8),
 };
 
 /* QTD Status Bits */
-enum EHCI_QTD_TOKEN_STATUS
-{
-    EHCI_QTD_TOKEN_STATUS_ACTIVE            = (1 << 7),
-    EHCI_QTD_TOKEN_STATUS_HALTED            = (1 << 6),
-    EHCI_QTD_TOKEN_STATUS_BUFFER_ERROR      = (1 << 5),
-    EHCI_QTD_TOKEN_STATUS_BABBLE_DETECTED   = (1 << 4),
-    EHCI_QTD_TOKEN_STATUS_TRANSACTION_ERROR = (1 << 3),
+enum EHCI_QTD_TOKEN_STATUS {
+	EHCI_QTD_TOKEN_STATUS_ACTIVE = (1 << 7),
+	EHCI_QTD_TOKEN_STATUS_HALTED = (1 << 6),
+	EHCI_QTD_TOKEN_STATUS_BUFFER_ERROR = (1 << 5),
+	EHCI_QTD_TOKEN_STATUS_BABBLE_DETECTED = (1 << 4),
+	EHCI_QTD_TOKEN_STATUS_TRANSACTION_ERROR = (1 << 3),
 };
 
 /* QTD Error Count Values */
-enum EHCI_QTD_TOKEN_ERROR_COUNT
-{
-    EHCI_QTD_TOKEN_ERROR_COUNT_0 = (0 << 10),
-    EHCI_QTD_TOKEN_ERROR_COUNT_1 = (1 << 10),
-    EHCI_QTD_TOKEN_ERROR_COUNT_2 = (2 << 10),
-    EHCI_QTD_TOKEN_ERROR_COUNT_3 = (3 << 10),
+enum EHCI_QTD_TOKEN_ERROR_COUNT {
+	EHCI_QTD_TOKEN_ERROR_COUNT_0 = (0 << 10),
+	EHCI_QTD_TOKEN_ERROR_COUNT_1 = (1 << 10),
+	EHCI_QTD_TOKEN_ERROR_COUNT_2 = (2 << 10),
+	EHCI_QTD_TOKEN_ERROR_COUNT_3 = (3 << 10),
 };
 
 /* Queue Head Capability Multiplier */
-enum EHCI_QH_CAP_MULT
-{
-    EHCI_QH_CAP_MULT_1 = (1 << 30),
-    EHCI_QH_CAP_MULT_2 = (2 << 30),
-    EHCI_QH_CAP_MULT_3 = (3 << 30),
+enum EHCI_QH_CAP_MULT {
+	EHCI_QH_CAP_MULT_1 = (1 << 30),
+	EHCI_QH_CAP_MULT_2 = (2 << 30),
+	EHCI_QH_CAP_MULT_3 = (3 << 30),
 };
 
 /*
@@ -172,7 +164,7 @@ enum EHCI_QH_CAP_MULT
 /**
  * Initialize the EHCI controller
  */
-void ehci_init(struct ioforge_pci_service *bar);
+void ehci_init(struct ioforge_pci_device* bar);
 
 /**
  * EHCI interrupt handler

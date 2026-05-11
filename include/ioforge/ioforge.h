@@ -1,7 +1,7 @@
 #ifndef __SYS__IOFORGE__IOFORGE_H_
 #define __SYS__IOFORGE__IOFORGE_H_
 
-#include "type.h"
+#include <type.h>
 
 #define IOFORGE_SERVICE_NAME_MAX_LEN 64
 

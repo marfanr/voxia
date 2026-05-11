@@ -2,7 +2,7 @@
 #define __SYS__IOFORGE__IOFORGE_NIC_H__
 
 #include "ioforge/ioforge.h"
-#include "type.h"
+#include <type.h>
 
 #define MAX_NICS 8    /* maksimum NIC yang bisa didaftarkan */
 #define NIC_MAC_LEN 6 /* panjang MAC address (bytes)        */

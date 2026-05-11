@@ -145,39 +145,52 @@ void vxInitializeAPICTimer() {
 
 #define APIC_TIMER_MASKED 0x80
 
-void vxAPICCreateTimer(uint32_t type, double interval_us, uint8_t vector) {
+#define APIC_TIMER_MIN_VECTOR                                                  \
+	0x20 // Vektor 0x00 - 0x1F khusus untuk CPU Exceptions
+
+void vxAPICCreateTimer(uint32_t type, uint64_t interval_us, uint8_t vector) {
 	if (type != APIC_TIMER_ONE_SHOT && type != APIC_TIMER_PERIOD) {
 		LOG_ERROR("APIC_TIMER", "Invalid timer type: 0x%x", type);
 		return;
 	}
-	if (vector < 0x10 || vector > 0xFE) {
+
+	// Validasi vektor harus menghindari CPU Exceptions
+	if (vector < APIC_TIMER_MIN_VECTOR || vector > 0xFE) {
 		LOG_ERROR("APIC_TIMER", "Invalid vector: 0x%x", vector);
 		return;
 	}
-	if (interval_us <= 0) {
+
+	// uint64_t tidak bisa negatif, cukup cek 0
+	if (interval_us == 0) {
 		LOG_ERROR("APIC_TIMER", "Interval must be > 0");
 		return;
 	}
+
 	if (calibrated_ticks_1ns == 0) {
 		LOG_ERROR("APIC_TIMER", "APIC timer not calibrated");
 		return;
 	}
 
-	// us → ns → ticks, hitung di 64-bit dulu
-	uint64_t count = (uint64_t) calibrated_ticks_1ns
-			 * (uint64_t) (interval_us * 1000.0);
+	// us → ns → ticks
+	// Gunakan 1000ULL untuk menjamin perkalian dilakukan sebagai 64-bit integer
+	// DILARANG KERAS menggunakan 1000.0 di kernel kecuali FPU state disave/restore
+	uint64_t count =
+		(uint64_t) calibrated_ticks_1ns * interval_us * 1000ULL;
+
 	if (count > 0xFFFFFFFF) {
 		LOG_WARN("APIC_TIMER", "Interval too long, truncated");
 		count = 0xFFFFFFFF;
 	}
 
-	apic_write(TIMER_DIVIDE_CONFIG, 0b1011);
+	// Set Divide Configuration Register (DCR) ke Divide by 1 (0b1011)
+	apic_write(TIMER_DIVIDE_CONFIG, 0x0B);
 
 	// Tulis LVT dalam kondisi masked dulu, baru unmask setelah initial count di-set
 	uint32_t lvt = (vector & 0xFF) | type | APIC_TIMER_MASKED;
 	apic_write(LVT_TIMER, lvt);
 	apic_write(TIMER_INITIAL_COUNT, (uint32_t) count);
 
+	// Unmask timer
 	lvt &= ~APIC_TIMER_MASKED;
 	apic_write(LVT_TIMER, lvt);
 }

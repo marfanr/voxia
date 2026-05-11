@@ -14,6 +14,6 @@ INIT(Mount) {
 	vxCreateSlabCache(&mount_cache, "mount", sizeof(mount_t), 64, 0);
 }
 
-mount_ptr_t vxAllocMountTable() {
-	return (mount_ptr_t)vxSlabAlloc(mount_cache);
+mount_ptr_t KERNEL_API vxAllocMountTable() {
+	return (mount_ptr_t) vxSlabAlloc(mount_cache);
 }

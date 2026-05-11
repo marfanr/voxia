@@ -21,7 +21,7 @@
 #ifndef __BLOCK__BLOCK_H__
 #define __BLOCK__BLOCK_H__
 
-#include "type.h"
+#include <type.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -41,7 +41,7 @@ typedef struct {
 } __attribute__((aligned(64))) block_device_operations_t;
 
 void registerBlockDevice(const char* name, block_device_operations_t* ops,
-                         void* identifier);
+			 void* identifier);
 #ifdef __cplusplus
 }
 #endif

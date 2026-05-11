@@ -1,7 +1,7 @@
 #ifndef __HAL__APIC__IOAPIC_H__
 #define __HAL__APIC__IOAPIC_H__
 
-#include <libk/type.h>
+#include <type.h>
 
 struct irq_gsi_map {
 	uint32_t gsi;

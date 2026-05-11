@@ -4,9 +4,11 @@
 #include "libk/type.h"
 #include <init/init.h>
 #include <libk/io.h>
-#include <libk/str.h>
+#include <str.h>
 
 #define INT_ENABLE_OFFSET 1
+#define SERIAL_BUFFER2_SIZE 4096 * 3
+#define SERIAL_BUFFER2_MASK (SERIAL_BUFFER2_SIZE - 1)
 
 typedef struct {
 	char data[128];
@@ -14,7 +16,7 @@ typedef struct {
 } serial_entry_t;
 
 typedef struct {
-	serial_entry_t buffer[8192];
+	serial_entry_t buffer[SERIAL_BUFFER2_SIZE];
 	uint32_t head;
 	uint32_t tail;
 } serial_ring_buffer_t;
@@ -31,7 +33,9 @@ void serial_setup() {
 	outb(SERIAL_COM1 + 4, 0x0B);
 }
 
-int serial_is_transmit_empty(void) { return inb(SERIAL_COM1 + 5) & 0x20; }
+int serial_is_transmit_empty(void) {
+	return inb(SERIAL_COM1 + 5) & 0x20;
+}
 
 // send data to SERIAL_COM1
 extern void serial_putc(char c) {
@@ -59,17 +63,17 @@ void serial_send_number(int64_t num, int base) {
 	uint64_t n;
 	if (base == 10 && num < 0) {
 		negative = true;
-		n = (uint64_t)(-num); /* safe: negate first, then reinterpret */
+		n = (uint64_t) (-num); /* safe: negate first, then reinterpret */
 	} else {
-		n = (uint64_t)num; /* for hex/oct/bin: reinterpret all bits */
+		n = (uint64_t) num; /* for hex/oct/bin: reinterpret all bits */
 	}
 
 	if (n == 0) {
 		buffer[i++] = '0';
 	} else {
 		while (n > 0) {
-			buffer[i++] = digits[n % (uint64_t)base];
-			n /= (uint64_t)base;
+			buffer[i++] = digits[n % (uint64_t) base];
+			n /= (uint64_t) base;
 		}
 	}
 
@@ -123,10 +127,10 @@ void serial_send_number_double(double value, int precision) {
 	}
 
 	// Ambil bagian integer
-	uint64_t integer_part = (uint64_t)value;
+	uint64_t integer_part = (uint64_t) value;
 
 	// Ambil bagian pecahan
-	double fraction = value - (double)integer_part;
+	double fraction = value - (double) integer_part;
 
 	// Kirim bagian integer (pakai fungsi kamu sebelumnya)
 	{
@@ -153,24 +157,39 @@ void serial_send_number_double(double value, int precision) {
 	// Cetak bagian pecahan
 	for (int i = 0; i < precision; i++) {
 		fraction *= 10.0;
-		int digit = (int)fraction;
+		int digit = (int) fraction;
 		serial_putc('0' + digit);
 		fraction -= digit;
 	}
 }
 
-void serial_clear() { serial_printf("\033[2J\033[H"); }
+void serial_clear() {
+	serial_printf("\033[2J\033[H");
+}
 
 // untuk debug yang tidak boleh mengakibatkan deadlock, misal di interrupt
 // handler atau di dalam spinlock
 // serial nanti akan di migrasi ke sini
 static void put_into_buffer(const char* str, uint8_t len) {
-	uint32_t idx = __atomic_fetch_add(&__buffer.head, 1, __ATOMIC_RELAXED);
-	idx %= 8192;
+	uint32_t current_head =
+		__atomic_fetch_add(&__buffer.head, 1, __ATOMIC_RELAXED);
+	uint32_t current_tail =
+		__atomic_load_n(&__buffer.tail, __ATOMIC_ACQUIRE);
+
+	uint32_t idx = current_head & SERIAL_BUFFER2_MASK;
 	serial_entry_t* entry = &__buffer.buffer[idx];
-	for (uint8_t i = 0; i < len; i++) {
-		entry->data[i] = str[i];
+
+	while (__atomic_load_n(&entry->len, __ATOMIC_ACQUIRE) != 0)
+		;
+
+	if ((current_head - current_tail) >= SERIAL_BUFFER2_SIZE) {
+		// BUG 2 FIX: tandai slot sebagai dropped agar flusher tidak spin
+		__atomic_store_n(&entry->len, 0xFF, __ATOMIC_RELEASE);
+		return;
 	}
+
+	for (uint8_t i = 0; i < len; i++)
+		entry->data[i] = str[i];
 	__atomic_store_n(&entry->len, len, __ATOMIC_RELEASE);
 }
 
@@ -185,7 +204,7 @@ static void serial2_send_number(int64_t num, int base) {
 		num = -num;
 	}
 
-	uint64_t n = (uint64_t)num;
+	uint64_t n = (uint64_t) num;
 
 	if (n == 0) {
 		buffer[i++] = '0';
@@ -247,8 +266,8 @@ static void serial2_send_number_double(double value, int precision) {
 		value = -value;
 	}
 
-	uint64_t integer_part = (uint64_t)value;
-	double fraction = value - (double)integer_part;
+	uint64_t integer_part = (uint64_t) value;
+	double fraction = value - (double) integer_part;
 
 	{
 		const char* digits = "0123456789";
@@ -275,7 +294,7 @@ static void serial2_send_number_double(double value, int precision) {
 
 	for (int i = 0; i < precision; i++) {
 		fraction *= 10.0;
-		int digit = (int)fraction;
+		int digit = (int) fraction;
 		char outb[2] = {0};
 		outb[0] = '0' + digit;
 		put_into_buffer(outb, 1);
@@ -319,7 +338,11 @@ static void parse_multicore(__builtin_va_list args, const char* fmt) {
 			serial2_send_number(i, 16);
 		} else if (*p == 's') {
 			char* s = __builtin_va_arg(args, char*);
-			put_into_buffer(s, strlen(s));
+			if (!s) {
+				put_into_buffer("(null)", 6);
+			} else {
+				put_into_buffer(s, strlen(s));
+			}
 		} else if (*p == 'b') {
 			uint64_t i = __builtin_va_arg(args, uint64_t);
 			serial2_send_number(i, 2);
@@ -362,29 +385,29 @@ void serial2_flush() {
 
 	while (1) {
 		uint32_t head =
-		    __atomic_load_n(&__buffer.head, __ATOMIC_ACQUIRE);
+			__atomic_load_n(&__buffer.head, __ATOMIC_ACQUIRE);
 		if (tail == head)
 			break;
 
 		if (!__atomic_compare_exchange_n(
-		        &__buffer.tail, &tail, tail + 1, false,
-		        __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
+			    &__buffer.tail, &tail, tail + 1, false,
+			    __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
 			continue;
 		}
 
-		serial_entry_t* entry = &__buffer.buffer[tail % 8192];
+		// BUG 1 FIX: gunakan SERIAL_BUFFER2_MASK, bukan hardcode 8192
+		serial_entry_t* entry =
+			&__buffer.buffer[tail & SERIAL_BUFFER2_MASK];
 
-		// BUG 1 FIX: spin tunggu produsen selesai menulis len
-		// Jangan skip — slot sudah diklaim via CAS, harus diproses
 		uint8_t len;
-		while ((len = __atomic_load_n(&entry->len, __ATOMIC_ACQUIRE)) ==
-		       0) {
-			// cpu_relax() / __asm__ volatile ("pause") bisa
-			// ditambahkan di sini
-		}
+		while ((len = __atomic_load_n(&entry->len, __ATOMIC_ACQUIRE))
+		       == 0)
+			;
 
-		for (uint8_t i = 0; i < len; i++) {
-			serial_putc(entry->data[i]);
+		// BUG 2 FIX: skip slot yang di-drop, jangan kirim ke serial
+		if (len != 0xFF) {
+			for (uint8_t i = 0; i < len; i++)
+				serial_putc(entry->data[i]);
 		}
 
 		__atomic_store_n(&entry->len, 0, __ATOMIC_RELEASE);
@@ -458,22 +481,23 @@ static void parse_before_multicore(__builtin_va_list args, const char* fmt) {
 		/* --- specifier --- */
 		switch (*p) {
 		case 'd': {
-			int64_t i = is_long
-			                ? __builtin_va_arg(args, int64_t)
-			                : (int64_t) __builtin_va_arg(args, int);
+			int64_t i =
+				is_long ? __builtin_va_arg(args, int64_t)
+					: (int64_t) __builtin_va_arg(args, int);
 			if (i < 0) {
 				serial_putc('-');
-				serial_send_padded((uint64_t)(-i), 10,
-				                   width ? width - 1 : 0, pad);
+				serial_send_padded((uint64_t) (-i), 10,
+						   width ? width - 1 : 0, pad);
 			} else {
-				serial_send_padded((uint64_t)i, 10, width, pad);
+				serial_send_padded((uint64_t) i, 10, width,
+						   pad);
 			}
 			break;
 		}
 		case 'u': {
 			uint64_t i = is_long ? __builtin_va_arg(args, uint64_t)
-			                     : (uint64_t) __builtin_va_arg(
-			                           args, unsigned int);
+					     : (uint64_t) __builtin_va_arg(
+						       args, unsigned int);
 			serial_send_padded(i, 10, width, pad);
 			break;
 		}
@@ -481,15 +505,15 @@ static void parse_before_multicore(__builtin_va_list args, const char* fmt) {
 			/* %x  -> unsigned int (4 bytes via varargs)
 			   %lx -> uint64_t    (8 bytes) */
 			uint64_t i = is_long ? __builtin_va_arg(args, uint64_t)
-			                     : (uint64_t) __builtin_va_arg(
-			                           args, unsigned int);
+					     : (uint64_t) __builtin_va_arg(
+						       args, unsigned int);
 			serial_send_padded(i, 16, width, pad);
 			break;
 		}
 		case 'b': {
 			uint64_t i = is_long ? __builtin_va_arg(args, uint64_t)
-			                     : (uint64_t) __builtin_va_arg(
-			                           args, unsigned int);
+					     : (uint64_t) __builtin_va_arg(
+						       args, unsigned int);
 			serial_send_padded(i, 2, width, pad);
 			break;
 		}
@@ -511,7 +535,7 @@ static void parse_before_multicore(__builtin_va_list args, const char* fmt) {
 			break;
 		}
 		case 'c': {
-			char c = (char)__builtin_va_arg(args, int);
+			char c = (char) __builtin_va_arg(args, int);
 			serial_putc(c);
 			break;
 		}

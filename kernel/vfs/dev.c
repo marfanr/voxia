@@ -20,16 +20,16 @@
 
 #include "vfs/dev.h"
 #include "init/init.h"
-#include "libk/string.h"
-#include "libk/type.h"
+#include <string.h>
+#include <type.h>
 #include "procc/thread.h"
 #include "vfs/dentry.h"
 #include "vfs/enum.h"
 #include "vfs/vfs.h"
 #include "vfs/vnode.h"
-#include <libk/hash.h>
+#include <hash.h>
 #include <libk/serial.h>
-#include <libk/str.h>
+#include <str.h>
 #include <memory/memory_utils.h>
 #include <memory/phys_base_allocator.h>
 #include <memory/slab.h>
@@ -39,11 +39,11 @@ static struct slab_cache* block_device_cache = 0;
 
 INIT(Dev) {
 	vxCreateSlabCache(&block_device_cache, "block_device", sizeof(cdev_t),
-	                  0, 0);
+			  0, 0);
 	// create directory for /dev
 	{
-		auto vnode = vxCreateAndAttachVnode();
-		dentry_ptr entry = vxCreateDentry(str("dev"), vnode);
+		auto vnode = create_and_attach_vnode();
+		dentry_ptr entry = create_dentry(str("dev"), vnode, 0);
 		entry->vnode = vnode;
 		vnode->type = VNODE_TYPE_DIR;
 
@@ -53,42 +53,43 @@ INIT(Dev) {
 }
 
 static int DevOpOpenImpl(void* vdata, int op_mode, thread_t* thread) {
-	cdev_ptr_t cdev = (cdev_ptr_t)vdata;
+	cdev_ptr_t cdev = (cdev_ptr_t) vdata;
 	if (!cdev->ops)
 		return ERR_DEV_OPS_NOT_IMPLEMENTED;
 
 	if (!cdev->ops->open)
 		return ERR_DEV_OPS_NOT_IMPLEMENTED;
 
-	return ((cdev_ptr_t)vdata)->ops->open(cdev->ops->data, op_mode, thread);
+	return ((cdev_ptr_t) vdata)
+		->ops->open(cdev->ops->data, op_mode, thread);
 }
 
 static int DevOpCloseImpl(void* vdata) {
-	cdev_ptr_t cdev = (cdev_ptr_t)vdata;
+	cdev_ptr_t cdev = (cdev_ptr_t) vdata;
 	if (!cdev->ops)
 		return ERR_DEV_OPS_NOT_IMPLEMENTED;
 
 	if (!cdev->ops->close)
 		return ERR_DEV_OPS_NOT_IMPLEMENTED;
 
-	return ((cdev_ptr_t)vdata)->ops->close(cdev->ops->data);
+	return ((cdev_ptr_t) vdata)->ops->close(cdev->ops->data);
 }
 
 static int DevOpReadImpl(void* vdata, uintptr_t addr, void* buf, size_t count) {
-	cdev_ptr_t cdev = (cdev_ptr_t)vdata;
+	cdev_ptr_t cdev = (cdev_ptr_t) vdata;
 	if (!cdev->ops)
 		return ERR_DEV_OPS_NOT_IMPLEMENTED;
 
 	if (!cdev->ops->open)
 		return ERR_DEV_OPS_NOT_IMPLEMENTED;
 
-	return ((cdev_ptr_t)vdata)
-	    ->ops->read(cdev->ops->data, addr, buf, count);
+	return ((cdev_ptr_t) vdata)
+		->ops->read(cdev->ops->data, addr, buf, count);
 }
 
-int vxMakeDev(cdev_operations_t* ops, uint16_t minor, uint32_t uuid,
-              uint16_t permission, dev_name_t name) {
-	auto cdev = (cdev_ptr_t)vxSlabAlloc(block_device_cache);
+int KERNEL_API vxMakeDev(cdev_operations_t* ops, uint16_t minor, uint32_t uuid,
+			 uint16_t permission, dev_name_t name) {
+	auto cdev = (cdev_ptr_t) vxSlabAlloc(block_device_cache);
 	if (!cdev)
 		return -1;
 
@@ -106,7 +107,7 @@ int vxMakeDev(cdev_operations_t* ops, uint16_t minor, uint32_t uuid,
 		dev_chain = cdev;
 	}
 
-	auto vnode = vxCreateAndAttachVnode();
+	auto vnode = create_and_attach_vnode();
 	if (!vnode)
 		return -1;
 
@@ -120,14 +121,14 @@ int vxMakeDev(cdev_operations_t* ops, uint16_t minor, uint32_t uuid,
 		}
 
 		size_t count = 0;
-		for (size_t i = 0; i < dev_entry->children.size; i++) {
-			if (strncmp(dev_entry->children.data[i]->name->c_str,
-			            name, strlen(name))) {
-				count++;
-			}
-		}
+		// for (size_t i = 0; i < dev_entry->children.size; i++) {
+		// 	if (strncmp(dev_entry->children.data[i]->name->c_str,
+		// 		    name, strlen(name))) {
+		// 		count++;
+		// 	}
+		// }
 
-		string name_str;
+		kstring name_str;
 		if (count > 0) {
 			char temp[count / 10 + 1];
 			auto inc = itoa(count, temp, 10);
@@ -140,7 +141,7 @@ int vxMakeDev(cdev_operations_t* ops, uint16_t minor, uint32_t uuid,
 		}
 
 		// LOG_DEBUG("DEV", "dev dentry %s", dev_dentry->name->c_str);
-		new_entry = vxCreateDentry(name_str, (vnode_ptr_t)vnode);
+		new_entry = create_dentry(name_str, (vnode_ptr_t) vnode, 0);
 		vxMakeDirectory(dev_entry, new_entry, 440);
 		LOG_DEBUG("DEV", "entry name %s", new_entry->name->c_str);
 	}
@@ -161,7 +162,7 @@ int vxMakeDev(cdev_operations_t* ops, uint16_t minor, uint32_t uuid,
 	return DEV_OK;
 }
 
-cdev_ptr_t vxRetrieveDev(uint16_t major, uint16_t minor) {
+cdev_ptr_t KERNEL_API vxRetrieveDev(uint16_t major, uint16_t minor) {
 	cdev_ptr_t curr = dev_chain;
 	while (curr) {
 		if (curr->major == major && curr->minor == minor)

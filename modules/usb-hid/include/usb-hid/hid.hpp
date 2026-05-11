@@ -5,13 +5,14 @@
 
 enum hid_protocol { BOOT_PROTOCOL = 0, REPORT_PROTOCOL = 1 };
 
+enum hid_device { HID_KEYBOARD = 1, HID_MOUSE = 2 };
+
 class HIDModule : public IoForgeUSB {
       public:
 	HIDModule();
 	void load() override;
 	void unload() override;
 	static HIDModule* getInstance();
-	static void fireHandler();
 
       protected:
 	void hid_device_setup(ioforge_usb_device* dev);
@@ -20,8 +21,6 @@ class HIDModule : public IoForgeUSB {
 	void get_report(ioforge_usb_device* dev);
 	void set_protocol(ioforge_usb_device* dev, uint8_t interface,
 			  uint8_t protocol);
-
-	static void callback(const uint8_t* data, size_t len);
 };
 
 #endif //__USB_HID__HID_HPP__

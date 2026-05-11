@@ -77,7 +77,7 @@ typedef unsigned long uintptr_t;
 #define nullptr 0
 
 typedef struct {
-	int counter;
+	_Atomic int counter;
 } atomic_t;
 
 // boolean
@@ -91,5 +91,12 @@ typedef uint8_t boolean_t;
 
 #define KERNEL_API                                                             \
 	__attribute__((used, visibility("default"), section(".export")))
+
+#define RU32(ptr)                                                              \
+	__extension__({                                                        \
+		uint32_t _v;                                                   \
+		__builtin_memcpy(&_v, (ptr), 4);                               \
+		_v;                                                            \
+	})
 
 #endif // __TYPE_H__

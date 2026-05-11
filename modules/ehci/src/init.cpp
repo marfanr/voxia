@@ -77,13 +77,6 @@ send_async_c_wrapper(uint32_t addr, uint8_t endpoint, uint32_t data_phys,
 					  response_size);
 }
 
-extern "C" void
-get_data_periodic_c_wrapper(uint8_t addr, uint16_t ring, uint8_t endpoint,
-			    uint32_t response, size_t response_size) {
-	instance.get_data_periodic(addr, ring, endpoint, response,
-				   response_size);
-}
-
 __attribute__((constructor)) static void ehci_constructor() {
 	// registering controller
 	struct ioforge_usb_controller_service* usb_controller =
@@ -98,7 +91,6 @@ __attribute__((constructor)) static void ehci_constructor() {
 				  (char*) "EHCI");
 
 	usb_controller->ops.send = send_async_c_wrapper;
-	usb_controller->ops.get_data_periodic = get_data_periodic_c_wrapper;
 
 	instance.set_controller(usb_controller);
 

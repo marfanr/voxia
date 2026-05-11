@@ -1,15 +1,15 @@
 #include "init/init.h"
 #include "libk/serial.h"
-#include "libk/string.h"
-#include "libk/vector.h"
+#include <string.h>
+#include <vector.h>
 #include "memory/slab.h"
-#include "vfs/dentry.h"
-#include "vfs/dev.h"
-#include "vfs/enum.h"
-#include "vfs/filesystem.h"
-#include "vfs/mount.h"
-#include "vfs/vnode.h"
-#include <libk/type.h>
+#include <vfs/dentry.h>
+#include <vfs/dev.h>
+#include <vfs/enum.h>
+#include <vfs/filesystem.h>
+#include <vfs/mount.h>
+#include <vfs/vnode.h>
+#include <type.h>
 #include <vfs/vfs.h>
 
 #define RBT_TYPE vnode_t
@@ -30,12 +30,12 @@ static rbt_node* NIL;
 static rbt_node* vfs_tree;
 static struct slab_cache* rbt_node_cache;
 
-extern vnode_ptr_t vxAllocVnode();
+extern vnode_ptr_t create_vnode();
 
-vnode_t* vxCreateAndAttachVnode() {
-	vnode_t* vnode = vxAllocVnode();
+vnode_t* KERNEL_API create_and_attach_vnode() {
+	vnode_t* vnode = create_vnode();
 
-	rbt_node* node = (rbt_node*)vxSlabAlloc(rbt_node_cache);
+	rbt_node* node = (rbt_node*) vxSlabAlloc(rbt_node_cache);
 	rbt_insert_node(&vfs_tree, node, vnode, NIL);
 
 	return vnode;
@@ -44,33 +44,34 @@ vnode_t* vxCreateAndAttachVnode() {
 INIT(Vfs) {
 	vxCreateSlabCache(&rbt_node_cache, "rbt_node", sizeof(rbt_node), 64, 0);
 
-	NIL = (struct rbt_node*)vxSlabAlloc(rbt_node_cache);
-	NIL->data = vxAllocVnode();
+	NIL = (struct rbt_node*) vxSlabAlloc(rbt_node_cache);
+	NIL->data = create_vnode();
 	NIL->left = NIL->right = NIL->parent = NIL;
 	vfs_tree = NIL;
 
 	// create root inode
-	auto root_inode = vxCreateAndAttachVnode();
+	auto root_inode = create_and_attach_vnode();
 	root_inode->permission = 660;
 	root_inode->type = VNODE_TYPE_DIR;
 
 	// create root dentry
 	{
-		auto entry = vxCreateDentry(str("/"), root_inode);
+		auto entry = create_dentry(str("/"), root_inode, 0);
 		vxSetDentryAsRoot(entry);
 	}
 
 	LOG_INFO("vfs", "vfs has been installed");
 }
 
-int vxMakeDirectory(dentry_ptr dir, dentry_ptr dentry, uint16_t permission) {
-	vxAttachDentryToParent(dentry, dir);
+int KERNEL_API vxMakeDirectory(dentry_ptr dir, dentry_ptr dentry,
+			       uint16_t permission) {
+	// vxAttachDentryToParent(dentry, dir);
 	dentry->vnode->permission = permission;
 	dentry->vnode->type = VNODE_TYPE_DIR;
 	return VFS_OK;
 }
 
-int vxVFSMount(char* dev, char* path, char* fs, int flags) {
+int KERNEL_API vxVFSMount(char* dev, char* path, char* fs, int flags) {
 	dentry_ptr dev_entry;
 	if (vxResolveDentry(dev, 0, &dev_entry, 0) == VFS_ENOENT) {
 		LOG_WARN("VFS", "dentry not found..");
@@ -119,7 +120,7 @@ int vxVFSMount(char* dev, char* path, char* fs, int flags) {
 	return VFS_OK;
 }
 
-int vxVFSOpen(char* path, int flags) {
+int KERNEL_API vxVFSOpen(char* path, int flags) {
 	// will be implemented
 	dentry_ptr dentry;
 	vxResolveDentry(path, 0, &dentry, 0);

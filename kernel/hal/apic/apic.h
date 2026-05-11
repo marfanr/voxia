@@ -1,7 +1,7 @@
 #ifndef __HAL__APIC__APIC_H__
 #define __HAL__APIC__APIC_H__
 
-#include <libk/type.h>
+#include <type.h>
 
 #define APIC_TPR 0x80
 #define APIC_DFR 0xE0
@@ -34,7 +34,7 @@ void apic_eoi();
 void apic_write(uint32_t reg, uint32_t value);
 uint32_t apic_read(uint32_t reg);
 void apic_send_ipi(uint8_t vector, uint8_t dest);
-void vxAPICCreateTimer(uint32_t type, double freq_us, uint8_t vector);
+void vxAPICCreateTimer(uint32_t type, uint64_t freq_us, uint8_t vector);
 void vxAPICCreateDeadlineTimer(const uint8_t vector, const double freq_us);
 bool vxTSChasInvariant(void);
 

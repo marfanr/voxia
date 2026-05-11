@@ -1,41 +1,27 @@
 #include "ioforge/ioforge.h"
 #include "ioforge/ioforge_int_pipe.hpp"
 #include "ioforge/ioforge_usb.h"
+#include "usb-hid/keyboard.hpp"
 #include "usb.h"
 #include "usb-hid/hid.hpp"
-#include <cstdint>
 #include <ioforge/ioforge.hpp>
 #include <usb.h>
 
-void HIDModule::callback(const uint8_t* data, size_t len) {
-	for (size_t i = 0; i < len; i++)
-		serial2_printf("%x ", data[i]);
-
-	serial2_printf("\n");
-}
-
 void HIDModule::hid_device_setup(ioforge_usb_device* dev) {
+	if (!dev->pipe) {
+		log(mod, "ERROR: missing pipe on %s", dev->base.name);
+		return;
+	}
+
 	set_configuration(dev, 1);
 
 	set_iddle(dev);
 
 	set_protocol(dev, 0, REPORT_PROTOCOL);
 
-	InterruptPipe* pipe = (InterruptPipe*) dev->pipe;
-	auto desc = (struct InterruptPipeDesc){
-		.dev_addr = dev->addr,
-		.endpoint = (uint8_t) (dev->endpoints[0].address & 0xF),
-		.speed = 2, // high speed
-		.interval_ms = dev->endpoints[0].interval,
-		.buffer_size = 128,
-	};
-	pipe->open(desc, HIDModule::callback);
-
-	// dev->controller->ops.get_data_periodic(
-	// 	dev->addr, 0, dev->endpoints[0].address & 0xF, 0, 1024);
-}
-
-void HIDModule::fireHandler() {
+	if (dev->protocol == HID_KEYBOARD) {
+		(HIDKeyboard(dev));
+	}
 }
 
 void HIDModule::set_iddle(ioforge_usb_device* dev) {

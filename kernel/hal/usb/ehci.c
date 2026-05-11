@@ -6,13 +6,13 @@
 #include <libk/console/console.h>
 #include <libk/debug/debug.h>
 #include <libk/serial.h>
-#include <libk/str.h>
+#include <str.h>
 #include <memory/memory_utils.h>
 #include <memory/phys_base_allocator.h>
 #include <memory/slab.h>
 #include <vfs/vfs.h>
 
-#define ALIGN(ptr, x) (((uintptr_t)ptr + (x - 1)) & ~(x - 1))
+#define ALIGN(ptr, x) (((uintptr_t) ptr + (x - 1)) & ~(x - 1))
 
 /* Controller management */
 static void ehci_stop_engine(struct ehci_operation* op);
@@ -27,15 +27,15 @@ static void ehci_probe_all_ports(int ports, struct ehci_operation* op);
 /* USB device operations */
 static void ehci_set_address(uint8_t address, struct ehci_operation* op);
 static void ehci_proccess_async(struct ehci_operation* op,
-                                struct ehci_queue_task_descriptor* qtd);
-static void ehci_send_packet_and_receive(struct ehci_operation* op,
-                                         uint8_t addr,
-                                         struct usb_setup_packet* packet,
-                                         void* data, uint8_t endpoint);
+				struct ehci_queue_task_descriptor* qtd);
+static void
+ehci_send_packet_and_receive(struct ehci_operation* op, uint8_t addr,
+			     struct usb_setup_packet* packet, void* data,
+			     uint8_t endpoint);
 static void usb_read_in(struct ehci_operation* op, uint8_t addr,
-                        uint32_t length, uint8_t endpoint, void* data);
+			uint32_t length, uint8_t endpoint, void* data);
 static void* usb_get_descriptor(struct ehci_operation* op, uint8_t addr,
-                                uint8_t type, uint8_t index, uint8_t len);
+				uint8_t type, uint8_t index, uint8_t len);
 
 /* Interface implementations */
 // block_device_operations_t* ehci_block_impl();
@@ -75,14 +75,14 @@ static struct ehci_queue_head* inhead2;
  */
 static void* ehci_alloc(size_t size) {
 	size_t s = 1 + (size / 4096);
-	void* a = (void*)VIRT2PHYS(vxPhysBaseAlloc(s));
+	void* a = (void*) VIRT2PHYS(vxPhysBaseAlloc(s));
 
 	vxMultipleMmap(
-	    (page_t)PHYS2VIRT((uintptr_t)paging_get_highest_page_map()),
-	    (uintptr_t)a, (uintptr_t)a, s, 0x3);
+		(page_t) PHYS2VIRT((uintptr_t) paging_get_highest_page_map()),
+		(uintptr_t) a, (uintptr_t) a, s, 0x3);
 	paging_reload(paging_get_highest_page_map());
-	paging_add_dma_mapping((uintptr_t)a, (uintptr_t)a,
-	                       s); // add to mapping data
+	paging_add_dma_mapping((uintptr_t) a, (uintptr_t) a,
+			       s); // add to mapping data
 
 	return a;
 }
@@ -95,27 +95,27 @@ static void* ehci_alloc(size_t size) {
  *
  * @param device PCI device information
  */
-void ehci_init(struct ioforge_pci_service* device) {
+void ehci_init(struct ioforge_pci_device* device) {
 	serial_trace("EHCI: init\n");
 
 	uintptr_t bar = device->bar[0].address;
 	uintptr_t addr = 0xFFFF8FFF00300000;
 	vxMultipleMmap(
-	    (page_t)PHYS2VIRT((uintptr_t)paging_get_highest_page_map()), addr,
-	    bar, 3, 0b111);
+		(page_t) PHYS2VIRT((uintptr_t) paging_get_highest_page_map()),
+		addr, bar, 3, 0b111);
 	paging_reload(paging_get_highest_page_map());
-	paging_add_dma_mapping(bar, addr, 3);   // add to mapping data
+	paging_add_dma_mapping(bar, addr, 3);	// add to mapping data
 	uint64_t offset = bar - (bar & ~0xFFF); // offset from 0xA0000
 
 	// replace bar with mapped address
 	bar = addr + offset;
 
 	serial_trace("EHCI: bar %x\n", bar);
-	uint8_t cap_length = *(uint8_t*)(bar);
-	op = (struct ehci_operation*)(bar + cap_length);
+	uint8_t cap_length = *(uint8_t*) (bar);
+	op = (struct ehci_operation*) (bar + cap_length);
 	// uint32_t *port0    = (uint32_t *)(bar + cap_length + 0x44);
-	uint32_t* hcsparam = (uint32_t*)(bar + 0x4);
-	uint32_t* hccparam = (uint32_t*)(bar + 0x8);
+	uint32_t* hcsparam = (uint32_t*) (bar + 0x4);
+	uint32_t* hccparam = (uint32_t*) (bar + 0x8);
 
 	// is controller supported 64bit
 	serial_trace("EHCI is 64 bit : %d\n", *hccparam & 1);
@@ -139,12 +139,12 @@ void ehci_init(struct ioforge_pci_service* device) {
 
 	// prepare for migrate to slab
 	serial_trace("EHCI: slab allocator cache size %d\n",
-	             sizeof(struct slab_cache));
+		     sizeof(struct slab_cache));
 
-	inhead =
-	    (struct ehci_queue_head*)ehci_alloc(sizeof(struct ehci_queue_head));
-	inhead2 =
-	    (struct ehci_queue_head*)ehci_alloc(sizeof(struct ehci_queue_head));
+	inhead = (struct ehci_queue_head*) ehci_alloc(
+		sizeof(struct ehci_queue_head));
+	inhead2 = (struct ehci_queue_head*) ehci_alloc(
+		sizeof(struct ehci_queue_head));
 
 	ehci_init_que_head(op);
 	serial_trace("EHCI: init qh done\n");
@@ -152,11 +152,11 @@ void ehci_init(struct ioforge_pci_service* device) {
 	op->usbsts = 0x3f;
 	op->usbintr = 0x1F;
 
-	in_data = (uint8_t*)ehci_alloc(4096);
+	in_data = (uint8_t*) ehci_alloc(4096);
 
-	inttd = (struct ehci_queue_task_descriptor*)ehci_alloc(
-	    sizeof(struct ehci_queue_task_descriptor));
-	vfs_data = (uint8_t*)ehci_alloc(4096);
+	inttd = (struct ehci_queue_task_descriptor*) ehci_alloc(
+		sizeof(struct ehci_queue_task_descriptor));
+	vfs_data = (uint8_t*) ehci_alloc(4096);
 	memset(vfs_data, 0, 4096);
 
 	// vfs setup
@@ -228,13 +228,13 @@ static void ehci_start_engine(struct ehci_operation* op) {
  */
 static void ehci_init_que_head(struct ehci_operation* op) {
 	serial_trace("EHCI: init_que_head\n");
-	struct ehci_queue_head* qh =
-	    (struct ehci_queue_head*)ehci_alloc(sizeof(struct ehci_queue_head));
+	struct ehci_queue_head* qh = (struct ehci_queue_head*) ehci_alloc(
+		sizeof(struct ehci_queue_head));
 
 	serial_trace("qh : 0x%x \n", qh);
 
 	// init framelist
-	framelist = (uint32_t*)ehci_alloc(1024 * sizeof(uint32_t));
+	framelist = (uint32_t*) ehci_alloc(1024 * sizeof(uint32_t));
 	// memset (framelist, 0, 1024 * sizeof (uint32_t));
 
 	qh->altTD = 1;
@@ -245,12 +245,12 @@ static void ehci_init_que_head(struct ehci_operation* op) {
 	qh->token = 0x40;
 
 	for (int i = 0; i < 1024; i++) {
-		framelist[i] = ((uint32_t)qh) | (1 << 1);
+		framelist[i] = ((uint32_t) qh) | (1 << 1);
 	}
 
 	serial_trace("framelist : 0x%x \n", framelist);
 	op->frindex = 0;
-	op->periodiclistbase = (uint32_t)framelist;
+	op->periodiclistbase = (uint32_t) framelist;
 	op->usbcmd |= (1 << 4);
 }
 
@@ -295,7 +295,7 @@ static void ehci_port_reset(struct ehci_operation* op, int port) {
  * @param qtd Queue Task Descriptor to process
  */
 static void ehci_proccess_async(struct ehci_operation* op,
-                                struct ehci_queue_task_descriptor* qtd) {
+				struct ehci_queue_task_descriptor* qtd) {
 	op->usbcmd |= EHCI_START_ASYNC_SCHEDULE;
 	// //usleep(100000);
 
@@ -335,8 +335,8 @@ proccess_end:
  * @param op Pointer to EHCI operation registers
  */
 static void ehci_set_address(uint8_t address, struct ehci_operation* op) {
-	struct usb_setup_packet* cmd = (struct usb_setup_packet*)ehci_alloc(
-	    sizeof(struct usb_setup_packet));
+	struct usb_setup_packet* cmd = (struct usb_setup_packet*) ehci_alloc(
+		sizeof(struct usb_setup_packet));
 	serial_trace("EHCI:cmd 0x%x\n", cmd);
 
 	cmd->bmRequestType = 0;
@@ -347,27 +347,27 @@ static void ehci_set_address(uint8_t address, struct ehci_operation* op) {
 	cmd->wLength = 0;
 
 	// resetting address
-	struct ehci_queue_head* head =
-	    (struct ehci_queue_head*)ehci_alloc(sizeof(struct ehci_queue_head));
+	struct ehci_queue_head* head = (struct ehci_queue_head*) ehci_alloc(
+		sizeof(struct ehci_queue_head));
 
-	struct ehci_queue_head* head2 =
-	    (struct ehci_queue_head*)ehci_alloc(sizeof(struct ehci_queue_head));
+	struct ehci_queue_head* head2 = (struct ehci_queue_head*) ehci_alloc(
+		sizeof(struct ehci_queue_head));
 
 	struct ehci_queue_task_descriptor* setup =
-	    (struct ehci_queue_task_descriptor*)ehci_alloc(
-	        sizeof(struct ehci_queue_task_descriptor));
+		(struct ehci_queue_task_descriptor*) ehci_alloc(
+			sizeof(struct ehci_queue_task_descriptor));
 
 	struct ehci_queue_task_descriptor* status =
-	    (struct ehci_queue_task_descriptor*)ehci_alloc(
-	        sizeof(struct ehci_queue_task_descriptor));
+		(struct ehci_queue_task_descriptor*) ehci_alloc(
+			sizeof(struct ehci_queue_task_descriptor));
 
-	setup->link = (uint32_t)status;
+	setup->link = (uint32_t) status;
 	setup->altlink = EHCI_QTD_TERMINATE;
 	setup->token = EHCI_QTD_TOKEN_LENGTH(sizeof(struct usb_setup_packet));
 	setup->token |= EHCI_QTD_TOKEN_PID_SETUP;
 	setup->token |= EHCI_QTD_TOKEN_STATUS_ACTIVE;
 	setup->token |= EHCI_QTD_TOKEN_ERROR_COUNT_3;
-	setup->buffer[0] = (uint32_t)cmd;
+	setup->buffer[0] = (uint32_t) cmd;
 
 	status->altlink = EHCI_QTD_TERMINATE;
 	status->link = EHCI_QTD_TERMINATE;
@@ -378,19 +378,19 @@ static void ehci_set_address(uint8_t address, struct ehci_operation* op) {
 	status->token |= (1 << 15);
 
 	head2->altTD = EHCI_QTD_TERMINATE;
-	head2->nextTD = (uint32_t)setup;
-	head2->qhlp = ((uint32_t)head) | EHCI_Q_SELECT_QH;
+	head2->nextTD = (uint32_t) setup;
+	head2->qhlp = ((uint32_t) head) | EHCI_Q_SELECT_QH;
 	head2->currentTD = 0;
 	head2->ch |= EHCI_QH_CAP_DTC;
 	head2->ch |= EHCI_QH_CAP_MAX_PACKET_LENGTH(16);
 	head2->cap = EHCI_QH_CAP_MULT_1;
 
-	head->qhlp = (uint32_t)head2 | EHCI_Q_SELECT_QH;
+	head->qhlp = (uint32_t) head2 | EHCI_Q_SELECT_QH;
 	head->altTD = EHCI_QTD_TERMINATE;
 	head->nextTD = EHCI_QTD_TERMINATE;
 	head->currentTD = 0;
 	head->ch |= EHCI_QH_CAP_HEAD_OF_RECLAMATION | 0;
-	op->asynclistaddr = (uint32_t)head;
+	op->asynclistaddr = (uint32_t) head;
 
 	is_trasaction_is_running = 1;
 	ehci_proccess_async(op, status);
@@ -407,38 +407,38 @@ static void ehci_set_address(uint8_t address, struct ehci_operation* op) {
  * @param data Buffer for received data
  * @param endpoint USB endpoint number
  */
-static void ehci_send_packet_and_receive(struct ehci_operation* op,
-                                         uint8_t addr,
-                                         struct usb_setup_packet* packet,
-                                         void* data, uint8_t endpoint) {
+static void
+ehci_send_packet_and_receive(struct ehci_operation* op, uint8_t addr,
+			     struct usb_setup_packet* packet, void* data,
+			     uint8_t endpoint) {
 	struct ehci_queue_task_descriptor* cmd =
-	    (struct ehci_queue_task_descriptor*)ehci_alloc(
-	        sizeof(struct ehci_queue_task_descriptor));
+		(struct ehci_queue_task_descriptor*) ehci_alloc(
+			sizeof(struct ehci_queue_task_descriptor));
 
 	struct ehci_queue_task_descriptor* td =
-	    (struct ehci_queue_task_descriptor*)ehci_alloc(
-	        sizeof(struct ehci_queue_task_descriptor));
+		(struct ehci_queue_task_descriptor*) ehci_alloc(
+			sizeof(struct ehci_queue_task_descriptor));
 
 	struct ehci_queue_task_descriptor* status =
-	    (struct ehci_queue_task_descriptor*)ehci_alloc(
-	        sizeof(struct ehci_queue_task_descriptor));
+		(struct ehci_queue_task_descriptor*) ehci_alloc(
+			sizeof(struct ehci_queue_task_descriptor));
 
 	cmd->altlink = 1;
 	cmd->token |= (8 << 16);   // cmd size
-	cmd->token |= (1 << 7);    // actief
+	cmd->token |= (1 << 7);	   // actief
 	cmd->token |= (0x2 << 8);  // type is cmd
 	cmd->token |= (0x3 << 10); // maxerror
-	cmd->buffer[0] = (uint32_t)packet;
+	cmd->buffer[0] = (uint32_t) packet;
 
-	cmd->link = (uint32_t)td;
+	cmd->link = (uint32_t) td;
 	td->altlink = 1;
-	td->link = (uint32_t)status;
+	td->link = (uint32_t) status;
 	td->token |= (packet->wLength << 16); // td size
-	td->token |= (1 << 7);                // actief
-	td->token |= (1 << 8);                // type is td
-	td->token |= (0x3 << 10);             // maxerror
-	td->token |= (1 << 31);               // data
-	td->buffer[0] = (uint32_t)data;
+	td->token |= (1 << 7);		      // actief
+	td->token |= (1 << 8);		      // type is td
+	td->token |= (0x3 << 10);	      // maxerror
+	td->token |= (1 << 31);		      // data
+	td->buffer[0] = (uint32_t) data;
 
 	status->altlink = 1;
 	status->link = 1;
@@ -448,14 +448,14 @@ static void ehci_send_packet_and_receive(struct ehci_operation* op,
 	status->token |= (1 << 31);   // data
 	status->token |= (1 << 15);
 
-	struct ehci_queue_head* qh =
-	    (struct ehci_queue_head*)ehci_alloc(sizeof(struct ehci_queue_head));
-	struct ehci_queue_head* qh2 =
-	    (struct ehci_queue_head*)ehci_alloc(sizeof(struct ehci_queue_head));
+	struct ehci_queue_head* qh = (struct ehci_queue_head*) ehci_alloc(
+		sizeof(struct ehci_queue_head));
+	struct ehci_queue_head* qh2 = (struct ehci_queue_head*) ehci_alloc(
+		sizeof(struct ehci_queue_head));
 
 	qh2->altTD = 1;
-	qh2->qhlp = ((uint32_t)qh) | 2;
-	qh2->nextTD = (uint32_t)cmd;
+	qh2->qhlp = ((uint32_t) qh) | 2;
+	qh2->nextTD = (uint32_t) cmd;
 	qh2->currentTD = 0;
 	qh2->ch |= 1 << 14;   // dtc
 	qh2->ch |= 512 << 16; // mplen
@@ -467,13 +467,13 @@ static void ehci_send_packet_and_receive(struct ehci_operation* op,
 
 	qh->nextTD = 1;
 	qh->altTD = 1;
-	qh->qhlp = ((uint32_t)qh2) | 2;
+	qh->qhlp = ((uint32_t) qh2) | 2;
 	qh->currentTD = 0;
 	qh->ch = 1 << 15; // T
 	qh->token = 0x40;
 
 	is_trasaction_is_running = 1;
-	op->asynclistaddr = (uint32_t)(uintptr_t)qh;
+	op->asynclistaddr = (uint32_t) (uintptr_t) qh;
 	ehci_proccess_async(op, status);
 }
 
@@ -488,9 +488,9 @@ static void ehci_send_packet_and_receive(struct ehci_operation* op,
  * @return Pointer to descriptor buffer
  */
 static void* usb_get_descriptor(struct ehci_operation* op, uint8_t addr,
-                                uint8_t type, uint8_t index, uint8_t len) {
-	struct usb_setup_packet* cmd = (struct usb_setup_packet*)ehci_alloc(
-	    sizeof(struct usb_setup_packet));
+				uint8_t type, uint8_t index, uint8_t len) {
+	struct usb_setup_packet* cmd = (struct usb_setup_packet*) ehci_alloc(
+		sizeof(struct usb_setup_packet));
 	// serial_trace ("EHCI:cmd 0x%x\n", cmd);
 	// memset (cmd, 0, sizeof (struct usb_setup_packet));
 	cmd->bRequest = 0x06;
@@ -501,35 +501,35 @@ static void* usb_get_descriptor(struct ehci_operation* op, uint8_t addr,
 	// serial_trace ("EHCI: get descriptor %d\n", type);
 
 	struct ehci_queue_task_descriptor* setup =
-	    (struct ehci_queue_task_descriptor*)ehci_alloc(
-	        sizeof(struct ehci_queue_task_descriptor));
+		(struct ehci_queue_task_descriptor*) ehci_alloc(
+			sizeof(struct ehci_queue_task_descriptor));
 
 	struct ehci_queue_task_descriptor* data =
-	    (struct ehci_queue_task_descriptor*)ehci_alloc(
-	        sizeof(struct ehci_queue_task_descriptor));
+		(struct ehci_queue_task_descriptor*) ehci_alloc(
+			sizeof(struct ehci_queue_task_descriptor));
 
 	struct ehci_queue_task_descriptor* status =
-	    (struct ehci_queue_task_descriptor*)ehci_alloc(
-	        sizeof(struct ehci_queue_task_descriptor));
+		(struct ehci_queue_task_descriptor*) ehci_alloc(
+			sizeof(struct ehci_queue_task_descriptor));
 
-	uint8_t* it = (uint8_t*)ehci_alloc(len);
+	uint8_t* it = (uint8_t*) ehci_alloc(len);
 
-	setup->link = (uint32_t)data;
+	setup->link = (uint32_t) data;
 	setup->altlink = EHCI_QTD_TERMINATE;
 	setup->token |= EHCI_QTD_TOKEN_LENGTH(8);     // setup size
 	setup->token |= EHCI_QTD_TOKEN_STATUS_ACTIVE; // actief
-	setup->token |= (0x2 << 8);                   // type is setup
-	setup->token |= (0x3 << 10);                  // maxerror
-	setup->buffer[0] = (uint32_t)cmd;
+	setup->token |= (0x2 << 8);		      // type is setup
+	setup->token |= (0x3 << 10);		      // maxerror
+	setup->buffer[0] = (uint32_t) cmd;
 
-	data->link = (uint32_t)status;
+	data->link = (uint32_t) status;
 	data->altlink = EHCI_QTD_TERMINATE;
 	data->token |= (len << 16); // setup size
 	data->token |= (1 << 7);    // aktif
 	data->token |= (1 << 31);   // toggle
 	data->token |= (0x1 << 8);  // type is in
 	data->token |= (0x3 << 10); // maxerror
-	data->buffer[0] = (uint32_t)it;
+	data->buffer[0] = (uint32_t) it;
 
 	status->link = 1;
 	status->altlink = 1;
@@ -539,15 +539,15 @@ static void* usb_get_descriptor(struct ehci_operation* op, uint8_t addr,
 	status->token |= (0x3 << 10); // maxerror
 	status->token |= (1 << 15);
 
-	struct ehci_queue_head* head =
-	    (struct ehci_queue_head*)ehci_alloc(sizeof(struct ehci_queue_head));
+	struct ehci_queue_head* head = (struct ehci_queue_head*) ehci_alloc(
+		sizeof(struct ehci_queue_head));
 
-	struct ehci_queue_head* head2 =
-	    (struct ehci_queue_head*)ehci_alloc(sizeof(struct ehci_queue_head));
+	struct ehci_queue_head* head2 = (struct ehci_queue_head*) ehci_alloc(
+		sizeof(struct ehci_queue_head));
 
 	head2->altTD = 1;
-	head2->nextTD = (uint32_t)setup; // qdts2
-	head2->qhlp = ((uint32_t)head) | 2;
+	head2->nextTD = (uint32_t) setup; // qdts2
+	head2->qhlp = ((uint32_t) head) | 2;
 	head2->currentTD = 0;  // qdts1
 	head2->ch |= 1 << 14;  // dtc
 	head2->ch |= 64 << 16; // mplen
@@ -558,11 +558,11 @@ static void* usb_get_descriptor(struct ehci_operation* op, uint8_t addr,
 	// Eerste commando
 	head->altTD = 1;
 	head->nextTD = 1;
-	head->qhlp = ((uint32_t)head2) | 2;
+	head->qhlp = ((uint32_t) head2) | 2;
 	head->currentTD = 0;
 	head->ch = 1 << 15; // T
 
-	op->asynclistaddr = (uint32_t)(uintptr_t)head;
+	op->asynclistaddr = (uint32_t) (uintptr_t) head;
 
 	is_trasaction_is_running = 1;
 	ehci_proccess_async(op, status);
@@ -571,41 +571,41 @@ static void* usb_get_descriptor(struct ehci_operation* op, uint8_t addr,
 }
 
 static void usb_read_in(struct ehci_operation* op, uint8_t addr,
-                        uint32_t length, uint8_t endpoint, void* data) {
+			uint32_t length, uint8_t endpoint, void* data) {
 	// memset (inttd, 0, sizeof (struct ehci_queue_task_descriptor));
-	inttd->altlink = 1;             // end link
-	inttd->link = 1;                // end link
+	inttd->altlink = 1;		// end link
+	inttd->link = 1;		// end link
 	inttd->token |= (length << 16); // buffer length
-	inttd->token |= (1 << 7);       // active toggle
-	inttd->token |= (1 << 8);       // type is Transaction Descriptor
-	inttd->token |= (0x3 << 10);    // max 3x retry on error
-	inttd->token |= (0 << 31);      // data toggle
-	inttd->token |= (1 << 15);      // Interrupt On Complete
-	inttd->buffer[0] = (uint32_t)data;
+	inttd->token |= (1 << 7);	// active toggle
+	inttd->token |= (1 << 8);	// type is Transaction Descriptor
+	inttd->token |= (0x3 << 10);	// max 3x retry on error
+	inttd->token |= (0 << 31);	// data toggle
+	inttd->token |= (1 << 15);	// Interrupt On Complete
+	inttd->buffer[0] = (uint32_t) data;
 
 	// memset (inhead2, 0, sizeof (struct ehci_queue_head));
 
-	inhead2->altTD = (uint32_t)inttd;
-	inhead2->qhlp = ((uint32_t)inhead) | 2;
-	inhead2->nextTD = (uint32_t)inttd;
+	inhead2->altTD = (uint32_t) inttd;
+	inhead2->qhlp = ((uint32_t) inhead) | 2;
+	inhead2->nextTD = (uint32_t) inttd;
 	inhead2->currentTD = 0;
-	inhead2->ch |= 1 << 14;   // dtc
+	inhead2->ch |= 1 << 14;	  // dtc
 	inhead2->ch |= 512 << 16; // mplen
-	inhead2->ch |= 2 << 12;   // eps
-	inhead2->ch |= 1 << 8;    // eps
-	inhead2->ch |= addr;      // eps
+	inhead2->ch |= 2 << 12;	  // eps
+	inhead2->ch |= 1 << 8;	  // eps
+	inhead2->ch |= addr;	  // eps
 	inhead2->cap = 0x40000000 | 1;
 
 	inhead->nextTD = 1;
 	inhead->altTD = 1;
-	inhead->qhlp = ((uint32_t)inhead2) | 2;
+	inhead->qhlp = ((uint32_t) inhead2) | 2;
 	inhead->currentTD = 0;
 	inhead->ch = 1 << 15; // T
 	inhead->token = 0x40;
 
 	is_periodic_transaction_is_running = 1;
 	for (int i = 0; i < 1024; i++) {
-		framelist[i] = ((uint32_t)inhead) | 2;
+		framelist[i] = ((uint32_t) inhead) | 2;
 	}
 }
 
@@ -621,17 +621,19 @@ static void ehci_probe_all_ports(int ports, struct ehci_operation* op) {
 			ehci_set_address(addr, op);
 
 			struct usb_device_descriptor* desc =
-			    (struct usb_device_descriptor*)usb_get_descriptor(
-			        op, addr, 1, 0,
-			        sizeof(struct usb_device_descriptor));
+				(struct usb_device_descriptor*)
+					usb_get_descriptor(
+						op, addr, 1, 0,
+						sizeof(struct
+						       usb_device_descriptor));
 			serial_trace(" USB Port %d : Descriptor Length : %d\n",
-			             i, desc->bLength);
+				     i, desc->bLength);
 			serial_trace(" USB Port %d : Descriptor Type : %d\n", i,
-			             desc->bDescriptorType);
+				     desc->bDescriptorType);
 			serial_trace(" USB Port %d : Version : %x\n", i,
-			             desc->bcdUSB);
+				     desc->bcdUSB);
 			serial_trace(" USB Port %d : Device class : %d\n", i,
-			             desc->bDeviceClass);
+				     desc->bDeviceClass);
 			serial_send_string("  USB Device sub class : ");
 			serial_send_number(desc->bDeviceSubClass, 10);
 			serial_send_string("\n");
@@ -654,14 +656,16 @@ static void ehci_probe_all_ports(int ports, struct ehci_operation* op) {
 			int retrc = 0;
 			// retry_config:
 			struct usb_config_descriptor* config =
-			    (struct usb_config_descriptor*)usb_get_descriptor(
-			        op, addr, 2, 0,
-			        sizeof(struct usb_config_descriptor));
+				(struct usb_config_descriptor*)
+					usb_get_descriptor(
+						op, addr, 2, 0,
+						sizeof(struct
+						       usb_config_descriptor));
 
 			// //usleep(1000);
-			config =
-			    (struct usb_config_descriptor*)usb_get_descriptor(
-			        op, addr, 2, 0, config->wTotalLength);
+			config = (struct usb_config_descriptor*)
+				usb_get_descriptor(op, addr, 2, 0,
+						   config->wTotalLength);
 
 			// if (((config->bDescriptorType != 2) ||
 			// (config->bLength == 0)) && retrc < 4) {
@@ -678,13 +682,13 @@ static void ehci_probe_all_ports(int ports, struct ehci_operation* op) {
 			serial_send_number(config->bConfigurationValue, 10);
 			serial_send_string("\n");
 			serial_trace("configuration type : %d \n\n",
-			             config->bDescriptorType);
+				     config->bDescriptorType);
 			serial_trace("USB Port %d : max power : %dmA\n", i,
-			             config->bMaxPower * 2);
+				     config->bMaxPower * 2);
 
 			struct usb_interface* interface =
-			    (struct usb_interface*)((uintptr_t)config +
-			                            config->bLength);
+				(struct usb_interface*) ((uintptr_t) config
+							 + config->bLength);
 			serial_send_string("\nusb descriptor length : ");
 			serial_send_number(interface->bLength, 10);
 			serial_send_string("\n");
@@ -712,25 +716,27 @@ static void ehci_probe_all_ports(int ports, struct ehci_operation* op) {
 			// get string descriptor
 			if (config->iConfiguration > 0) {
 				struct usb_string_descriptor* str =
-				    (struct usb_string_descriptor*)
-				        usb_get_descriptor(
-				            op, addr, 3, config->iConfiguration,
-				            config->bLength -
-				                (sizeof(struct
-				                        usb_config_descriptor) +
-				                 sizeof(struct usb_interface) +
-				                 interface->bNumEndpoints *
-				                     sizeof(
-				                         struct
-				                         usb_endpoint_descriptor)));
+					(struct usb_string_descriptor*) usb_get_descriptor(
+						op, addr, 3,
+						config->iConfiguration,
+						config->bLength
+							- (sizeof(struct
+								  usb_config_descriptor)
+							   + sizeof(
+								   struct
+								   usb_interface)
+							   + interface->bNumEndpoints
+								     * sizeof(
+									     struct
+									     usb_endpoint_descriptor)));
 				serial_send_string("string descriptor : ");
 				serial_send_number(str->bDescriptorType, 10);
 				serial_send_string("\n");
 			}
 
 			struct usb_setup_packet* set_config =
-			    (struct usb_setup_packet*)ehci_alloc(
-			        sizeof(struct usb_setup_packet));
+				(struct usb_setup_packet*) ehci_alloc(
+					sizeof(struct usb_setup_packet));
 			// memset (set_config, 0, sizeof (struct
 			// usb_setup_packet));
 			set_config->bRequest = 9;
@@ -740,19 +746,20 @@ static void ehci_probe_all_ports(int ports, struct ehci_operation* op) {
 			set_config->wLength = 0;
 			serial_send_string("set configuration\n");
 			ehci_send_packet_and_receive(op, addr, set_config, 0,
-			                             0);
+						     0);
 			serial_send_string("set configuration done\n");
 
 			struct usb_endpoint_descriptor* endpoint = 0;
 			if (interface->bNumEndpoints > 0) {
 				serial_trace("search endpoint\n");
 				// looping until found endpoint descriptor
-				uint32_t start = (uint32_t)config;
-				while (start < (uint32_t)config +
-				                   config->wTotalLength) {
+				uint32_t start = (uint32_t) config;
+				while (start < (uint32_t) config
+						       + config->wTotalLength) {
 					struct usb_endpoint_descriptor* ep =
-					    (struct usb_endpoint_descriptor*)
-					        start;
+						(struct
+						 usb_endpoint_descriptor*)
+							start;
 					if (ep->bDescriptorType == 0x05) {
 						endpoint = ep;
 						break;
@@ -761,63 +768,64 @@ static void ehci_probe_all_ports(int ports, struct ehci_operation* op) {
 				}
 
 				serial_send_string("\nfound uSB Endpoint \nusb "
-				                   "descriptor length : ");
+						   "descriptor length : ");
 				serial_send_number(endpoint->bLength, 10);
 				serial_send_string("\n");
 				serial_send_string("descriptor type: ");
 				serial_send_number(endpoint->bDescriptorType,
-				                   10);
+						   10);
 				serial_send_string("\n");
 				serial_send_string("endpoint number : ");
 				serial_send_number(
-				    endpoint->bEndpointAddress & 0xF, 16);
+					endpoint->bEndpointAddress & 0xF, 16);
 				serial_trace(
-				    "\n endpoint type : %d\n",
-				    (endpoint->bEndpointAddress & (1 << 7)) >>
-				        7);
+					"\n endpoint type : %d\n",
+					(endpoint->bEndpointAddress & (1 << 7))
+						>> 7);
 				serial_send_string("  bmAttributes : ");
 				serial_send_number(endpoint->bmAttributes, 2);
 				serial_send_string("  wMaxPacketSize : ");
 				serial_send_number(endpoint->wMaxPacketSize,
-				                   10);
+						   10);
 				serial_send_string("  bInterval : ");
 				serial_send_number(endpoint->bInterval, 10);
 				serial_send_string("\n");
 
 				// set iddle
 				struct usb_setup_packet* set_iddle =
-				    (struct usb_setup_packet*)ehci_alloc(
-				        sizeof(struct usb_setup_packet));
+					(struct usb_setup_packet*) ehci_alloc(
+						sizeof(struct
+						       usb_setup_packet));
 
 				memset(set_iddle, 0,
 				       sizeof(struct usb_setup_packet));
 				set_iddle->bRequest = 0x0A;
 				set_iddle->bmRequestType = 0b00100001;
 				set_iddle->wValue =
-				    ((uint16_t)endpoint->bInterval);
+					((uint16_t) endpoint->bInterval);
 				set_iddle->wIndex = 0;
 				set_iddle->wLength = 0;
 				ehci_send_packet_and_receive(op, addr,
-				                             set_iddle, 0, 0);
+							     set_iddle, 0, 0);
 				serial_send_string("setting iddle done\n\n");
 			}
 
 			struct usb_setup_packet* setup_packet =
-			    (struct usb_setup_packet*)ehci_alloc(
-			        sizeof(struct usb_setup_packet));
+				(struct usb_setup_packet*) ehci_alloc(
+					sizeof(struct usb_setup_packet));
 			setup_packet->bmRequestType = 0b10000001;
 			setup_packet->bRequest = 0x06;
 			setup_packet->wValue = 0x2200;
 			setup_packet->wIndex = 0;
 			setup_packet->wLength = 32;
-			uint8_t* it = (uint8_t*)ehci_alloc(4096);
+			uint8_t* it = (uint8_t*) ehci_alloc(4096);
 
 			serial_trace("EHCI: get report descriptor\n");
 
 			int max_retry = 0;
 		report_retry:
 			ehci_send_packet_and_receive(op, addr, setup_packet, it,
-			                             0);
+						     0);
 			// if (it[0] == 0 && max_retry < 5) {
 			//     max_retry++;
 			// usleep(10000);
@@ -845,22 +853,23 @@ static void ehci_probe_all_ports(int ports, struct ehci_operation* op) {
 
 				// send set protocol request
 				struct usb_setup_packet* setup_packet =
-				    (struct usb_setup_packet*)ehci_alloc(
-				        sizeof(struct usb_setup_packet));
+					(struct usb_setup_packet*) ehci_alloc(
+						sizeof(struct
+						       usb_setup_packet));
 				;
 
 				setup_packet =
-				    (struct usb_setup_packet*)ALIGN_UP(
-				        (uintptr_t)setup_packet, 32);
+					(struct usb_setup_packet*) ALIGN_UP(
+						(uintptr_t) setup_packet, 32);
 
 				setup_packet->bmRequestType = 0b00100001;
 				setup_packet->bRequest = 0x0B;
 				setup_packet->wIndex =
-				    interface->bInterfaceNumber;
+					interface->bInterfaceNumber;
 				setup_packet->wValue = 1;
 				setup_packet->wLength = 0x0;
 				ehci_send_packet_and_receive(
-				    op, addr, setup_packet, 0, 0);
+					op, addr, setup_packet, 0, 0);
 
 				usb_read_in(op, addr, 256, 1, in_data);
 			}
@@ -871,22 +880,23 @@ static void ehci_probe_all_ports(int ports, struct ehci_operation* op) {
 // Fungsi untuk memetakan scancode ke karakter (hanya contoh sederhana)
 char scancode_to_char(uint8_t scancode, uint8_t modifiers) {
 	static char lookup_table[128] = {
-	    0,   0,    0,   0,   'a',  'b',  'c', 'd', 'e', 'f', 'g', 'h',  'i',
-	    'j', 'k',  'l', 'm', 'n',  'o',  'p', 'q', 'r', 's', 't', 'u',  'v',
-	    'w', 'x',  'y', 'z', '1',  '2',  '3', '4', '5', '6', '7', '8',  '9',
-	    '0', '\n', 0,   0,   '\b', '\t', ' ', '-', '=', '[', ']', '\\', '#',
-	    ';', '\'', '`', ',', '.',  '/',  0,   0,   0,   0,   0,   0,    'A',
-	    'B', 'C',  'D', 'E', 'F',  'G',  'H', 'I', 'J', 'K', 'L', 'M',  'N',
-	    'O', 'P',  'Q', 'R', 'S',  'T',  'U', 'V', 'W', 'X', 'Y', 'Z',  '!',
-	    '@', '#',  '$', '%', '^',  '&',  '*', '(', ')', '_', '+', '{',  '}',
-	    '|', ':',  '"', '~', '<',  '>',  '?', 0};
+		0,   0,	  0,	0,   'a',  'b',	 'c', 'd',  'e',  'f', 'g', 'h',
+		'i', 'j', 'k',	'l', 'm',  'n',	 'o', 'p',  'q',  'r', 's', 't',
+		'u', 'v', 'w',	'x', 'y',  'z',	 '1', '2',  '3',  '4', '5', '6',
+		'7', '8', '9',	'0', '\n', 0,	 0,   '\b', '\t', ' ', '-', '=',
+		'[', ']', '\\', '#', ';',  '\'', '`', ',',  '.',  '/', 0,   0,
+		0,   0,	  0,	0,   'A',  'B',	 'C', 'D',  'E',  'F', 'G', 'H',
+		'I', 'J', 'K',	'L', 'M',  'N',	 'O', 'P',  'Q',  'R', 'S', 'T',
+		'U', 'V', 'W',	'X', 'Y',  'Z',	 '!', '@',  '#',  '$', '%', '^',
+		'&', '*', '(',	')', '_',  '+',	 '{', '}',  '|',  ':', '"', '~',
+		'<', '>', '?',	0};
 
 	if (scancode >= 128)
 		return 0; // Invalid scancode
 
 	if (modifiers)
-		return lookup_table[scancode] -
-		       32; // Ubah ke huruf besar jika shift ditekan
+		return lookup_table[scancode]
+		       - 32; // Ubah ke huruf besar jika shift ditekan
 
 	return lookup_table[scancode];
 }
@@ -905,14 +915,14 @@ void ioforge_usb_ehci_interrupt() {
 		// serial_send_string("report : ");
 
 		// serial_send_string("\n");
-		memcopy((void*)vfs_data, (void*)in_data, 8);
+		memcopy((void*) vfs_data, (void*) in_data, 8);
 		for (int i = 2; i < 8; i++) {
 			char a[2] = {0};
 			a[0] = scancode_to_char(in_data[i], in_data[0]);
 			if (in_data[i] == 0)
 				break;
-			memcopy((void*)((uintptr_t)vfs_data + 10), (void*)a,
-			        sizeof(char));
+			memcopy((void*) ((uintptr_t) vfs_data + 10), (void*) a,
+				sizeof(char));
 			// serial_trace("%s", a);
 		}
 		memset(in_data, 0, 32);
@@ -959,4 +969,6 @@ uint8_t* ehci_block_read(void* this, uint64_t offset, size_t _count) {
 // 	return ops;
 // }
 
-boolean_t ehci_is_transaction_is_running() { return is_trasaction_is_running; }
+boolean_t ehci_is_transaction_is_running() {
+	return is_trasaction_is_running;
+}

@@ -2,7 +2,7 @@
 #define __HAL__PCI__PCIE_H__
 
 #include <hal/acpi/acpi.h>
-#include <libk/type.h>
+#include <type.h>
 
 typedef struct MCFG_configuration_space_t {
 	uint64_t base_addr;

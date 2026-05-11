@@ -9,12 +9,11 @@
 #include <ioforge/ioforge_pci.h>
 #include <libk/io.h>
 #include <libk/serial.h>
-#include <libk/str.h>
+#include <str.h>
 #include <memory/memory_utils.h>
 
 #include <hal/usb/ehci.h>
 
-//
 static pci_segment_t segments[PCI_MAX_SEGMENTS];
 static size_t segment_count = 0;
 static boolean_t has_ecam = false;
@@ -108,9 +107,9 @@ void pci_write16(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off,
 // Yang berguna: actually enable MSI supaya tidak pakai legacy IRQ
 
 static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
-	struct ioforge_pci_service* pci = (struct ioforge_pci_service*) kalloc(
-		sizeof(struct ioforge_pci_service));
-	memset(pci, 0, sizeof(struct ioforge_pci_service));
+	struct ioforge_pci_device* pci = (struct ioforge_pci_device*) kalloc(
+		sizeof(struct ioforge_pci_device));
+	memset(pci, 0, sizeof(struct ioforge_pci_device));
 	// serial_trace("\npci %d at 0x%x\n\n", bus, pci);
 
 	pci->pci_bus = bus;
@@ -119,7 +118,7 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 
 	pci->device = device;
 
-	pci->service.type = IOFORGE_PCI;
+	pci->base.type = IOFORGE_PCI;
 	pci->vendor_id = pci_read16(bus, device, func, 0);
 	pci->device_id = pci_read16(bus, device, func, 2);
 	LOG_INFO("PCI", "device id : 0x%x", pci->device_id);
@@ -220,7 +219,8 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 	// turn on bus mastering
 	// sementara untuk e1000 saja
 	// if (pci->vendor_id == 0x8086 && pci->device_id == 0x100C) {
-	if (pci->vendor_id == 0x8086 && pci->device_id == 0x10D3) {
+	if ((pci->vendor_id == 0x8086 && pci->device_id == 0x10D3)
+	    || (pci->vendor_id == 0x8086 && pci->device_id == 0x24C2)) {
 		auto cmd = pci->command;
 		cmd |= (1 << 2); // Bus Master
 		// cmd |= (1 << 1);   // Memory Space
@@ -378,7 +378,8 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 	}
 	}
 	serial_printf("\n");
-	ioforge_register_service((struct ioforge_service*) pci);
+
+	ioforge_attach(ioforge_get_pci_root(), &pci->base);
 }
 
 static void pci_check_bus(uint8_t bus);

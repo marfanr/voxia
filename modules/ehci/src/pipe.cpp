@@ -2,7 +2,7 @@
 #include <ioforge/ioforge.hpp>
 #include <ehci/ehci_pipe.hpp>
 
-bool EHCIPipe::open(const InterruptPipeDesc& desc, InterruptCallback cb) {
+bool EHCIPipe::open(const USBInterruptPipeDesc& desc, InterruptCallback cb) {
 	desc_ = desc;
 	cb_ = cb;
 	toggle_ = 0;

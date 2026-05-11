@@ -3,7 +3,7 @@
 
 #include "ioforge/ioforge_nic.h"
 #include "ioforge/ioforge_pci.hpp"
-#include "type.h"
+#include <type.h>
 
 #define E1000_NUM_RX_DESC 256
 #define E1000_NUM_RX_MASK (E1000_NUM_RX_DESC - 1)
@@ -60,10 +60,12 @@ class E1000Module : public IOforgePCI {
 	int getMacAddress(uint8_t mac[6]);
 	void storeBufferToPool(int rx_id, void* vaddr);
 
+	uint8_t msix;
+
       private:
 	bool mac_ready = false;
 	uint32_t mac_addr[6];
-	ioforge_pci_service* device;
+	ioforge_pci_device* device;
 	boolean_t eerprom_exists = false;
 	void initReceiverX();
 	void initTransmitterX();

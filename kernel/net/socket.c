@@ -3,7 +3,7 @@
 #include "ioforge/ioforge.h"
 #include "ioforge/ioforge_nic.h"
 #include "libk/serial.h"
-#include "libk/str.h"
+#include <str.h>
 #include "memory/slab.h"
 #include "ethernet.h"
 #include "arp.h"

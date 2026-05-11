@@ -1,7 +1,7 @@
 #ifndef __HAL__RAND__RAND_H__
 #define __HAL__RAND__RAND_H__
 
-#include "type.h"
+#include <type.h>
 
 uint32_t vxRand();
 

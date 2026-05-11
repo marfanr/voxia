@@ -3,7 +3,7 @@
 
 #include "ioforge/ioforge_pci.hpp"
 #include "ioforge/ioforge_usb.h"
-#include "type.h"
+#include <type.h>
 #include <ioforge/ioforge_int_pipe.hpp>
 
 #define EHCI_VENDOR_ID 0x8086
@@ -211,10 +211,6 @@ class EHCIModule : public IOforgePCI {
 
 	void
 	insert_periodic(ehci_queue_head_node_t* qh_node, uint16_t interval_ms);
-	// TODO: Add parameters to return information about QH and qTD nodes in the future.
-	void get_data_periodic(uint8_t addr, uint16_t ring, uint8_t endpoint,
-			       uint32_t response, size_t response_size);
-	void arm_periodic_qtd(struct ehci_periodic_transfer_ctx* ctx);
 
 	void procces_async(ehci_queue_task_descriptor* qtd);
 	void assign_address(int address);

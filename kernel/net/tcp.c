@@ -6,7 +6,7 @@
 #include "net/netdev.h"
 #include "net/netutils.h"
 #include <hal/rand/rand.h>
-#include <libk/str.h>
+#include <str.h>
 
 #define FLAG_FIN 0x01
 #define FLAG_SYN 0x02
@@ -39,7 +39,7 @@ void handle_tcp(netdev_t* dev, struct ipv4_header* ip, uint8_t mac_dst[6]) {
 	parse_tcp_options(tcp, &client_opts);
 
 	if (syn && !ack) {
-		LOG2_INFO("TCP", "Syn Received");
+		// LOG2_INFO("TCP", "Syn Received");
 
 		send_command(dev, ip, tcp, &client_opts, FLAG_SYN | FLAG_ACK,
 			     mac_dst);
@@ -51,14 +51,14 @@ void handle_tcp(netdev_t* dev, struct ipv4_header* ip, uint8_t mac_dst[6]) {
 		uint8_t* payload = (uint8_t*) tcp + tcp_hdr_len;
 
 		if (data_len > 0 && tcp->flags & FLAG_PSH) {
-			LOG2_INFO("TCP", "Data diterima: %d bytes", data_len);
+			// LOG2_INFO("TCP", "Data diterima: %d bytes", data_len);
 
 			if (data_len >= 4
 			    && strncmp((char*) payload, "GET ", 4) == 0) {
-				LOG2_INFO("TCP", "http request");
+				// LOG2_INFO("TCP", "http request");
 
 				// print payload
-				serial2_printf("%s", payload);
+				// serial2_printf("%s", payload);
 				// 2. Kirim HTTP response
 				char* http_resp = "HTTP/1.1 200 OK\r\n"
 						  "Content-Length: 13\r\n"
@@ -162,16 +162,15 @@ void send_tcp_data(netdev_t* dev, struct ipv4_header* ip,
 		return;
 	}
 
-	tcp_reply->offset = (5 << 4); // 5 words = 20 bytes (Tanpa Options)
+	tcp_reply->offset = (5 << 4); // 20 bytes
 
-	// 4. Konfigurasi Header TCP
 	tcp_reply->source_port = tcp->destination_port;
 	tcp_reply->destination_port = tcp->source_port;
 
-	// SEQ kita = ACK yang diminta oleh klien
+	// ACK yang diminta oleh klien
 	tcp_reply->sequence = tcp->acknowledgment;
 
-	// ACK kita = SEQ klien + panjang data (GET request) yang kita terima
+	//SEQ klien + panjang data (GET request) yang kita terima
 	uint32_t seq_in = vxNtohl(tcp->sequence);
 	tcp_reply->acknowledgment = vxHtonl(seq_in + incoming_data_len);
 
@@ -324,4 +323,7 @@ build_synack_options(netdev_t* dev, uint8_t* buf, tcp_options_t* client_opts) {
 	// 	*p++ = 1; // NOP
 
 	return (uint8_t) (p - buf);
+}
+
+void tcp_send() {
 }

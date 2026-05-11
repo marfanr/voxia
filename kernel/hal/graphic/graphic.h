@@ -1,11 +1,10 @@
 #ifndef __HAL__GRAPHIC__GRAPHIC_H__
 #define __HAL__GRAPHIC__GRAPHIC_H__
 
-#include <libk/type.h>
+#include <type.h>
 
-typedef struct
-{
-    uint8_t b, g, r, a;
+typedef struct {
+	uint8_t b, g, r, a;
 } pixel_t;
 
 void put_pixel(int x, int y, uint32_t color);

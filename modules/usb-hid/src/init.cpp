@@ -32,8 +32,8 @@ void HIDModule::load() {
 	// auto dev =
 }
 
-__attribute__((constructor)) static void ehci_constructor() {
-
+__attribute__((constructor)) static void hid_constructor() {
+	log("HID COnstructor", " Loaded");
 	// UsbControllerOp op;
 	// USBController   usb_con;
 	// op.send = sendAsyncCWrapper;

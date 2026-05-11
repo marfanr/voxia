@@ -21,7 +21,7 @@
 #ifndef __INIT__INITRD_H__
 #define __INIT__INITRD_H__
 
-#include <libk/type.h>
+#include <type.h>
 #include <vfs/dev.h>
 #include <vfs/filesystem.h>
 #include <vfs/vfs.h>

@@ -1,7 +1,7 @@
 #include "e1000/e1000.hpp"
 #include "ioforge/ioforge.h"
 #include "ioforge/ioforge_nic.h"
-#include "type.h"
+#include <type.h>
 
 #define IO_ADDR_OFFSET 0x0
 #define IO_DATA_OFFSET 0x4
