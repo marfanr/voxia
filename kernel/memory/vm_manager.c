@@ -2,6 +2,7 @@
 #include "init/init.h"
 #include "libk/type.h"
 #include <hal/cpu/paging.h>
+#include <hal/cpu/spinlock.h>
 #include <libk/serial.h>
 #include <str.h>
 #include <memory/memory_utils.h>
@@ -36,6 +37,8 @@ static struct slab_cache* rbt_node_cache = NULL;
 static struct slab_cache* vma_cache = NULL;
 static struct slab_cache* vma_tree_zone_cache = NULL;
 static struct slab_cache* vma_block_cache = NULL;
+
+static spinlock_t vma_lock = {0};
 
 INIT(vma) {
 	LOG_DEBUG("VMA", "zone_a active %x, unused %x",
@@ -74,6 +77,7 @@ INIT(vma) {
 }
 
 void vma_register(uintptr_t phys_address, uintptr_t virt_addr, size_t size) {
+	spin_acquire(&vma_lock);
 	virtual_memory_t* node = (virtual_memory_t*) vxSlabAlloc(vma_cache);
 	node->start_address = virt_addr;
 	node->end_address = virt_addr + size;
@@ -84,20 +88,28 @@ void vma_register(uintptr_t phys_address, uintptr_t virt_addr, size_t size) {
 
 	rbt_node* n = (rbt_node*) vxSlabAlloc(rbt_node_cache);
 	rbt_insert_node(&virtual_memory_tree_root, n, node, VMA_RBT_NIL);
+	spin_release(&vma_lock);
 }
 
 virtual_memory_t* vma_find(uintptr_t virt_addr) {
+	spin_acquire(&vma_lock);
 	struct rbt_node* n = rbt_search_node(virtual_memory_tree_root,
 					     virt_addr, VMA_RBT_NIL);
-	return n->data;
+	virtual_memory_t* ret = (n != VMA_RBT_NIL) ? n->data : NULL;
+	spin_release(&vma_lock);
+	return ret;
 }
 
 void vma_unregister(uintptr_t virt_addr) {
+	spin_acquire(&vma_lock);
 	struct rbt_node* n = rbt_search_node(virtual_memory_tree_root,
 					     virt_addr, VMA_RBT_NIL);
-	if (n == VMA_RBT_NIL)
+	if (n == VMA_RBT_NIL) {
+		spin_release(&vma_lock);
 		return;
+	}
 	rbt_remove_node(&virtual_memory_tree_root, n, VMA_RBT_NIL);
+	spin_release(&vma_lock);
 }
 
 static void vma_rbt_debug_node(rbt_node* node, int level) {
@@ -158,6 +170,7 @@ void vma_tree_add(mem_vma_region region, uintptr_t start_address,
 }
 
 uintptr_t vma_lookup_free_vaddr(mem_vma_region region, size_t size) {
+	spin_acquire(&vma_lock);
 	struct virtual_memory_tree_node* curr = 0;
 	// LOG_DEBUG("VMA", "curr %x", curr);
 
@@ -187,6 +200,7 @@ uintptr_t vma_lookup_free_vaddr(mem_vma_region region, size_t size) {
 		LOG_DEBUG("VMA", "add 1st region 0x%x", (uintptr_t) region);
 		vma_tree_add(region, (uintptr_t) region,
 			     (uintptr_t) region + 0x1000 * size);
+		spin_release(&vma_lock);
 		return (uintptr_t) region;
 	}
 	// LOG_DEBUG("VMA", "zone %x", curr->start_address);
@@ -196,6 +210,7 @@ uintptr_t vma_lookup_free_vaddr(mem_vma_region region, size_t size) {
 	vma_tree_add(region, (uintptr_t) next_addr,
 		     (uintptr_t) next_addr + 0x1000 * size);
 
+	spin_release(&vma_lock);
 	return next_addr;
 }
 

@@ -2,6 +2,7 @@
 #define __MEMORY_SLAB_H__
 
 #include <type.h>
+#include <hal/cpu/spinlock.h>
 
 // Forward declarations
 struct slab {
@@ -16,8 +17,10 @@ struct slab {
 
 // Cache managing objects of the same size
 struct slab_cache {
+	spinlock_t lock;      // Spinlock for SMP thread safety
 	char name[32];	  // Name of the cache
 	size_t obj_size;  // Size of each object
+	size_t actual_obj_size; // Properly aligned object size
 	size_t alignment; // Alignment requirement
 	size_t slab_size; // Size of each slab
 

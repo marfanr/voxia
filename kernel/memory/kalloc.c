@@ -4,11 +4,14 @@
 #include "memory/phys_base_allocator.h"
 #include "memory/vm_manager.h"
 #include <hal/cpu/paging.h>
+#include <hal/cpu/spinlock.h>
 #include <str.h>
 #include <memory/kalloc.h>
 
 #define KALLOC_BASE_ADDR 0xFFFFFE0000000000
 static uintptr_t kalloc_next_addr = KALLOC_BASE_ADDR;
+
+static spinlock_t kalloc_lock = {0};
 
 struct kalloc_cache {
 	size_t c_64_count;
@@ -71,9 +74,11 @@ static void* __alloc_4k(void) {
 	return (void*) virt_addr;
 }
 
-void* KERNEL_API kalloc(size_t size) {
+KERNEL_API void* kalloc(size_t size) {
 	if (size == 0)
 		return NULL;
+
+	spin_acquire(&kalloc_lock);
 
 	if (size <= 64) {
 		if (cache.c_64_count == 0) {
@@ -89,6 +94,7 @@ void* KERNEL_API kalloc(size_t size) {
 		void* ret = cache.c_64;
 		cache.c_64 = *(void**) cache.c_64;
 		cache.c_64_count--;
+		spin_release(&kalloc_lock);
 		return ret;
 
 	} else if (size <= 128) {
@@ -105,6 +111,7 @@ void* KERNEL_API kalloc(size_t size) {
 		void* ret = cache.c_128;
 		cache.c_128 = *(void**) cache.c_128;
 		cache.c_128_count--;
+		spin_release(&kalloc_lock);
 		return ret;
 
 	} else if (size <= 256) {
@@ -121,6 +128,7 @@ void* KERNEL_API kalloc(size_t size) {
 		void* ret = cache.c_256;
 		cache.c_256 = *(void**) cache.c_256;
 		cache.c_256_count--;
+		spin_release(&kalloc_lock);
 		return ret;
 
 	} else if (size <= 512) {
@@ -137,6 +145,7 @@ void* KERNEL_API kalloc(size_t size) {
 		void* ret = cache.c_512;
 		cache.c_512 = *(void**) cache.c_512;
 		cache.c_512_count--;
+		spin_release(&kalloc_lock);
 		return ret;
 
 	} else if (size <= 1024) {
@@ -153,6 +162,7 @@ void* KERNEL_API kalloc(size_t size) {
 		void* ret = cache.c_1024;
 		cache.c_1024 = *(void**) cache.c_1024;
 		cache.c_1024_count--;
+		spin_release(&kalloc_lock);
 		return ret;
 
 	} else if (size <= 2048) {
@@ -169,6 +179,7 @@ void* KERNEL_API kalloc(size_t size) {
 		void* ret = cache.c_2048;
 		cache.c_2048 = *(void**) cache.c_2048;
 		cache.c_2048_count--;
+		spin_release(&kalloc_lock);
 		return ret;
 	}
 
@@ -208,43 +219,59 @@ void* KERNEL_API kalloc(size_t size) {
 	vxMultipleMmap(paging_get_highest_page_map(), vaddr, phys_addr,
 		       allocate_size, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
 	vma_register((uintptr_t) phys_addr, (uintptr_t) vaddr, allocate_size);
+	
+	spin_release(&kalloc_lock);
 	return (void*) vaddr;
 }
 
-void KERNEL_API kfree(void* ptr, size_t size) {
+KERNEL_API void kfree(void* ptr, size_t size) {
 	if (ptr == NULL || size == 0)
 		return;
 
-	memset(ptr, 0, size);
+	spin_acquire(&kalloc_lock);
 
 	if (size <= 64) {
+		if ((uintptr_t)ptr % 64 != 0) goto out;
+		memset(ptr, 0, size);
 		*(void**) ptr = cache.c_64;
 		cache.c_64 = ptr;
 		cache.c_64_count++;
 	} else if (size <= 128) {
+		if ((uintptr_t)ptr % 128 != 0) goto out;
+		memset(ptr, 0, size);
 		*(void**) ptr = cache.c_128;
 		cache.c_128 = ptr;
 		cache.c_128_count++;
 	} else if (size <= 256) {
+		if ((uintptr_t)ptr % 256 != 0) goto out;
+		memset(ptr, 0, size);
 		*(void**) ptr = cache.c_256;
 		cache.c_256 = ptr;
 		cache.c_256_count++;
 	} else if (size <= 512) {
+		if ((uintptr_t)ptr % 512 != 0) goto out;
+		memset(ptr, 0, size);
 		*(void**) ptr = cache.c_512;
 		cache.c_512 = ptr;
 		cache.c_512_count++;
 	} else if (size <= 1024) {
+		if ((uintptr_t)ptr % 1024 != 0) goto out;
+		memset(ptr, 0, size);
 		*(void**) ptr = cache.c_1024;
 		cache.c_1024 = ptr;
 		cache.c_1024_count++;
 	} else if (size <= 2048) {
+		if ((uintptr_t)ptr % 2048 != 0) goto out;
+		memset(ptr, 0, size);
 		*(void**) ptr = cache.c_2048;
 		cache.c_2048 = ptr;
 		cache.c_2048_count++;
 	} else {
+		memset(ptr, 0, size);
 		virtual_memory_t* v = vma_find((uintptr_t) ptr);
-		if (!v)
-			return;
+		if (!v) {
+			goto out;
+		}
 
 		size_t allocate_size = ALIGN_UP(size, BLOCK_SIZE) / BLOCK_SIZE;
 		vxPhysBaseFree((void*) v->phys_address, allocate_size);
@@ -259,4 +286,7 @@ void KERNEL_API kfree(void* ptr, size_t size) {
 			};
 		}
 	}
+
+out:
+	spin_release(&kalloc_lock);
 }

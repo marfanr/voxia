@@ -4,6 +4,7 @@
 #include "libk/type.h"
 #include "memory/entry.h"
 #include <hal/cpu/paging.h>
+#include <hal/cpu/spinlock.h>
 #include <libk/debug/debug.h>
 #include <libk/serial.h>
 #include <str.h>
@@ -181,7 +182,10 @@ INIT(phys_base_allocator) {
 	// memset(dma_bitmap_base_, 0, dma_bitmap_size);
 }
 
+static spinlock_t pmm_lock = {0};
+
 void* vxPhysBaseAlloc(uint64_t block) {
+	spin_acquire(&pmm_lock);
 	uint64_t total_blocks = higher_base_length_ / BLOCK_SIZE;
 	uint64_t consecutive = 0;
 	uint64_t start = 0;
@@ -225,6 +229,7 @@ void* vxPhysBaseAlloc(uint64_t block) {
 						bitmap_base_[j / 8] |=
 							(1 << (j % 8));
 
+					spin_release(&pmm_lock);
 					return (void*) (start * BLOCK_SIZE);
 				}
 			} else {
@@ -233,10 +238,12 @@ void* vxPhysBaseAlloc(uint64_t block) {
 		}
 	}
 
+	spin_release(&pmm_lock);
 	return NULL;
 }
 
 void* pDMAalloc(uint64_t block) {
+	spin_acquire(&pmm_lock);
 	uint64_t consecutive = 0;
 	uint64_t start = 0;
 
@@ -257,6 +264,7 @@ void* pDMAalloc(uint64_t block) {
 
 				// serial_trace("allocated %llu blocks starting
 				// at %llu\n", block, start);
+				spin_release(&pmm_lock);
 				return (void*) (smallest_free_entry_base
 						+ start * BLOCK_SIZE);
 			}
@@ -267,6 +275,7 @@ void* pDMAalloc(uint64_t block) {
 	}
 
 	// tidak ditemukan blok kosong
+	spin_release(&pmm_lock);
 	return 0;
 }
 
@@ -291,17 +300,21 @@ uint64_t pys_base_get_free_block_count() {
 }
 
 void vxPhysBaseFree(void* ptr, uint64_t size) {
+	spin_acquire(&pmm_lock);
 	uint64_t index = (uint64_t) ptr / BLOCK_SIZE;
 	for (uint64_t i = index; i < index + size; i++) {
 		bitmap_base_[i / 8] &= ~(1 << (i % 8));
 	}
+	spin_release(&pmm_lock);
 }
 
 void dma_free(void* ptr, uint64_t size) {
+	spin_acquire(&pmm_lock);
 	uint64_t index = (uint64_t) ptr / BLOCK_SIZE;
 	for (uint64_t i = index; i < index + size; i++) {
 		dma_bitmap_base_[i / 8] &= ~(1 << (i % 8));
 	}
+	spin_release(&pmm_lock);
 }
 
 void pmm_log_usage() {
@@ -309,7 +322,7 @@ void pmm_log_usage() {
 	uint64_t free_blocks = pys_base_get_free_block_count();
 	uint64_t used_blocks = total_blocks - free_blocks;
 
-	KDEBUG(DEBUG_LEVEL_INFO, "used memory : %d mb / %d mb (%d mb free)\n",
+	KDEBUG(DEBUG_LEVEL_INFO, "used memory : %d mb / %d mb (%d mb free)\n\n",
 	       used_blocks * BLOCK_SIZE / 1024 / 1024,
 	       total_blocks * BLOCK_SIZE / 1024 / 1024,
 	       free_blocks * BLOCK_SIZE / 1024 / 1024);
