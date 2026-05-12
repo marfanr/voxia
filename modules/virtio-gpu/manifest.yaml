@@ -1,0 +1,7 @@
+name: VIRTIO-GPU
+description: virtio gpu driver
+license: MIT
+version: 0.2
+author: mohammad arfan
+
+main: virtio-gpu.elf
