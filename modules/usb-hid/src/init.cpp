@@ -2,24 +2,25 @@
 #include "ioforge/ioforge_usb.h"
 #include "ioforge/ioforge_usb.hpp"
 #include "usb-hid/hid.hpp"
+#include "usb-hid/keyboard.hpp"
 #include <ioforge/ioforge.hpp>
 
-IoForgeModuleConstructor(HIDModule);
+IoForgeModuleConstructor(UsbHid);
 
-HIDModule::HIDModule() : IoForgeUSB("USB-HID") {
+UsbHid::UsbHid() : IoForgeUSB("USB-HID") {
 }
 
-HIDModule* HIDModule::getInstance() {
+UsbHid* UsbHid::getInstance() {
 	return &instance;
 }
 
-void HIDModule::unload() {
+void UsbHid::unload() {
 }
 
-void HIDModule::load() {
+void UsbHid::load() {
 
 	log(mod, "HID Module Loaded");
-	print_device_tree(ioforge_get_root(), 0);
+	print_device_tree(ioforge_get_root(), 2);
 
 	foreach_usb_device_by_devclass(ioforge_get_usb_devices_root(), 0x3,
 				       [this](ioforge_usb_device* dev) {
@@ -30,16 +31,4 @@ void HIDModule::load() {
 
 	// scan all usb devices
 	// auto dev =
-}
-
-__attribute__((constructor)) static void hid_constructor() {
-	log("HID COnstructor", " Loaded");
-	// UsbControllerOp op;
-	// USBController   usb_con;
-	// op.send = sendAsyncCWrapper;
-
-	// usb_con.name = "EHCI";
-	// usb_con.ops  = &op;
-
-	// ioforge_register_usb_controller(&usb_con);
 }

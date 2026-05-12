@@ -1,6 +1,6 @@
 # Variabel umum
 QEMU=qemu-system-x86_64
-QEMU_FLAGS=-m 3G -cpu host -M q35 -smp 2  -enable-kvm -rtc base=localtime -acpitable file=acpi_test/battery.aml
+QEMU_FLAGS=-m 3G -cpu host -M q35 -smp 2  -enable-kvm -rtc base=localtime
 QEMU_USB=-device usb-ehci,id=ehci -device usb-kbd,bus=ehci.0,port=1,id=kbd
 # 	-device usb-mouse,bus=ehci.0,port=2,id=mouse
 # QEMU_NETWORK= -netdev user,id=net0,hostfwd=tcp::1234-:1234\
@@ -23,12 +23,11 @@ modules: lib
 	$(MAKE) -C ./modules/e1000
 	$(MAKE) -C ./modules/ehci
 	$(MAKE) -C ./modules/usb-hid
-# 	$(MAKE) -C ./modules/virtio-vga
+	$(MAKE) -C ./modules/virtio-gpu
 # 	$(MAKE) -C ./modules/ahci
 # 	$(MAKE) -C ./modules/runtimeinit all
 
 lib:
-	echo "aaa"
 # 	$(MAKE) -C ./library/ioforge
 
 lib-clean:
@@ -50,17 +49,17 @@ debug:
 	-monitor stdio -serial file:qemu.log -d trace:ahci* -D aqemu.log \
 	-nographic
 
-run-gpu: 
-	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) -vga none  -device virtio-serial-pci -s \
-	-d int -D qemu.log  \
-	  -display sdl,gl=on -device virtio-vga-gl \
-	 -serial stdio
+run-gpu2:
+	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) $(QEMU_NETWORK) \
+	-display gtk,gl=on,full-screen=on \
+	-device virtio-gpu-gl-pci,xres=1920,yres=1080,id=gpu \
+	-monitor stdio -serial file:qemu.log -d trace:*virtio* -D aqemu.log
 
-run-gpu2: 
+run-gpu-win: 
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) $(QEMU_NETWORK) \
 	-display sdl,gl=on,full-screen=on \
-	-device virtio-gpu-gl-pci,xres=1920,yres=1080 \
-	-monitor stdio -serial file:qemu.log -d trace:e1000* -D aqemu.log
+	-device virtio-gpu-gl-pci,xres=1920,yres=1080,id=gpu \
+	-monitor stdio -serial file:qemu.log -d trace:*virtio* -D aqemu.log
 
 run-efi: ovmf-x64
 	$(QEMU) $(QEMU_FLAGS)  -bios $(BIOS_OVMF) -cdrom $(ISO) -boot d $(QEMU_USB) -vga none  -device virtio-serial-pci -s \
@@ -204,7 +203,7 @@ clean: lib-clean
 	$(MAKE) -C modules/ehci clean
 	$(MAKE) -C modules/usb-hid clean
 	$(MAKE) -C modules/e1000 clean
-	$(MAKE) -C modules/virtio-vga clean
+	$(MAKE) -C modules/virtio-gpu clean
 	$(MAKE) -C modules/ahci clean
 
 

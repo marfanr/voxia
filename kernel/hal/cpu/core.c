@@ -223,10 +223,10 @@ INIT(Core) {
 		auto core_info = vxGetCpuInfo(i);
 		auto cpu_id = core_info->apicid;
 
-		uint64_t pstack = (uint64_t) vxPhysBaseAlloc(2);
+		uint64_t pstack = (uint64_t) vxPhysBaseAlloc(5);
 		uint64_t stack = (uint64_t) vma_lookup_free_vaddr(VMA_REGION_A,
-								  2); // 8kb
-		vxMultipleMmap(paging_get_highest_page_map(), stack, pstack, 2,
+								  5); // 8kb
+		vxMultipleMmap(paging_get_highest_page_map(), stack, pstack, 5,
 			       0b111);
 		paging_reload(paging_get_highest_page_map());
 

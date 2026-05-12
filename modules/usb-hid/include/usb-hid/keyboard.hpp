@@ -7,9 +7,10 @@
 
 class HIDKeyboard {
       public:
-	HIDKeyboard(ioforge_usb_device* dev);
+	HIDKeyboard();
 	static void fireHandler(const uint8_t* data, size_t len);
 	void store_in_vfs(const uint8_t* data, size_t len);
+	void load(ioforge_usb_device* dev);
 
       private:
 	ioforge_usb_device* dev_ = 0;

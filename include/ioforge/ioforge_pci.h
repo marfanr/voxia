@@ -3,6 +3,10 @@
 
 #include "./ioforge.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct ioforge_pci_bar {
 	uint64_t address;
 	boolean_t iospace;
@@ -32,10 +36,6 @@ struct ioforge_pci_device {
 	uint16_t capability_ptr;
 	struct ioforge_pci_bar bar[6];
 };
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 struct ioforge_pci_device*
 ioforge_get_pci_device(uint16_t vendor_id, uint16_t device_id);

@@ -9,6 +9,7 @@ create_dentry
 IOforgeStrCopy
 vxNamei
 ioforge_memset
+find_virtio_device_by_id
 kfree
 pci_cap_find_msix
 __cxa_finalize

@@ -552,8 +552,7 @@ static void parse_before_multicore(__builtin_va_list args, const char* fmt) {
 
 extern boolean_t multicore_start;
 
-// TODO: implement per core buffer
-// unutk cegah race condition saat dipanggil di dalam module
+// unutk cegah race condition saat dipanggil ketika multi core sudah dinyalakan
 KERNEL_API void serial2_printf(const char* fmt, ...) {
 	__builtin_va_list args;
 	__builtin_va_start(args, fmt);

@@ -5,6 +5,7 @@
 #include <vector.h>
 #include <type.h>
 #include "procc/workqueue.h"
+#include "hal/cpu/spinlock.h"
 
 #pragma pack(push, 1)
 struct voxmo_metadata_string {
@@ -43,6 +44,7 @@ struct voxmo_metadata_file {
 #pragma pack(pop)
 
 typedef struct voxmo_loaded_module {
+	spinlock_t lock;
 	kstring name;
 	kstring* capability;
 	kstring* dependency;

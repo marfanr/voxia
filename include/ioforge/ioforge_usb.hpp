@@ -52,9 +52,8 @@ class IoForgeUSB : public IOForge {
 		uint8_t res = *resp;
 
 		IOUtils::DMAFree((void*) setup_addr, (void*) setup,
-				 sizeof(*setup));
-		IOUtils::DMAFree((void*) resp_paddr, (void*) resp,
-				 sizeof(*resp));
+				 sizeof(struct usb_setup_packet));
+		IOUtils::DMAFree((void*) resp_paddr, (void*) resp, 64);
 
 		return res;
 	}

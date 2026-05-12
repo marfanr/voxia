@@ -6,6 +6,10 @@ OBJ := $(C_FILES:.c=.o) $(S_FILES:.asm=_asm.o)
 KERNEL := ../build/kernel.elf
 ROOT?=../
 
+LD=ld
+CC=clang
+
+
 # Verbosity control
 V ?= 0
 ifeq ($(V),1)
@@ -41,7 +45,7 @@ all: $(OBJ)
         --binary-architecture=i386 \
         hal/cpu/core_ap.bin hal/cpu/core_ap.o
 	rm -f hal/cpu/core_ap.bin
-	ld $(LDFLAGS) $(OBJ) hal/cpu/core_ap.o -o $(KERNEL)
+	$(LD) $(LDFLAGS) $(OBJ) hal/cpu/core_ap.o -o $(KERNEL)
 	objdump -t $(KERNEL) | grep '\.export' | awk '{print $$6}' > keep.txt
 	objcopy --strip-unneeded --keep-symbols=keep.txt  $(KERNEL) $(KERNEL)
 # 	nm -S --defined-only $(KERNEL) | grep '\.export' >> keep.txt
@@ -52,7 +56,7 @@ all: $(OBJ)
 %.o: %.c
 	$(E) "  CC      $(notdir $<)"
 	$(Q)mkdir -p $(dir $@)
-	@$(Q)clang $(CFLAGS) -c $< -o $@
+	@$(Q)$(CC) $(CFLAGS) -c $< -o $@
 
 %_asm.o: %.asm
 	$(E) "  AS      $(notdir $<)"

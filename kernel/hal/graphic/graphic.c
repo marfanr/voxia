@@ -5,6 +5,7 @@
 #include "libk/debug/debug.h"
 #include "memory/entry.h"
 #include "memory/vm_manager.h"
+#include "str.h"
 #include "vfs/enum.h"
 #include "vfs/file.h"
 #include "vfs/vfs.h"
@@ -174,4 +175,31 @@ void put_pixel_alpha_fast(int x, int y, pixel_t src) {
 		     & 0xFF00;
 
 	*dst_ptr = rb | g;
+}
+
+void clear_screen(uint32_t color) {
+	for (int y = 0; y < g__fb->framebuffer_height; y++) {
+		for (int x = 0; x < g__fb->framebuffer_width; x++) {
+			put_pixel(x, y, color);
+		}
+	}
+}
+
+void scroll_up(int lines, uint32_t bg_color) {
+	int line_height = 15; // Asumsi tinggi karakter 15px
+	int scroll_amount = lines * line_height;
+
+	// Geser framebuffer ke atas
+	memcopy((void*) g__fb->framebuffer_addr,
+		(void*) (g__fb->framebuffer_addr
+			 + scroll_amount * g__fb->framebuffer_pitch),
+		(g__fb->framebuffer_height - lines) * g__fb->framebuffer_pitch);
+
+	// Bersihkan area kosong di bawah
+	for (int y = g__fb->framebuffer_height - scroll_amount;
+	     y < g__fb->framebuffer_height; y++) {
+		for (int x = 0; x < g__fb->framebuffer_width; x++) {
+			put_pixel(x, y, bg_color);
+		}
+	}
 }

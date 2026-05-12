@@ -38,8 +38,6 @@ void EHCIModule::load() {
 	hcsparam = (uint32_t*) (bar + 0x4);
 	hccparam = (uint32_t*) (bar + 0x8);
 
-	log(mod, "EHCI is 64 bit : %B", *hccparam & 1);
-
 	log(mod, "EHCI setup done");
 
 	init_periodic();
@@ -57,13 +55,13 @@ void EHCIModule::load() {
 		controller->irq = irq;
 	}
 
+	// detect all devices
+	probe();
+
 	ehci_op->usbsts = 0x3f;
 	ehci_op->usbintr = (1 << 0) | // USBINT
 			   (1 << 1) | // USBERRINT
 			   (1 << 2);  // PORT CHANGE
-
-	// detect all devices
-	probe();
 
 	log(mod, "Loaded Module");
 }

@@ -17,21 +17,27 @@
 
 static kstring default_voxmo_path;
 static voxmo_loaded_module_t_ptr voxmo_modules;
+static spinlock_t voxmo_list_lock = {0};
 
 static voxmo_loaded_module_t_ptr vxGetVoxmoModule(kstring name) {
+	spin_acquire(&voxmo_list_lock);
 	auto curr_module = voxmo_modules;
 	while (curr_module != NULL) {
 		if (stringcmp(curr_module->name, name)) {
+			spin_release(&voxmo_list_lock);
 			return curr_module;
 		}
 		curr_module = curr_module->next;
 	}
+	spin_release(&voxmo_list_lock);
 	LOG2_ERROR("VOXMO", "module %s not found", name->c_str);
 	return nullptr;
 }
 
 static void proccess_elf(voxmo_loaded_module_t_ptr module) {
+	spin_acquire(&module->lock);
 	if (module->loaded) {
+		spin_release(&module->lock);
 		LOG2_INFO("VOXMO", "module %s already loaded",
 			  module->name->c_str);
 		return;
@@ -63,6 +69,7 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 	}
 
 	if (ehdr->e_type != 3) {
+		spin_release(&module->lock);
 		LOG2_ERROR("VOXMO", "not shared library");
 		return;
 	}
@@ -126,6 +133,7 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 					   module->dependency[i]->c_str,
 					   module->name->c_str);
 				// kfree(dependency_workqueue);
+				spin_release(&module->lock);
 				return;
 			}
 
@@ -138,6 +146,7 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 					dep_module->loaded, dep_module->queue,
 					module->name->c_str);
 				// kfree(dependency_workqueue);
+				spin_release(&module->lock);
 				return;
 			}
 
@@ -163,6 +172,7 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 		LOG2_ERROR("VOXMO", "load not found");
 	}
 	module->loaded = true;
+	spin_release(&module->lock);
 }
 
 void vxVoxmoInstall(const char* path) {
@@ -196,10 +206,11 @@ void vxVoxmoInstall(const char* path) {
 		return;
 	}
 
-	voxmo_loaded_module_t_ptr module =
-		(voxmo_loaded_module_t_ptr) kalloc(sizeof(*module));
+	voxmo_loaded_module_t_ptr module = (voxmo_loaded_module_t_ptr) kalloc(
+		sizeof(voxmo_loaded_module_t));
 	memset(module, 0, sizeof(*module));
 	module->next = nullptr;
+	module->lock = (spinlock_t){0};
 
 	struct voxmo_metadata_header* header =
 		(struct voxmo_metadata_header*) data;
@@ -287,12 +298,7 @@ void vxVoxmoInstall(const char* path) {
 		return;
 	}
 
-	// auto curr_module = &voxmo_modules;
-	// while (*curr_module != NULL) {
-	// 	curr_module = &(*curr_module)->next;
-	// }
-	// *curr_module = module;
-
+	spin_acquire(&voxmo_list_lock);
 	auto curr_module = voxmo_modules;
 	if (!curr_module) {
 		voxmo_modules = module;
@@ -302,6 +308,7 @@ void vxVoxmoInstall(const char* path) {
 		}
 		curr_module->next = module;
 	}
+	spin_release(&voxmo_list_lock);
 
 	LOG2_INFO("VOXMO", "module %s installed", module->name->c_str);
 	kfree(data, file_size);
@@ -337,13 +344,19 @@ void vxVoxmoProbe(kstring name) {
 }
 
 void vxVoxmoReload() {
+	spin_acquire(&voxmo_list_lock);
 	voxmo_loaded_module_t_ptr m = voxmo_modules;
+	spin_release(&voxmo_list_lock);
+
 	while (m != nullptr) {
 		if (!m->loaded) {
 			LOG2_INFO("VOXMO", "load module %s", m->name->c_str);
 			vxVoxmoProbe(m->name);
 		}
+
+		spin_acquire(&voxmo_list_lock);
 		m = m->next; // FIX: selalu maju, regardless loaded atau tidak
+		spin_release(&voxmo_list_lock);
 	}
 	LOG2_INFO("VOXMO", "all module reloaded");
 }

@@ -6,7 +6,6 @@
 #include "init/init.h"
 #include "libk/type.h"
 #include <hal/ethernet/e1000/e1000.h>
-#include <hal/usb/ehci.h>
 #include <libk/debug/debug.h>
 #include <libk/io.h>
 #include <libk/serial.h>
@@ -222,26 +221,12 @@ extern void vxInterruptHandler(interrupt_stack_frame_t* rsp) {
 
 	uint64_t int_number = rsp->int_no;
 
-	/* FIX #1 (root cause "pesan hilang di run ke-2"):
-	 * Sebelumnya blok exception (int_number < 31) ada DUA jalur:
-	 *   (a) jika queue != null  → terminate thread + redirect ke iddle, TIDAK print
-	 *   (b) jika queue == null  → print pesan lalu INFLOOP
-	 *
-	 * Masalah: di run pertama queue belum ada (scheduler belum attach thread),
-	 * sehingga jalur (b) diambil → pesan tercetak.
-	 * Di run ke-2 tanpa make clean, thread workqueue sudah di-attach dari
-	 * run sebelumnya (BSS/data tidak di-reset oleh incremental build),
-	 * sehingga queue != null → jalur (a) diambil → pesan TIDAK tercetak,
-	 * thread di-redirect ke iddle tanpa kita tahu apa yang salah.
-	 *
-	 * Fix: SELALU cetak pesan exception terlebih dahulu, baru kemudian
-	 * tentukan apakah mau terminate thread atau INFLOOP. */
 	if (int_number < 32) {
 		uintptr_t cr2 = 0;
-		KDEBUG(DEBUG_LEVEL_ERROR, "page fault\n");
 
 		asm volatile("mov %%cr2, %0" : "=r"(cr2));
 
+		KDEBUG(DEBUG_LEVEL_ERROR, "\npage fault 0x%x\n", cr2);
 		serial2_printf("\n\n[EXCEPTION] %s (vector %d)\n",
 			       exception_messages[int_number], int_number);
 		serial2_printf("  rip=0x%x  rsp=0x%x  err=0x%x  cr2=0x%x\n",

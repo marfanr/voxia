@@ -36,7 +36,8 @@ INIT(VfsCache) {
 }
 
 struct vfs_cache* create_vfs_cache() {
-	struct vfs_cache* cache = (struct vfs_cache*) kalloc(sizeof(*cache));
+	struct vfs_cache* cache =
+		(struct vfs_cache*) kalloc(sizeof(struct vfs_cache));
 	cache->count = 0;
 	__atomic_clear(&cache->lock, __ATOMIC_RELAXED);
 	return cache;

@@ -1,2 +1,0 @@
-## require
-- Voxia IoForge Library

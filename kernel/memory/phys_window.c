@@ -27,7 +27,7 @@ mem_physwindow_status_t
 mem_create_physwindow(uintptr_t phys_addr, uintptr_t* virt_addr,
 		      mem_physwindow_flag_t flag) {
 	for (size_t i = 0; i < VOXIA_PHYS_MAX_WINDOW_COUNT; i++) {
-		if (!physical_memory_windows[i].lock.locked) {
+		if (!physical_memory_windows[i].lock) {
 			*virt_addr = mem_vma_phys_window_start + i * 0x1000;
 			physical_memory_windows[i].virt_addr = *virt_addr;
 			physical_memory_windows[i].phys_addr = phys_addr;
@@ -43,7 +43,7 @@ mem_create_physwindow(uintptr_t phys_addr, uintptr_t* virt_addr,
 
 			if ((flag & PHYS_WINDOW_FLAG_LOCK)
 			    == PHYS_WINDOW_FLAG_LOCK) {
-				physical_memory_windows[i].lock.locked = 1;
+				physical_memory_windows[i].lock = 1;
 			}
 
 			// serial_trace("mem_create_physwindow: Created physical window at %d\n", i);
@@ -59,7 +59,7 @@ mem_create_physwindow(uintptr_t phys_addr, uintptr_t* virt_addr,
 mem_physwindow_status_t mem_release_physwindow(uintptr_t virt_addr) {
 	for (size_t i = 0; i < VOXIA_PHYS_MAX_WINDOW_COUNT; i++) {
 		if (physical_memory_windows[i].virt_addr == virt_addr) {
-			physical_memory_windows[i].lock.locked = 0;
+			physical_memory_windows[i].lock = 0;
 			return PHYS_WINDOW_STATUS_OK;
 		}
 	}

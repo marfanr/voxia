@@ -18,6 +18,7 @@ INIT(ModuleRegister) {
 	vxVoxmoInstall("e1000");
 	vxVoxmoInstall("ehci");
 	vxVoxmoInstall("usb-hid");
+	vxVoxmoInstall("virtio-gpu");
 
 	// register default filesystem : iso96660, fat
 	// filesystem_register("ISO9660", 0);

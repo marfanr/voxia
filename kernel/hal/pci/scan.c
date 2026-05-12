@@ -12,8 +12,6 @@
 #include <str.h>
 #include <memory/memory_utils.h>
 
-#include <hal/usb/ehci.h>
-
 static pci_segment_t segments[PCI_MAX_SEGMENTS];
 static size_t segment_count = 0;
 static boolean_t has_ecam = false;
@@ -109,8 +107,7 @@ void pci_write16(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off,
 static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 	struct ioforge_pci_device* pci = (struct ioforge_pci_device*) kalloc(
 		sizeof(struct ioforge_pci_device));
-	memset(pci, 0, sizeof(struct ioforge_pci_device));
-	// serial_trace("\npci %d at 0x%x\n\n", bus, pci);
+	memset(pci, 0, sizeof(*pci));
 
 	pci->pci_bus = bus;
 	pci->pci_dev = device;
@@ -129,22 +126,6 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 	if ((pci->status & (1 << 4))) {
 		uint8_t cap_ptr = pci_read8(bus, device, func, 0x34);
 		pci->capability_ptr = cap_ptr;
-		// LOG_INFO("PCI", "device ada capability list");
-
-		// while (cap_ptr != 0 && cap_ptr >= 0x40 && cap_ptr <= 0xFF) {
-		// 	uint8_t cap_id = pci_read8(bus, device, func,
-		// 				   cap_ptr); // ID capability
-		// 	uint8_t next_ptr = pci_read8(
-		// 		bus, device, func,
-		// 		cap_ptr + 1); // pointer ke capability selanjutnya
-
-		// 	if (cap_id == 05) {
-		// 		LOG_INFO("PCI", "MSI Available");
-		// 		// pci_enable_msi(pci, 0, 0, cap_ptr);
-		// 	}
-
-		// 	cap_ptr = next_ptr;
-		// }
 	}
 	pci->revision_id = pci_read16(bus, device, func, 8) & 0xFF;
 	pci->prog_if = (pci_read16(bus, device, func, 8) >> 8) & 0xFF;
@@ -184,6 +165,9 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 			uint32_t bar_high = pci_read32(bus, device, func,
 						       0x10 + (i + 1) * 4);
 			addr |= ((uint64_t) bar_high << 32);
+			LOG_INFO("PCI",
+				 "  64-bit BAR detected at index %d (0x%lx)", i,
+				 addr);
 			i++; // skip next BAR
 		}
 
@@ -200,16 +184,14 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 		uintptr_t vaddr = bar;
 		if (original_bar) {
 			vaddr = vma_lookup_free_vaddr(VMA_REGION_C, size_4kb);
-			// LOG_INFO("PCI", "new vadr 0x%x", vaddr);
-
 			vxMultipleMmap(paging_get_highest_page_map(), vaddr,
-				       pci->bar[i].address, size_4kb, 0b10011);
+				       addr, size_4kb, 0b10011);
 			paging_reload(paging_get_highest_page_map());
 			vma_register(addr, vaddr, size_4kb * PAGE_SIZE);
 		}
 		uint32_t offset = addr - ALIGN_DOWN(addr, PAGE_SIZE);
-		LOG_INFO("PCI", "[%d] BAR 0x%lx [0x%lx] (0x%lx) size: %d KB", i,
-			 original_bar, vaddr, offset, size_4kb * 4);
+		LOG_INFO("PCI", "[%d] BAR 0x%lx [0x%lx] (0x%lx) size: %d KB",
+			 bar_idx, addr, vaddr, offset, size_4kb * 4);
 
 		pci->bar[bar_idx].address = vaddr;
 
@@ -220,7 +202,8 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 	// sementara untuk e1000 saja
 	// if (pci->vendor_id == 0x8086 && pci->device_id == 0x100C) {
 	if ((pci->vendor_id == 0x8086 && pci->device_id == 0x10D3)
-	    || (pci->vendor_id == 0x8086 && pci->device_id == 0x24C2)) {
+	    || (pci->vendor_id == 0x8086 && pci->device_id == 0x24C2)
+	    || (pci->vendor_id == 0x1AF4)) {
 		auto cmd = pci->command;
 		cmd |= (1 << 2); // Bus Master
 		// cmd |= (1 << 1);   // Memory Space
@@ -365,11 +348,12 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 
 	switch (pci->vendor_id) {
 	case 0x1AF4: {
-		// serial_trace("virtio device found w device_id : 0x%x\n",
-		// pci->device_id);
+		LOG_INFO("PCI", "virtio device found w device_id : 0x%x",
+			 pci->device_id);
 		switch (pci->device_id) {
 		case 0x1050:
 			LOG_INFO("PCI", "found virtio VGA device");
+			pci->base.flags |= IOFORGE_F_VIRTIO;
 			// pci->service.init = (void (*)(struct IoForgeService
 			// *))virtio_gpu_init;
 			break;

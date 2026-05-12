@@ -2,6 +2,7 @@
 #include "autoconf.h"
 #include "init/init.h"
 #include "libk/type.h"
+#include <hal/cpu/spinlock.h>
 #include <libk/serial.h>
 #include <str.h>
 #include <memory/memory_utils.h>
@@ -26,7 +27,10 @@ struct paging_page {
 	paging_page* next;
 } __attribute__((aligned(32)));
 
+static spinlock_t paging_lock = {0};
+
 page_t paging_create_page_directory() {
+	spin_acquire(&paging_lock);
 	page_t page = (page_t) vxPhysBaseAlloc(1);
 	uintptr_t virtual_physwindow_addr = (uintptr_t) page;
 
@@ -36,6 +40,7 @@ page_t paging_create_page_directory() {
 	}
 
 	memset((void*) virtual_physwindow_addr, 0, PAGE_SIZE);
+	spin_release(&paging_lock);
 	return page;
 }
 // EXPORT_SYMBOL(paging_create_page_directory);
@@ -134,11 +139,13 @@ INIT(paging) {
 }
 
 void paging_fork(page_t parent_pml4, page_t child_pml4) {
+	spin_acquire(&paging_lock);
 	for (uint64_t i = 0; i < 512; i++) {
 		if (parent_pml4[i] & 1) {
 			child_pml4[i] = parent_pml4[i];
 		}
 	}
+	spin_release(&paging_lock);
 }
 
 void paging_debug(page_t pml4, uint64_t virt) {
@@ -211,6 +218,7 @@ void paging_setup(page_t pml4) {
 }
 
 void vxMmap(page_t page_dir, uint64_t virt, uint64_t phys, int flags) {
+	spin_acquire(&paging_lock);
 	uint64_t index4 = (virt >> 39) & 0x1ff;
 	uint64_t index3 = (virt >> 30) & 0x1ff;
 	uint64_t index2 = (virt >> 21) & 0x1ff;
@@ -319,11 +327,11 @@ void vxMmap(page_t page_dir, uint64_t virt, uint64_t phys, int flags) {
 	__asm__ volatile("" ::: "memory");
 	asm volatile("invlpg (%0)" ::"r"(virt)
 		     : "memory"); // flush the entry from TLB
+	spin_release(&paging_lock);
 }
 
-__attribute__((optnone)) void
-vxMultipleMmap(page_t page_dir, uint64_t virt, uint64_t phys, uint64_t size,
-	       int flags) {
+void vxMultipleMmap(page_t page_dir, uint64_t virt, uint64_t phys,
+		    uint64_t size, int flags) {
 	uint64_t i = 0;
 
 	// proses per 4 halaman sekaligus
@@ -345,6 +353,7 @@ vxMultipleMmap(page_t page_dir, uint64_t virt, uint64_t phys, uint64_t size,
 }
 
 void paging_unmap_page(page_t page_dir, uint64_t virt) {
+	spin_acquire(&paging_lock);
 	uint64_t index4 = (virt >> 39) & 0x1ff;
 	uint64_t index3 = (virt >> 30) & 0x1ff;
 	uint64_t index2 = (virt >> 21) & 0x1ff;
@@ -382,6 +391,7 @@ void paging_unmap_page(page_t page_dir, uint64_t virt) {
 		if (paging_has_been_set) {
 			mem_release_physwindow((uintptr_t) pml4);
 		}
+		spin_release(&paging_lock);
 		return;
 	}
 
@@ -400,6 +410,7 @@ void paging_unmap_page(page_t page_dir, uint64_t virt) {
 			mem_release_physwindow((uintptr_t) pml4);
 			mem_release_physwindow((uintptr_t) pdpt);
 		}
+		spin_release(&paging_lock);
 		return;
 	}
 
@@ -419,6 +430,7 @@ void paging_unmap_page(page_t page_dir, uint64_t virt) {
 			mem_release_physwindow((uintptr_t) pdpt);
 			mem_release_physwindow((uintptr_t) pdp);
 		}
+		spin_release(&paging_lock);
 		return;
 	}
 
@@ -437,6 +449,7 @@ void paging_unmap_page(page_t page_dir, uint64_t virt) {
 	// refresh cr3
 	asm volatile("invlpg (%0)" ::"r"(virt)
 		     : "memory"); // flush the entry from TLB
+	spin_release(&paging_lock);
 }
 
 void paging_unmap_fill(page_t page_dir, uint64_t virt, size_t size) {

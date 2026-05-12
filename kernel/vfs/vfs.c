@@ -32,7 +32,7 @@ static struct slab_cache* rbt_node_cache;
 
 extern vnode_ptr_t create_vnode();
 
-vnode_t* KERNEL_API create_and_attach_vnode() {
+KERNEL_API vnode_t* create_and_attach_vnode() {
 	vnode_t* vnode = create_vnode();
 
 	rbt_node* node = (rbt_node*) vxSlabAlloc(rbt_node_cache);

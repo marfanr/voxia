@@ -1,3 +1,4 @@
+#include "hal/cpu/core.h"
 #include "libk/serial.h"
 #include "libk/type.h"
 #include "memory/memory_utils.h"
@@ -7,13 +8,27 @@
 #include <hal/cpu/spinlock.h>
 #include <str.h>
 #include <memory/kalloc.h>
+#include <hal/cpu/irq_lock.h>
 
-#define KALLOC_BASE_ADDR 0xFFFFFE0000000000
-static uintptr_t kalloc_next_addr = KALLOC_BASE_ADDR;
+#define KALLOC_BASE_ADDR 0xFFFFFE0000000000ULL
+#define MAX_FREED_VADDRS 512
+#define MAX_CPUS 256 /* sesuaikan dengan MAX_CPUS kernel  */
 
-static spinlock_t kalloc_lock = {0};
+typedef struct {
+	uintptr_t addr;
+	size_t size; /* dalam satuan BLOCK_SIZE (halaman) */
+} freed_t;
 
-struct kalloc_cache {
+struct kalloc_cpu_cache {
+	/* free-list heads */
+	void* c_64;
+	void* c_128;
+	void* c_256;
+	void* c_512;
+	void* c_1024;
+	void* c_2048;
+
+	/* jumlah slot tersedia di masing-masing bucket */
 	size_t c_64_count;
 	size_t c_128_count;
 	size_t c_256_count;
@@ -21,272 +36,216 @@ struct kalloc_cache {
 	size_t c_1024_count;
 	size_t c_2048_count;
 
-	void* c_64;
-	void* c_128;
-	void* c_256;
-	void* c_512;
-	void* c_1024;
-	void* c_2048;
-};
+	/*
+     * Lock per-CPU dipakai HANYA saat refill (ambil page baru).
+     * Pada CPU yang sama, akses cache bersifat single-threaded
+     * (preemption dinonaktifkan via IRQ-save sebelum masuk), sehingga
+     * lock ini melindungi akses dari CPU lain yang mungkin mencuri
+     * slot (steal) di masa depan — saat ini tidak diimplementasikan,
+     * tapi lock tetap dipasang agar thread-safe bila diaktifkan.
+     */
+	spinlock_t lock;
 
-static struct kalloc_cache cache;
+	/* padding agar tiap entry tidak berbagi cache line */
+	uint8_t _pad[64
+		     - (sizeof(void*) * 6 + sizeof(size_t) * 6
+			+ sizeof(spinlock_t))
+			       % 64];
+} __attribute__((aligned(64)));
 
-#define MAX_FREED_VADDRS 512
+static struct kalloc_cpu_cache cpu_caches[MAX_CPUS];
 
-typedef struct {
-	uintptr_t addr;
-	size_t size;
-} freed_t;
+static spinlock_t kalloc_global_lock = {0};
 
-static freed_t freed_vaddrs[MAX_FREED_VADDRS] = {0};
+static uintptr_t kalloc_next_addr = KALLOC_BASE_ADDR;
+
+static freed_t freed_vaddrs[MAX_FREED_VADDRS];
 static size_t freed_vaddr_count = 0;
 
-/* get_vaddr hanya dipakai oleh slab allocator (__alloc_4k).
- * Untuk large alloc (> 2048), vaddr dikelola langsung di kalloc()
- * supaya logika freed slot dan bump allocator tidak tercampur. */
-static uintptr_t get_vaddr(size_t count) {
+static inline uintptr_t lock_irqsave(spinlock_t* lk) {
+	uintptr_t flags = irq_save(); /* disable IRQ, simpan flags */
+	spin_acquire(lk);
+	return flags;
+}
+
+static inline void unlock_irqrestore(spinlock_t* lk, uintptr_t flags) {
+	spin_release(lk);
+	irq_restore(flags); /* restore flags (enable IRQ kembali) */
+}
+
+/*
+ * Cari slot virtual yang sudah dibebaskan, atau fallback ke bump.
+ * Harus dipanggil dengan kalloc_global_lock dipegang.
+ */
+static uintptr_t vaddr_alloc_locked(size_t page_count) {
 	for (size_t i = 0; i < freed_vaddr_count; i++) {
-		if (freed_vaddrs[i].size >= count) {
-			uintptr_t current_vaddr = freed_vaddrs[i].addr;
-
-			freed_vaddrs[i].addr += count * BLOCK_SIZE;
-			freed_vaddrs[i].size -= count;
-
-			if (freed_vaddrs[i].size == 0) {
+		if (freed_vaddrs[i].size >= page_count) {
+			uintptr_t va = freed_vaddrs[i].addr;
+			freed_vaddrs[i].addr += page_count * BLOCK_SIZE;
+			freed_vaddrs[i].size -= page_count;
+			if (freed_vaddrs[i].size == 0)
 				freed_vaddrs[i] =
 					freed_vaddrs[--freed_vaddr_count];
-			}
-			return current_vaddr;
+			return va;
 		}
 	}
-	/* Tidak ada freed slot yang cocok — pakai bump allocator */
-	uintptr_t addr = kalloc_next_addr;
-	kalloc_next_addr += count * BLOCK_SIZE;
-	return addr;
+	/* Bump allocator */
+	uintptr_t va = kalloc_next_addr;
+	kalloc_next_addr += page_count * BLOCK_SIZE;
+	return va;
 }
 
-static void* __alloc_4k(void) {
-	uintptr_t phys_addr = (uintptr_t) vxPhysBaseAlloc(1);
-	uintptr_t virt_addr = get_vaddr(1);
-	vxMmap(paging_get_highest_page_map(), virt_addr, phys_addr,
+static void* alloc_page_locked(void) {
+	uintptr_t phys = (uintptr_t) vxPhysBaseAlloc(1);
+	uintptr_t virt = vaddr_alloc_locked(1);
+	vxMmap(paging_get_highest_page_map(), virt, phys,
 	       PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
-	vma_register((uintptr_t) phys_addr, (uintptr_t) virt_addr, BLOCK_SIZE);
-	return (void*) virt_addr;
+	vma_register(phys, virt, BLOCK_SIZE);
+	return (void*) virt;
 }
+
+#define KALLOC_REFILL(BUCKET)                                                      \
+	static void refill_##BUCKET(struct kalloc_cpu_cache* cc,                   \
+				    uintptr_t* gflags) {                           \
+                                                                                   \
+		spin_acquire(&kalloc_global_lock);                                 \
+		void* page = alloc_page_locked();                                  \
+		spin_release(&kalloc_global_lock);                                 \
+                                                                                   \
+		for (int i = 0; i < (int) (BLOCK_SIZE / BUCKET); i++) {            \
+			void* slot = (void*) ((uintptr_t) page                     \
+					      + (size_t) i * BUCKET);              \
+			*(void**) slot = cc->c_##BUCKET;                           \
+			cc->c_##BUCKET = slot;                                     \
+			cc->c_##BUCKET##_count++;                                  \
+		}                                                                  \
+		(void) gflags; /* tidak dipakai di sini, tapi perlu untuk macro */ \
+	}
+
+KALLOC_REFILL(64)
+KALLOC_REFILL(128)
+KALLOC_REFILL(256)
+KALLOC_REFILL(512)
+KALLOC_REFILL(1024)
+KALLOC_REFILL(2048)
+
+#define KALLOC_SLAB_ALLOC(BUCKET)                                              \
+	do {                                                                   \
+		uint32_t cpu = vxGetCoreData()->core_id;                       \
+		struct kalloc_cpu_cache* cc = &cpu_caches[cpu];                \
+		uintptr_t flags = lock_irqsave(&cc->lock);                     \
+		if (cc->c_##BUCKET##_count == 0)                               \
+			refill_##BUCKET(cc, &flags);                           \
+		void* ret = cc->c_##BUCKET;                                    \
+		cc->c_##BUCKET = *(void**) cc->c_##BUCKET;                     \
+		cc->c_##BUCKET##_count--;                                      \
+		unlock_irqrestore(&cc->lock, flags);                           \
+		return ret;                                                    \
+	} while (0)
+
+#define KALLOC_SLAB_FREE(BUCKET)                                               \
+	do {                                                                   \
+		if ((uintptr_t) ptr % (BUCKET) != 0)                           \
+			goto out_unlock_cpu;                                   \
+		uint32_t cpu = vxGetCoreData()->core_id;                       \
+		struct kalloc_cpu_cache* cc = &cpu_caches[cpu];                \
+		memset(ptr, 0, size);                                          \
+		*(void**) ptr = cc->c_##BUCKET;                                \
+		cc->c_##BUCKET = ptr;                                          \
+		cc->c_##BUCKET##_count++;                                      \
+		unlock_irqrestore(&cc->lock, cpu_flags);                       \
+		return;                                                        \
+	} while (0)
 
 KERNEL_API void* kalloc(size_t size) {
 	if (size == 0)
 		return NULL;
 
-	spin_acquire(&kalloc_lock);
-
 	if (size <= 64) {
-		if (cache.c_64_count == 0) {
-			void* new_page = __alloc_4k();
-			for (int i = 0; i < BLOCK_SIZE / 64; i++) {
-				*(void**) ((uintptr_t) new_page + i * 64) =
-					cache.c_64;
-				cache.c_64 =
-					(void*) ((uintptr_t) new_page + i * 64);
-				cache.c_64_count++;
-			}
-		}
-		void* ret = cache.c_64;
-		cache.c_64 = *(void**) cache.c_64;
-		cache.c_64_count--;
-		spin_release(&kalloc_lock);
-		return ret;
-
-	} else if (size <= 128) {
-		if (cache.c_128_count == 0) {
-			void* new_page = __alloc_4k();
-			for (int i = 0; i < BLOCK_SIZE / 128; i++) {
-				*(void**) ((uintptr_t) new_page + i * 128) =
-					cache.c_128;
-				cache.c_128 = (void*) ((uintptr_t) new_page
-						       + i * 128);
-				cache.c_128_count++;
-			}
-		}
-		void* ret = cache.c_128;
-		cache.c_128 = *(void**) cache.c_128;
-		cache.c_128_count--;
-		spin_release(&kalloc_lock);
-		return ret;
-
-	} else if (size <= 256) {
-		if (cache.c_256_count == 0) {
-			void* new_page = __alloc_4k();
-			for (int i = 0; i < BLOCK_SIZE / 256; i++) {
-				*(void**) ((uintptr_t) new_page + i * 256) =
-					cache.c_256;
-				cache.c_256 = (void*) ((uintptr_t) new_page
-						       + i * 256);
-				cache.c_256_count++;
-			}
-		}
-		void* ret = cache.c_256;
-		cache.c_256 = *(void**) cache.c_256;
-		cache.c_256_count--;
-		spin_release(&kalloc_lock);
-		return ret;
-
-	} else if (size <= 512) {
-		if (cache.c_512_count == 0) {
-			void* new_page = __alloc_4k();
-			for (int i = 0; i < BLOCK_SIZE / 512; i++) {
-				*(void**) ((uintptr_t) new_page + i * 512) =
-					cache.c_512;
-				cache.c_512 = (void*) ((uintptr_t) new_page
-						       + i * 512);
-				cache.c_512_count++;
-			}
-		}
-		void* ret = cache.c_512;
-		cache.c_512 = *(void**) cache.c_512;
-		cache.c_512_count--;
-		spin_release(&kalloc_lock);
-		return ret;
-
-	} else if (size <= 1024) {
-		if (cache.c_1024_count == 0) {
-			void* new_page = __alloc_4k();
-			for (int i = 0; i < BLOCK_SIZE / 1024; i++) {
-				*(void**) ((uintptr_t) new_page + i * 1024) =
-					cache.c_1024;
-				cache.c_1024 = (void*) ((uintptr_t) new_page
-							+ i * 1024);
-				cache.c_1024_count++;
-			}
-		}
-		void* ret = cache.c_1024;
-		cache.c_1024 = *(void**) cache.c_1024;
-		cache.c_1024_count--;
-		spin_release(&kalloc_lock);
-		return ret;
-
-	} else if (size <= 2048) {
-		if (cache.c_2048_count == 0) {
-			void* new_page = __alloc_4k();
-			for (int i = 0; i < BLOCK_SIZE / 2048; i++) {
-				*(void**) ((uintptr_t) new_page + i * 2048) =
-					cache.c_2048;
-				cache.c_2048 = (void*) ((uintptr_t) new_page
-							+ i * 2048);
-				cache.c_2048_count++;
-			}
-		}
-		void* ret = cache.c_2048;
-		cache.c_2048 = *(void**) cache.c_2048;
-		cache.c_2048_count--;
-		spin_release(&kalloc_lock);
-		return ret;
+		KALLOC_SLAB_ALLOC(64);
+	}
+	if (size <= 128) {
+		KALLOC_SLAB_ALLOC(128);
+	}
+	if (size <= 256) {
+		KALLOC_SLAB_ALLOC(256);
+	}
+	if (size <= 512) {
+		KALLOC_SLAB_ALLOC(512);
+	}
+	if (size <= 1024) {
+		KALLOC_SLAB_ALLOC(1024);
+	}
+	if (size <= 2048) {
+		KALLOC_SLAB_ALLOC(2048);
 	}
 
-	/* Large alloc: > 2048 bytes, granularity BLOCK_SIZE (4KB) */
-	size_t allocate_size = ALIGN_UP(size, BLOCK_SIZE) / BLOCK_SIZE;
-	uintptr_t phys_addr = (uintptr_t) vxPhysBaseAlloc(allocate_size);
-	uintptr_t vaddr = 0;
+	/*Large alloc (> 2048 byte)*/
+	size_t page_count = ALIGN_UP(size, BLOCK_SIZE) / BLOCK_SIZE;
 
-	bool found_free = false;
-	for (size_t i = 0; i < freed_vaddr_count; i++) {
-		if (freed_vaddrs[i].size >= allocate_size) {
-			/* Simpan addr DULU sebelum entry dimodifikasi */
-			vaddr = freed_vaddrs[i].addr;
+	uintptr_t gflags = lock_irqsave(&kalloc_global_lock);
 
-			freed_vaddrs[i].addr += allocate_size * BLOCK_SIZE;
-			freed_vaddrs[i].size -= allocate_size;
+	uintptr_t phys = (uintptr_t) vxPhysBaseAlloc(page_count);
+	uintptr_t virt = vaddr_alloc_locked(page_count);
 
-			if (freed_vaddrs[i].size == 0) {
-				freed_vaddrs[i] =
-					freed_vaddrs[--freed_vaddr_count];
-			}
+	vxMultipleMmap(paging_get_highest_page_map(), virt, phys, page_count,
+		       PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+	vma_register(phys, virt, page_count);
 
-			found_free = true;
-			break;
-		}
-	}
+	unlock_irqrestore(&kalloc_global_lock, gflags);
 
-	/* Fallback ke bump allocator jika tidak ada freed slot
-	 * yang cocok — termasuk kasus freed_vaddr_count > 0 tapi semua
-	 * slot terlalu kecil. Sebelumnya bump allocator hanya jalan di
-	 * else (freed_vaddr_count == 0), sehingga vaddr bisa tetap 0. */
-	if (!found_free) {
-		vaddr = kalloc_next_addr;
-		kalloc_next_addr += BLOCK_SIZE * allocate_size;
-	}
-
-	vxMultipleMmap(paging_get_highest_page_map(), vaddr, phys_addr,
-		       allocate_size, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
-	vma_register((uintptr_t) phys_addr, (uintptr_t) vaddr, allocate_size);
-	
-	spin_release(&kalloc_lock);
-	return (void*) vaddr;
+	return (void*) virt;
 }
 
 KERNEL_API void kfree(void* ptr, size_t size) {
 	if (ptr == NULL || size == 0)
 		return;
 
-	spin_acquire(&kalloc_lock);
+	uint32_t cpu = vxGetCoreData()->core_id;
+	struct kalloc_cpu_cache* cc = &cpu_caches[cpu];
+	uintptr_t cpu_flags = lock_irqsave(&cc->lock);
 
 	if (size <= 64) {
-		if ((uintptr_t)ptr % 64 != 0) goto out;
-		memset(ptr, 0, size);
-		*(void**) ptr = cache.c_64;
-		cache.c_64 = ptr;
-		cache.c_64_count++;
+		KALLOC_SLAB_FREE(64);
 	} else if (size <= 128) {
-		if ((uintptr_t)ptr % 128 != 0) goto out;
-		memset(ptr, 0, size);
-		*(void**) ptr = cache.c_128;
-		cache.c_128 = ptr;
-		cache.c_128_count++;
+		KALLOC_SLAB_FREE(128);
 	} else if (size <= 256) {
-		if ((uintptr_t)ptr % 256 != 0) goto out;
-		memset(ptr, 0, size);
-		*(void**) ptr = cache.c_256;
-		cache.c_256 = ptr;
-		cache.c_256_count++;
+		KALLOC_SLAB_FREE(256);
 	} else if (size <= 512) {
-		if ((uintptr_t)ptr % 512 != 0) goto out;
-		memset(ptr, 0, size);
-		*(void**) ptr = cache.c_512;
-		cache.c_512 = ptr;
-		cache.c_512_count++;
+		KALLOC_SLAB_FREE(512);
 	} else if (size <= 1024) {
-		if ((uintptr_t)ptr % 1024 != 0) goto out;
-		memset(ptr, 0, size);
-		*(void**) ptr = cache.c_1024;
-		cache.c_1024 = ptr;
-		cache.c_1024_count++;
+		KALLOC_SLAB_FREE(1024);
 	} else if (size <= 2048) {
-		if ((uintptr_t)ptr % 2048 != 0) goto out;
-		memset(ptr, 0, size);
-		*(void**) ptr = cache.c_2048;
-		cache.c_2048 = ptr;
-		cache.c_2048_count++;
+		KALLOC_SLAB_FREE(2048);
 	} else {
+
+		uintptr_t gflags = lock_irqsave(&kalloc_global_lock);
+
 		memset(ptr, 0, size);
+
 		virtual_memory_t* v = vma_find((uintptr_t) ptr);
 		if (!v) {
-			goto out;
+			unlock_irqrestore(&kalloc_global_lock, gflags);
+			goto out_unlock_cpu;
 		}
 
-		size_t allocate_size = ALIGN_UP(size, BLOCK_SIZE) / BLOCK_SIZE;
-		vxPhysBaseFree((void*) v->phys_address, allocate_size);
+		size_t page_count = ALIGN_UP(size, BLOCK_SIZE) / BLOCK_SIZE;
+
+		vxPhysBaseFree((void*) v->phys_address, page_count);
 		paging_unmap_fill(paging_get_highest_page_map(),
-				  (uintptr_t) ptr, allocate_size);
+				  (uintptr_t) ptr, page_count);
 		vma_unregister((uintptr_t) ptr);
 
 		if (freed_vaddr_count < MAX_FREED_VADDRS) {
 			freed_vaddrs[freed_vaddr_count++] = (freed_t){
 				.addr = (uintptr_t) ptr,
-				.size = allocate_size,
+				.size = page_count,
 			};
 		}
+
+		unlock_irqrestore(&kalloc_global_lock, gflags);
 	}
 
-out:
-	spin_release(&kalloc_lock);
+out_unlock_cpu:
+	unlock_irqrestore(&cc->lock, cpu_flags);
 }

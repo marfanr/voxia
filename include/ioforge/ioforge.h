@@ -15,9 +15,11 @@ typedef enum : uint8_t {
 	IOFORGE_USB_DEVICE = 0xA2,
 	IOFORGE_NIC = 0xC3,
 	IOFORGE_USB_CONTROLLER = 0xE3,
+	IOFORGE_VIRTIO = 0xD3,
 } IoForgeType;
 
-#define IOFORGE_F_ENABLE 1;
+#define IOFORGE_F_ENABLE 1
+#define IOFORGE_F_VIRTIO (1 << 31)
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,6 +65,7 @@ void ioforge_attach(struct ioforge_device* parent,
 struct ioforge_device* ioforge_get_root();
 struct ioforge_device*
 ioforge_find_by_name(struct ioforge_device* root, const char* name);
+bool ioforge_can_contain_pci(IoForgeType type);
 
 struct ioforge_device* ioforge_get_pci_root();
 

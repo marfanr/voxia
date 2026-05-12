@@ -7,7 +7,9 @@
 #include <ioforge/ioforge.hpp>
 #include <usb.h>
 
-void HIDModule::hid_device_setup(ioforge_usb_device* dev) {
+HIDKeyboard UsbHid::keyboard;
+
+void UsbHid::hid_device_setup(ioforge_usb_device* dev) {
 	if (!dev->pipe) {
 		log(mod, "ERROR: missing pipe on %s", dev->base.name);
 		return;
@@ -20,11 +22,11 @@ void HIDModule::hid_device_setup(ioforge_usb_device* dev) {
 	set_protocol(dev, 0, REPORT_PROTOCOL);
 
 	if (dev->protocol == HID_KEYBOARD) {
-		(HIDKeyboard(dev));
+		keyboard.load(dev);
 	}
 }
 
-void HIDModule::set_iddle(ioforge_usb_device* dev) {
+void UsbHid::set_iddle(ioforge_usb_device* dev) {
 	uintptr_t setiddle_paddr = 0;
 	struct usb_setup_packet* setiddle =
 		(struct usb_setup_packet*) IOUtils::DMAAlloc(
@@ -45,7 +47,7 @@ void HIDModule::set_iddle(ioforge_usb_device* dev) {
 			 sizeof(*setiddle));
 }
 
-void HIDModule::set_report(ioforge_usb_device* dev, uint8_t report) {
+void UsbHid::set_report(ioforge_usb_device* dev, uint8_t report) {
 	uintptr_t setreport_paddr = 0;
 	struct usb_setup_packet* setreport =
 		(struct usb_setup_packet*) IOUtils::DMAAlloc(
@@ -59,13 +61,14 @@ void HIDModule::set_report(ioforge_usb_device* dev, uint8_t report) {
 
 	// todo: modify send method to add endpoint parameter
 	dev->controller->ops.send(dev->addr, dev->endpoints[0].address,
-				  setreport_paddr, sizeof(*setreport), 0, 0);
+				  setreport_paddr,
+				  sizeof(struct usb_setup_packet), 0, 0);
 
 	IOUtils::DMAFree((void*) setreport_paddr, (void*) setreport,
-			 sizeof(*setreport));
+			 sizeof(struct usb_setup_packet));
 }
 
-void HIDModule::get_report(ioforge_usb_device* dev) {
+void UsbHid::get_report(ioforge_usb_device* dev) {
 	uintptr_t setreport_paddr = 0;
 	struct usb_setup_packet* setreport =
 		(struct usb_setup_packet*) IOUtils::DMAAlloc(
@@ -79,14 +82,15 @@ void HIDModule::get_report(ioforge_usb_device* dev) {
 
 	// todo: modify send method to add endpoint parameter
 	dev->controller->ops.send(dev->addr, dev->endpoints[0].address,
-				  setreport_paddr, sizeof(*setreport), 0, 0);
+				  setreport_paddr,
+				  sizeof(struct usb_setup_packet), 0, 0);
 
 	IOUtils::DMAFree((void*) setreport_paddr, (void*) setreport,
-			 sizeof(*setreport));
+			 sizeof(struct usb_setup_packet));
 }
 
-void HIDModule::set_protocol(ioforge_usb_device* dev, uint8_t interface,
-			     uint8_t protocol) {
+void UsbHid::set_protocol(ioforge_usb_device* dev, uint8_t interface,
+			  uint8_t protocol) {
 	uintptr_t setreport_paddr = 0;
 	struct usb_setup_packet* setreport =
 		(struct usb_setup_packet*) IOUtils::DMAAlloc(
@@ -100,8 +104,9 @@ void HIDModule::set_protocol(ioforge_usb_device* dev, uint8_t interface,
 
 	// TODO: modify send method to add endpoint parameter
 	dev->controller->ops.send(dev->addr, dev->endpoints[0].address,
-				  setreport_paddr, sizeof(*setreport), 0, 0);
+				  setreport_paddr,
+				  sizeof(struct usb_setup_packet), 0, 0);
 
 	IOUtils::DMAFree((void*) setreport_paddr, (void*) setreport,
-			 sizeof(*setreport));
+			 sizeof(struct usb_setup_packet));
 }

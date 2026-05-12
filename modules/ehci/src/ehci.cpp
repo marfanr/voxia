@@ -290,6 +290,7 @@ void EHCIModule::probe() {
 	}
 
 	int ports = *hcsparam & HCSPARAM_N_PORTS_MASK;
+	log("DEBUG", "OK");
 	log(mod, "EHCI: port available : %d ", ports);
 	for (int i = 0; i < ports; i++) {
 		uint16_t addr = i + 1;
@@ -552,7 +553,9 @@ void EHCIModule::probe() {
 			usbDevice->base.type = IOFORGE_USB_DEVICE;
 
 			// TODO: handle free ini kalau dev nya di umount
-			void* mem = kalloc(sizeof(EHCIPipe));
+			auto __aligned_pipe_size =
+				((sizeof(EHCIPipe) + 31) & ~31);
+			void* mem = kalloc(__aligned_pipe_size);
 			EHCIPipe* pipe = new (mem) EHCIPipe(this);
 
 			usbDevice->pipe = pipe;

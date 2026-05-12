@@ -21,7 +21,7 @@ enum {
 typedef struct {
 	uintptr_t virt_addr;
 	uintptr_t phys_addr;
-	spinlock_t lock;
+	_Atomic int lock;
 	mem_physwindow_flag_t flag;
 } __attribute__((aligned(32))) mem_physwindow_t;
 
