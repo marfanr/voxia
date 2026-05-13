@@ -14,6 +14,11 @@ class VirtioGpu : public IoForgeVirtio {
       protected:
 	void setup();
 	ioforge_virtio_device* dev_;
+	int virtio_gpu_send_command(void* cmd, uint32_t cmd_size, void* resp,
+				    uint32_t resp_size);
+	int virtio_gpu_get_display_info();
+	int virtio_gpu_create_resource(uint32_t resource_id, uint32_t width,
+				       uint32_t height);
 
       private:
 	uint16_t virtq_alloc_desc(struct virtio_gpu_queue* vq);
@@ -23,16 +28,9 @@ class VirtioGpu : public IoForgeVirtio {
 	int virtq_add_buf(struct virtio_gpu_queue* vq, void** buffers,
 			  uint32_t* lengths, uint16_t num_out, uint16_t num_in,
 			  uint16_t* head_out);
-	void virtq_kick(struct virtio_gpu_device* dev, uint16_t queue_index);
+	void virtq_kick(uint16_t queue_index);
 	int virtq_get_used_elem(struct virtio_gpu_queue* vq, uint16_t* id,
 				uint32_t* len);
-	int virtio_gpu_send_command(struct virtio_gpu_device* dev, void* cmd,
-				    uint32_t cmd_size, void* resp,
-				    uint32_t resp_size);
-	int virtio_gpu_get_display_info(struct virtio_gpu_device* dev);
-	int virtio_gpu_create_resource(struct virtio_gpu_device* dev,
-				       uint32_t resource_id, uint32_t width,
-				       uint32_t height);
 
 	bool initialized_;
 	uintptr_t notify_offset_;

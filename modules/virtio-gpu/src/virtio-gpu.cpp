@@ -4,6 +4,15 @@
 #include <virtio-gpu/virtio-gpu.hpp>
 #include <str.h>
 
+//TODO: refactor
+//  Semua ini tidak ada hubungannya dengan GPU spesifik
+// virtq_init()
+// virtq_alloc_desc()
+// virtq_free_desc()
+// virtq_add_buf()
+// virtq_kick()
+// virtq_get_used_elem()
+
 #define ALIGN_UP(x, align) (((x) + (align) - 1) & ~((align) - 1))
 
 struct virtio_gpu_queue VirtioGpu::control_queue_ = {0};
@@ -81,12 +90,15 @@ void VirtioGpu::setup() {
 	log(mod, "Queue size: %d", queue_size);
 
 	// Allocate and initialize virtqueue
-	size_t vq_total_size = queue_size * sizeof(struct virtq_desc)
-			       + sizeof(struct virtq_avail)
-			       + sizeof(uint16_t) * queue_size
-			       + sizeof(struct virtq_used)
-			       + sizeof(struct virtq_used_elem) * queue_size;
-	vq_total_size = ALIGN_UP(vq_total_size, VIRTIO_GPU_QUEUE_ALIGN);
+	uintptr_t desc_size = queue_size * sizeof(struct virtq_desc);
+	uintptr_t avail_off = desc_size;
+	uintptr_t avail_size = sizeof(uint16_t) * (2 + queue_size);
+	uintptr_t used_off =
+		ALIGN_UP(avail_off + avail_size, VIRTIO_GPU_QUEUE_ALIGN);
+	uintptr_t used_size = sizeof(struct virtq_used)
+			      + sizeof(struct virtq_used_elem) * queue_size;
+	size_t vq_total_size =
+		ALIGN_UP(used_off + used_size, VIRTIO_GPU_QUEUE_ALIGN);
 
 	uintptr_t vq_phys = 0;
 	void* vq_mem = IOUtils::DMAAlloc(vq_total_size, &vq_phys);
@@ -174,7 +186,7 @@ void VirtioGpu::setup() {
 
 	// Coba kirim command
 	int result = virtio_gpu_send_command(
-		0, (void*) test_phys, sizeof(*test_cmd), (void*) test_resp_phys,
+		(void*) test_phys, sizeof(*test_cmd), (void*) test_resp_phys,
 		sizeof(*test_resp));
 
 	if (result == 0) {
@@ -209,7 +221,7 @@ void VirtioGpu::setup() {
 	}
 
 	// / Create a test resource
-	if (virtio_gpu_create_resource(0, 1, 1366, 768) == 0) {
+	if (virtio_gpu_create_resource(1, 1366, 768) == 0) {
 		log(mod, "Test resource created successfully");
 	} else {
 		log(mod, "Failed to create test resource");
@@ -217,7 +229,15 @@ void VirtioGpu::setup() {
 }
 
 void VirtioGpu::fireHandler() {
-	interrupt_exist = true;
+	auto instance = VirtioGpu::getInstance();
+	uintptr_t isr_addr =
+		instance->dev_->pci.bar[instance->dev_->isr_cfg.bar].address
+		+ instance->dev_->isr_cfg.offset;
+
+	uint8_t isr = *(uint8_t*) isr_addr;
+	if (isr & (1 << 0)) {
+		interrupt_exist = true;
+	}
 }
 
 uint16_t VirtioGpu::virtq_alloc_desc(struct virtio_gpu_queue* vq) {
@@ -248,17 +268,17 @@ void VirtioGpu::virtq_free_desc(struct virtio_gpu_queue* vq,
 
 void VirtioGpu::virtq_init(struct virtio_gpu_queue* vq, void* vq_mem,
 			   uint16_t queue_size, uintptr_t phys_addr) {
-	vq->desc = (struct virtq_desc*) vq_mem;
-	vq->avail =
-		(struct virtq_avail*) ((uintptr_t) vq_mem
-				       + queue_size
-						 * sizeof(struct virtq_desc));
+	uintptr_t base = (uintptr_t) vq_mem;
 
-	// Calculate used ring with proper alignment
-	uintptr_t used_offset =
-		(uintptr_t) vq->avail + sizeof(uint16_t) * (3 + queue_size);
-	used_offset = ALIGN_UP(used_offset, VIRTIO_GPU_QUEUE_ALIGN);
-	vq->used = (struct virtq_used*) used_offset;
+	vq->desc = (struct virtq_desc*) base;
+
+	uintptr_t avail_off = queue_size * sizeof(struct virtq_desc);
+	vq->avail = (struct virtq_avail*) (base + avail_off);
+
+	// avail size = flags(2) + idx(2) + ring[queue_size](2 each) + used_event(2)
+	uintptr_t used_off = avail_off + sizeof(uint16_t) * (3 + queue_size);
+	used_off = ALIGN_UP(used_off, VIRTIO_GPU_QUEUE_ALIGN);
+	vq->used = (struct virtq_used*) (base + used_off);
 
 	vq->queue_size = queue_size;
 	vq->free_head = 0;
@@ -361,8 +381,7 @@ int VirtioGpu::virtq_add_buf(struct virtio_gpu_queue* vq, void** buffers,
 	return 0;
 }
 
-void VirtioGpu::virtq_kick(struct virtio_gpu_device* dev,
-			   uint16_t queue_index) {
+void VirtioGpu::virtq_kick(uint16_t queue_index) {
 	// Strong memory barrier before notifying device
 	asm volatile("mfence" ::: "memory");
 
@@ -405,8 +424,7 @@ int VirtioGpu::virtq_get_used_elem(struct virtio_gpu_queue* vq, uint16_t* id,
 }
 
 // ---------------- VirtIO GPU Commands ----------------
-int VirtioGpu::virtio_gpu_send_command(struct virtio_gpu_device* dev, void* cmd,
-				       uint32_t cmd_size, void* resp,
+int VirtioGpu::virtio_gpu_send_command(void* cmd, uint32_t cmd_size, void* resp,
 				       uint32_t resp_size) {
 	void* buffers[2];
 	uint32_t lengths[2];
@@ -452,11 +470,8 @@ int VirtioGpu::virtio_gpu_send_command(struct virtio_gpu_device* dev, void* cmd,
 	    head, avail_idx, control_queue_.avail->idx);
 
 	// Notify device
-	virtq_kick(0, 0);
+	virtq_kick(0);
 
-	// Polling loop: tunggu used element yang sesuai dengan head kita.
-	// interrupt_exist hanya dipakai sebagai sinyal untuk re-check,
-	// bukan sebagai bukti command selesai.
 	int timeout = 5000000;
 
 	for (int i = 0; i < timeout; i++) {
@@ -519,9 +534,7 @@ int VirtioGpu::virtio_gpu_send_command(struct virtio_gpu_device* dev, void* cmd,
 			continue;
 		}
 
-		// Delay singkat agar tidak busy-loop terlalu agresif
-		for (volatile int j = 0; j < 100; j++)
-			;
+		IOUtils::sleep(5);
 
 		if (i % 100000 == 0) {
 			log(mod, "Still waiting for response... (i=%d)", i);
@@ -551,99 +564,4 @@ int VirtioGpu::virtio_gpu_send_command(struct virtio_gpu_device* dev, void* cmd,
 	}
 
 	return -1;
-}
-
-int VirtioGpu::virtio_gpu_get_display_info(struct virtio_gpu_device* dev) {
-	uintptr_t cmd_phys = 0;
-	struct virtio_gpu_ctrl_hdr* cmd =
-		(struct virtio_gpu_ctrl_hdr*) IOUtils::DMAAlloc(sizeof(*cmd),
-								&cmd_phys);
-
-	cmd->ctx_id = 0;
-	cmd->type = VIRTIO_GPU_CMD_GET_DISPLAY_INFO;
-	cmd->flags = 0;
-	cmd->fence_id = 0;
-	cmd->padding = 0;
-
-	uintptr_t resp_phys = 0;
-	struct virtio_gpu_resp_display_info* resp =
-		(struct virtio_gpu_resp_display_info*) IOUtils::DMAAlloc(
-			sizeof(*resp), &resp_phys);
-
-	memset(resp, 0, sizeof(*resp));
-
-	log(mod, "Sending GET_DISPLAY_INFO command");
-	if (virtio_gpu_send_command(dev, (void*) cmd_phys, sizeof(*cmd),
-				    (void*) resp_phys, sizeof(*resp))
-	    < 0) {
-		log(mod, "Failed to send GET_DISPLAY_INFO command");
-		return -1;
-	}
-
-	if (resp->hdr.type != VIRTIO_GPU_RESP_OK_DISPLAY_INFO) {
-		log(mod, "Bad response type: 0x%x (expected 0x%x)",
-		    resp->hdr.type, VIRTIO_GPU_RESP_OK_DISPLAY_INFO);
-		return -1;
-	}
-
-	log(mod, "Display info received:");
-	int enabled_count = 0;
-	for (int i = 0; i < 16; i++) {
-		if (resp->pmodes[i].enabled) {
-			log(mod, "  Scanout %d: %dx%d at (%d,%d)", i,
-			    resp->pmodes[i].rect.width,
-			    resp->pmodes[i].rect.height, resp->pmodes[i].rect.x,
-			    resp->pmodes[i].rect.y);
-			enabled_count++;
-		}
-	}
-
-	if (enabled_count == 0) {
-		log(mod, "No enabled display modes found");
-	}
-
-	return 0;
-}
-
-int VirtioGpu::virtio_gpu_create_resource(struct virtio_gpu_device* dev,
-					  uint32_t resource_id, uint32_t width,
-					  uint32_t height) {
-
-	uintptr_t cmd_phys = 0;
-	struct virtio_gpu_resource_create_2d* cmd =
-		(struct virtio_gpu_resource_create_2d*) IOUtils::DMAAlloc(
-			sizeof(*cmd), &cmd_phys);
-
-	cmd->hdr.type = VIRTIO_GPU_CMD_RESOURCE_CREATE_2D;
-	cmd->hdr.flags = 0;
-	cmd->hdr.fence_id = 0;
-	cmd->hdr.ctx_id = 0;
-	cmd->hdr.padding = 0;
-	cmd->resource_id = resource_id;
-	cmd->format = VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM;
-	cmd->width = width;
-	cmd->height = height;
-
-	uintptr_t resp_phys = 0;
-	struct virtio_gpu_ctrl_hdr* resp =
-		(struct virtio_gpu_ctrl_hdr*) IOUtils::DMAAlloc(sizeof(*resp),
-								&resp_phys);
-
-	memset(resp, 0, sizeof(*resp));
-
-	log(mod, "Creating resource %d: %dx%d", resource_id, width, height);
-	if (virtio_gpu_send_command(0, (void*) cmd_phys, sizeof(*cmd),
-				    (void*) resp_phys, sizeof(*resp))
-	    < 0) {
-		log(mod, "Failed to create resource");
-		return -1;
-	}
-
-	if (resp->type != VIRTIO_GPU_RESP_OK_NODATA) {
-		log(mod, "Resource create failed: 0x%x", resp->type);
-		return -1;
-	}
-
-	log(mod, "Resource %d created: %dx%d", resource_id, width, height);
-	return 0;
 }
