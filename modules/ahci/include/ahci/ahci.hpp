@@ -4,6 +4,13 @@
 #include "ahci/ahci_reg.hpp"
 #include "ioforge/ioforge_pci.h"
 #include "ioforge/ioforge_pci.hpp"
+#include "type.h"
+
+struct ahci_internal_vaddr {
+	uintptr_t clb;
+	uintptr_t fb;
+	uintptr_t cmd[32];
+};
 
 class AHCIModule : public IOforgePCI {
       public:
@@ -11,22 +18,29 @@ class AHCIModule : public IOforgePCI {
 	void load() override;
 	void unload() override;
 	static AHCIModule* getInstance();
-
-	// bool read(uint16_t port, uint32_t startl, uint32_t starth,
-	// 	  uint32_t count, uint16_t* buf);
-	// boolean_t isDevicePresent(uint16_t port);
-	// ahci_device_type_t getDeviceType(uint16_t port);
+	int submit_impl(struct ioforge_block_device* dev,
+			struct ioforge_block_request* req);
 
       protected:
-	void setup();
 	void port_power_off(ahci_port_t* port);
 	void port_power_on(ahci_port_t* port);
 	void port_reset(ahci_port_t* port);
+	void setup();
+	void probe();
+	void
+	port_configure(ahci_port_t* port, struct ahci_internal_vaddr* vaddr);
 
-	// class ATAPI {
-	//       public:
-	// 	static bool testUnitReady(ahci_op_t* op, uint16_t port);
-	// };
+	bool ata_rw(ahci_port_t* p, struct ahci_internal_vaddr* vaddr,
+		    struct ioforge_block_request* req);
+	int atapi_packet(ahci_port_t* p, struct ahci_internal_vaddr* vaddr,
+			 struct ioforge_block_request* req);
+	int ata_identify(ahci_port_t* p, struct ahci_internal_vaddr* vaddr,
+			 struct ioforge_block_request* req);
+
+	int ata_flush(ahci_port_t* p, struct ahci_internal_vaddr* vaddr,
+		      struct ioforge_block_request* req);
+
+	boolean_t issue_and_wait(ahci_port_t* p, int slot, uint32_t timeout);
 
       private:
 	struct ioforge_pci_device* dev_;

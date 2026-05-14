@@ -1,0 +1,14 @@
+name: ATAPI
+description: driver for handling ATAPI devices (CD, DVD)
+license: MIT
+version: 0.2
+author: mohammad arfan
+
+main: atapi.elf
+
+cap:
+  - pci
+  - interrupt
+
+dependency:
+  - AHCI
