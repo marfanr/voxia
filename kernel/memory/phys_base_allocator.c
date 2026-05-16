@@ -322,7 +322,7 @@ void pmm_log_usage() {
 	uint64_t free_blocks = pys_base_get_free_block_count();
 	uint64_t used_blocks = total_blocks - free_blocks;
 
-	KDEBUG(DEBUG_LEVEL_INFO, "used memory : %d mb / %d mb (%d mb free)\n\n",
+	KDEBUG(DEBUG_LEVEL_INFO, "used memory : %d mb / %d mb (%d mb free)\n",
 	       used_blocks * BLOCK_SIZE / 1024 / 1024,
 	       total_blocks * BLOCK_SIZE / 1024 / 1024,
 	       free_blocks * BLOCK_SIZE / 1024 / 1024);

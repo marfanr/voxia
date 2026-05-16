@@ -9,14 +9,14 @@
 #include <str.h>
 #include <memory/kalloc.h>
 #include <hal/cpu/irq_lock.h>
+#include <autoconf.h>
 
 #define KALLOC_BASE_ADDR 0xFFFFFE0000000000ULL
 #define MAX_FREED_VADDRS 512
-#define MAX_CPUS 256 /* sesuaikan dengan MAX_CPUS kernel  */
 
 typedef struct {
 	uintptr_t addr;
-	size_t size; /* dalam satuan BLOCK_SIZE (halaman) */
+	size_t size; /* BLOCK_SIZE (page) */
 } freed_t;
 
 struct kalloc_cpu_cache {
@@ -36,14 +36,6 @@ struct kalloc_cpu_cache {
 	size_t c_1024_count;
 	size_t c_2048_count;
 
-	/*
-     * Lock per-CPU dipakai HANYA saat refill (ambil page baru).
-     * Pada CPU yang sama, akses cache bersifat single-threaded
-     * (preemption dinonaktifkan via IRQ-save sebelum masuk), sehingga
-     * lock ini melindungi akses dari CPU lain yang mungkin mencuri
-     * slot (steal) di masa depan — saat ini tidak diimplementasikan,
-     * tapi lock tetap dipasang agar thread-safe bila diaktifkan.
-     */
 	spinlock_t lock;
 
 	/* padding agar tiap entry tidak berbagi cache line */
@@ -53,7 +45,7 @@ struct kalloc_cpu_cache {
 			       % 64];
 } __attribute__((aligned(64)));
 
-static struct kalloc_cpu_cache cpu_caches[MAX_CPUS];
+static struct kalloc_cpu_cache cpu_caches[VOXIA_MAX_CORE];
 
 static spinlock_t kalloc_global_lock = {0};
 
@@ -70,13 +62,9 @@ static inline uintptr_t lock_irqsave(spinlock_t* lk) {
 
 static inline void unlock_irqrestore(spinlock_t* lk, uintptr_t flags) {
 	spin_release(lk);
-	irq_restore(flags); /* restore flags (enable IRQ kembali) */
+	irq_restore(flags);
 }
 
-/*
- * Cari slot virtual yang sudah dibebaskan, atau fallback ke bump.
- * Harus dipanggil dengan kalloc_global_lock dipegang.
- */
 static uintptr_t vaddr_alloc_locked(size_t page_count) {
 	for (size_t i = 0; i < freed_vaddr_count; i++) {
 		if (freed_vaddrs[i].size >= page_count) {
@@ -161,22 +149,17 @@ KERNEL_API void* kalloc(size_t size) {
 	if (size == 0)
 		return NULL;
 
-	if (size <= 64) {
+	else if (size <= 64) {
 		KALLOC_SLAB_ALLOC(64);
-	}
-	if (size <= 128) {
+	} else if (size <= 128) {
 		KALLOC_SLAB_ALLOC(128);
-	}
-	if (size <= 256) {
+	} else if (size <= 256) {
 		KALLOC_SLAB_ALLOC(256);
-	}
-	if (size <= 512) {
+	} else if (size <= 512) {
 		KALLOC_SLAB_ALLOC(512);
-	}
-	if (size <= 1024) {
+	} else if (size <= 1024) {
 		KALLOC_SLAB_ALLOC(1024);
-	}
-	if (size <= 2048) {
+	} else if (size <= 2048) {
 		KALLOC_SLAB_ALLOC(2048);
 	}
 
@@ -190,7 +173,7 @@ KERNEL_API void* kalloc(size_t size) {
 
 	vxMultipleMmap(paging_get_highest_page_map(), virt, phys, page_count,
 		       PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
-	vma_register(phys, virt, page_count);
+	vma_register(phys, virt, page_count * BLOCK_SIZE);
 
 	unlock_irqrestore(&kalloc_global_lock, gflags);
 

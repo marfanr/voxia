@@ -70,7 +70,7 @@ void vxCreateSlabCache(struct slab_cache** cache, const char* name,
 	(*cache)->current_virt_addr = vaddr + BLOCK_SIZE;
 	(*cache)->obj_size = obj_size;
 	(*cache)->alignment = alignment;
-	
+
 	size_t actual_size = obj_size;
 	if (actual_size < sizeof(void*)) {
 		actual_size = sizeof(void*);
@@ -126,7 +126,7 @@ void* vxSlabAlloc(struct slab_cache* cache) {
 			slab->next = cache->slabs_free;
 			slab->first_obj = (void*) ((uintptr_t) slab
 						   + sizeof(struct slab));
-			
+
 			slab->total_objects =
 				(cache->slab_size - sizeof(struct slab))
 				/ cache->actual_obj_size;
@@ -136,7 +136,8 @@ void* vxSlabAlloc(struct slab_cache* cache) {
 			// Initialize the free list
 			uintptr_t obj = (uintptr_t) slab->first_obj;
 			for (size_t i = 0; i < slab->total_objects - 1; i++) {
-				*(void**) obj = (void*) (obj + cache->actual_obj_size);
+				*(void**) obj =
+					(void*) (obj + cache->actual_obj_size);
 				obj += cache->actual_obj_size;
 			}
 			*(void**) obj = NULL; // Last object points to NULL
@@ -165,7 +166,7 @@ void* vxSlabAlloc(struct slab_cache* cache) {
 		slab->next = cache->slabs_full;
 		cache->slabs_full = slab;
 	}
-	
+
 	spin_release(&cache->lock);
 	return obj;
 }
@@ -220,9 +221,9 @@ void slab_cache_destroy(struct slab_cache** cache) {
 	}
 
 	uintptr_t phys_addr = (*cache)->phys_addr;
-	
+
 	spin_release(&(*cache)->lock);
-	
+
 	push_freed_vaddr((uintptr_t) *cache);
 	vxPhysBaseFree((void*) phys_addr, 1);
 	paging_unmap_page(paging_get_highest_page_map(), (uintptr_t) (*cache));
@@ -270,7 +271,6 @@ void slab_free(struct slab_cache* cache, void* obj) {
 	}
 
 	if (slab == NULL) {
-		// Object does not belong to any slab in this cache
 		spin_release(&cache->lock);
 		return;
 	}
@@ -301,6 +301,6 @@ void slab_free(struct slab_cache* cache, void* obj) {
 		slab->next = cache->slabs_free;
 		cache->slabs_free = slab;
 	}
-	
+
 	spin_release(&cache->lock);
 }

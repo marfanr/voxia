@@ -197,7 +197,7 @@ uintptr_t vma_lookup_free_vaddr(mem_vma_region region, size_t size) {
 	}
 
 	if (curr == 0) {
-		LOG_DEBUG("VMA", "add 1st region 0x%x", (uintptr_t) region);
+		// LOG_DEBUG("VMA", "add 1st region 0x%x", (uintptr_t) region);
 		vma_tree_add(region, (uintptr_t) region,
 			     (uintptr_t) region + 0x1000 * size);
 		spin_release(&vma_lock);
