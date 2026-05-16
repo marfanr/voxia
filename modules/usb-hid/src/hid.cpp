@@ -7,7 +7,7 @@
 #include <ioforge/ioforge.hpp>
 #include <usb.h>
 
-HIDKeyboard UsbHid::keyboard;
+static HIDKeyboard keyboard;
 
 void UsbHid::hid_device_setup(ioforge_usb_device* dev) {
 	if (!dev->pipe) {
@@ -15,15 +15,19 @@ void UsbHid::hid_device_setup(ioforge_usb_device* dev) {
 		return;
 	}
 
+	// serial2_printf("keybord at 0x%x\n", &keyboard);
+
 	set_configuration(dev, 1);
 
 	set_iddle(dev);
 
 	set_protocol(dev, 0, REPORT_PROTOCOL);
 
+	serial2_printf("dev at : 0x%x\n", dev);
 	if (dev->protocol == HID_KEYBOARD) {
 		keyboard.load(dev);
 	}
+	serial2_printf("dev at : 0x%x\n", dev);
 }
 
 void UsbHid::set_iddle(ioforge_usb_device* dev) {

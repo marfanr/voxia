@@ -13,10 +13,12 @@ CXX := clang++
 LD  := ld
 
 CXXFLAGS := -Wall -Wextra -O2 -pipe \
-    -ffreestanding -nostdlib -fno-exceptions -fno-rtti -fno-builtin \
+    -ffreestanding -nostdlib -fno-exceptions -fno-rtti \
     -fno-use-cxa-atexit -fno-asynchronous-unwind-tables -fno-common \
     -mno-red-zone -std=c++20 -ggdb -g -fPIC \
-    -I$(LIB_INCLUDE_DIR) -I$(INCLUDE_DIR)
+    -I$(LIB_INCLUDE_DIR) -I$(INCLUDE_DIR) \
+    -fstack-protector-strong \
+    -mstack-protector-guard=global 
 
 LDFLAGS := -shared -m elf_x86_64 -e module_init
 

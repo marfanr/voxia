@@ -1,8 +1,7 @@
 #include "dev/event.h"
 #include "ioforge/ioforge.h"
-#include "ioforge/ioforge.hpp"
+#include <vfs/cache.h>
 #include "ioforge/ioforge_int_pipe.hpp"
-#include "memory/kalloc.h"
 #include "vfs/vfs.h"
 #include "vfs/vnode.h"
 #include <vfs/dentry.h>
@@ -11,14 +10,23 @@
 
 static HIDKeyboard* instance = 0;
 
-HIDKeyboard::HIDKeyboard() : dev_(0) {
+HIDKeyboard::HIDKeyboard() {
 }
 
-void HIDKeyboard::load(ioforge_usb_device* dev) {
-	dev_ = dev;
+void HIDKeyboard::init_vfs() {
+}
+
+__attribute__((optnone)) void HIDKeyboard::load(ioforge_usb_device* dev) {
+	const ioforge_usb_device* dev_ = dev;
 	instance = this;
 
-	vxNamei((char*) "/dev/event/event0", &dentry_);
+	serial2_printf("dev at : 0x%x\n", dev_);
+
+	serial2_printf("before namei: this=%p dev=%p dev_=%p\n", this, dev,
+		       dev_);
+
+	dentry_ptr dentry_;
+	vxnamei2("/dev/event/event0", &dentry_);
 
 	if (!dentry_) {
 		serial2_printf("failed create dentry\n");
@@ -47,12 +55,11 @@ void HIDKeyboard::load(ioforge_usb_device* dev) {
 	inode_->vnode_private = (void*) priv;
 
 	// setup usb interrupt pipe
+	serial2_printf("dev at : 0x%x\n", dev_);
 	USBInterruptPipe* pipe = (USBInterruptPipe*) dev_->pipe;
-	serial2_printf("Pipe pointer before: 0x%x\n", pipe);
 
 	if (priv == (void*) pipe) {
 		serial2_printf("FATAL: priv aliasing pipe!\n");
-		// trace allocator untuk cari double-free di EHCI
 		return;
 	}
 

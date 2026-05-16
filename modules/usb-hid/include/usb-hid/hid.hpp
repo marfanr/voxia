@@ -22,9 +22,6 @@ class UsbHid : public IoForgeUSB {
 	void get_report(ioforge_usb_device* dev);
 	void set_protocol(ioforge_usb_device* dev, uint8_t interface,
 			  uint8_t protocol);
-
-      private:
-	static HIDKeyboard keyboard;
 };
 
 #endif //__USB_HID__HID_HPP__
