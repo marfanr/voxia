@@ -12,11 +12,22 @@ OUT_VOXMO   := ../../initrd/modules/$(MODULE_NAME).voxmo
 CXX := clang++
 LD  := ld
 
-CXXFLAGS := -Wall -Wextra -O2 -pipe \
-    -ffreestanding -nostdlib -fno-exceptions -fno-rtti -fno-builtin \
+
+WARNING := -Wall -Wextra -Werror -Wshadow -Wpointer-arith -Wcast-align \
+	-Wstrict-prototypes -Wmissing-prototypes -Wundef -Wconversion \
+	-Wdouble-promotion -Wvla -Wstrict-aliasing=2 -Warray-bounds \
+	-Wformat=2 -Wuninitialized
+
+CXXFLAGS := $(WARNING) -O2 -pipe \
+    -ffreestanding -nostdlib -fno-exceptions -fno-rtti \
     -fno-use-cxa-atexit -fno-asynchronous-unwind-tables -fno-common \
     -mno-red-zone -std=c++20 -ggdb -g -fPIC \
-    -I$(LIB_INCLUDE_DIR) -I$(INCLUDE_DIR)
+    -I$(LIB_INCLUDE_DIR) -I$(INCLUDE_DIR) \
+    -fstack-protector-strong \
+    -mstack-protector-guard=global \
+    -fno-builtin-memset \
+    -fno-builtin-memcpy  # whitelist builtin yang kamu mau disable
+                         # jangan pakai -fno-builtin secara global
 
 LDFLAGS := -shared -m elf_x86_64 -e module_init
 
