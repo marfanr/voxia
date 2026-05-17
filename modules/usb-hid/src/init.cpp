@@ -17,27 +17,15 @@ UsbHid* UsbHid::getInstance() {
 void UsbHid::unload() {
 }
 
-__attribute__((noinline)) void ap_stack_test(void) {
-	char buf[32];
-
-	for (int i = 0; i < 200; i++) {
-		buf[i] = 0x41; // overwrite stack
-	}
-}
-
 void UsbHid::load() {
 
 	log(mod, "HID Module Loaded");
 	print_device_tree(ioforge_get_root(), 2);
 
-	// ap_stack_test();
 	foreach_usb_device_by_devclass(ioforge_get_usb_devices_root(), 0x3,
 				       [](ioforge_usb_device* dev) {
 					       log("HID", "found %s",
 						   dev->base.name);
 					       instance.hid_device_setup(dev);
 				       });
-
-	// scan all usb devices
-	// auto dev =
 }

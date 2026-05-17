@@ -1,6 +1,7 @@
 #include "ioforge/ioforge.h"
 #include "ioforge/ioforge_int_pipe.hpp"
 #include "ioforge/ioforge_usb.h"
+#include "type.h"
 #include "usb-hid/keyboard.hpp"
 #include "usb.h"
 #include "usb-hid/hid.hpp"
@@ -14,8 +15,6 @@ void UsbHid::hid_device_setup(ioforge_usb_device* dev) {
 		log(mod, "ERROR: missing pipe on %s", dev->base.name);
 		return;
 	}
-
-	// serial2_printf("keybord at 0x%x\n", &keyboard);
 
 	set_configuration(dev, 1);
 
@@ -45,13 +44,15 @@ void UsbHid::set_iddle(ioforge_usb_device* dev) {
 
 	// todo: modify send method to add endpoint parameter
 	dev->controller->ops.send(dev->addr, dev->endpoints[0].address,
-				  setiddle_paddr, sizeof(*setiddle), 0, 0);
+				  (uint32_t) setiddle_paddr, sizeof(*setiddle),
+				  0, 0);
 
 	IOUtils::DMAFree((void*) setiddle_paddr, (void*) setiddle,
 			 sizeof(*setiddle));
 }
 
 void UsbHid::set_report(ioforge_usb_device* dev, uint8_t report) {
+	UNUSED(report);
 	uintptr_t setreport_paddr = 0;
 	struct usb_setup_packet* setreport =
 		(struct usb_setup_packet*) IOUtils::DMAAlloc(
@@ -65,7 +66,7 @@ void UsbHid::set_report(ioforge_usb_device* dev, uint8_t report) {
 
 	// todo: modify send method to add endpoint parameter
 	dev->controller->ops.send(dev->addr, dev->endpoints[0].address,
-				  setreport_paddr,
+				  (uint32_t) setreport_paddr,
 				  sizeof(struct usb_setup_packet), 0, 0);
 
 	IOUtils::DMAFree((void*) setreport_paddr, (void*) setreport,
@@ -86,7 +87,7 @@ void UsbHid::get_report(ioforge_usb_device* dev) {
 
 	// todo: modify send method to add endpoint parameter
 	dev->controller->ops.send(dev->addr, dev->endpoints[0].address,
-				  setreport_paddr,
+				  (uint32_t) setreport_paddr,
 				  sizeof(struct usb_setup_packet), 0, 0);
 
 	IOUtils::DMAFree((void*) setreport_paddr, (void*) setreport,
@@ -108,7 +109,7 @@ void UsbHid::set_protocol(ioforge_usb_device* dev, uint8_t interface,
 
 	// TODO: modify send method to add endpoint parameter
 	dev->controller->ops.send(dev->addr, dev->endpoints[0].address,
-				  setreport_paddr,
+				  (uint32_t) setreport_paddr,
 				  sizeof(struct usb_setup_packet), 0, 0);
 
 	IOUtils::DMAFree((void*) setreport_paddr, (void*) setreport,

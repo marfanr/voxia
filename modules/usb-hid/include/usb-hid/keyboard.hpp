@@ -15,6 +15,7 @@ class HIDKeyboard {
       private:
 	void init_vfs();
 	vnode_ptr_t inode_ = 0;
+	// ioforge_usb_device* dev_ = nullptr;
 };
 
 #endif // __USB_HID__KEYBOARD_HPP__
