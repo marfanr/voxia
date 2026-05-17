@@ -55,8 +55,8 @@ void handle_icmp(netdev_t* dev, struct ipv4_header* ip, uint8_t mac_dst[6]) {
 		// Ubah jadi Echo Reply
 		icmp_reply->type = 0;
 		icmp_reply->checksum = 0;
-		icmp_reply->checksum =
-			checksum16_adc((uint16_t*) icmp_reply, icmp_len);
+		icmp_reply->checksum = checksum16_adc(
+			(uint16_t*) (void*) icmp_reply, icmp_len);
 
 		// Kirim ke layer IP
 		ipv4_send(dev, nb, ip->src_ip, 1,

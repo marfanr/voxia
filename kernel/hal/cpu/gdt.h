@@ -29,8 +29,16 @@ typedef struct lm_tss {
 	uint16_t iomap_base;
 } __attribute__((packed)) lm_tss_t;
 
+typedef struct {
+	gdt_entry_t entries[12];
+	gdt_ptr_t pointer;
+	lm_tss_t tss;
+} gdt_each_core_t;
+
 gdt_entry_t
 gdt_make_entry(uint32_t base, uint16_t limit, uint8_t access, uint8_t flags);
 void gdt_flush(gdt_ptr_t gdt_ptr);
+
+__attribute__((no_stack_protector)) void setup_gdt(int core);
 
 #endif // __HAL_CPU_GDT_H__

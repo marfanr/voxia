@@ -50,4 +50,12 @@ void pci_write16(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off,
 void pci_write8(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off,
 		uint8_t val);
 
+uint32_t legacy_read32(uintptr_t base, uint8_t bus, uint8_t dev, uint8_t func,
+		       uint16_t offset);
+void legacy_write32(uintptr_t base, uint8_t bus, uint8_t dev, uint8_t func,
+		    uint16_t offset, uint32_t val);
+
+void register_segment(uint16_t seg_id, uint8_t start, uint8_t end,
+		      uintptr_t vbase, pci_access_ops_t* ops,
+		      PCI_SEGMENT_TYPE type);
 #endif // __HAL__PCI__PCI_H_

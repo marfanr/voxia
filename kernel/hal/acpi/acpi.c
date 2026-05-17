@@ -11,6 +11,7 @@
 #include "memory/memory_utils.h"
 #include "memory/phys_base_allocator.h"
 #include "memory/vm_manager.h"
+#include "type.h"
 #include <hal/acpi/acpi.h>
 #include <hal/acpi/hpet.h>
 #include <str.h>
@@ -41,8 +42,8 @@ vxACPIRegisterNewCore(uint8_t apicid, uint8_t cpuid, uint32_t flag) {
 	cpu_list = core;
 }
 
-uint16_t vxGetNumberOfCores() {
-	uint16_t count = 0;
+uint8_t vxGetNumberOfCores() {
+	uint8_t count = 0;
 	struct cpu_core* core = cpu_list;
 	while (core) {
 		count++;
@@ -60,10 +61,13 @@ uintptr_t acpi_map_phys_page(uintptr_t phys_addr, size_t len) {
 	vma_register(aligned_phys, vaddr, len * BLOCK_SIZE);
 
 	vxMultipleMmap(paging_get_highest_page_map(), vaddr, aligned_phys, len,
-		       PAGE_PRESENT | PAGE_WRITABLE);
+		       PAGE_PRESENT | PAGE_WRITABLE | PAGE_NO_EXECUTE
+			       | PAGE_WRITE_THROUGH | PAGE_CACHE_DISABLE);
 	paging_reload(paging_get_highest_page_map());
+	asm volatile("mfence" ::: "memory");
 
-	__asm__ volatile("" ::: "memory");
+	paging_debug(paging_get_highest_page_map(), vaddr);
+
 	return (uintptr_t) (vaddr + offset);
 }
 
@@ -73,66 +77,67 @@ void acpi_phys_page_unmap(uintptr_t addr) {
 	vma_unregister(addr);
 }
 
-static void parsing_dsdt(uintptr_t dsdt_addr) {
-	// uintptr_t   ddsdt = acpi_map_phys_page(dsdt_addr, 1);
-	// struct SDT *sdt   = (struct SDT *)ddsdt;
-	// LOG_INFO("ACPI", "DSDT header length %d", sdt->Length);
-	// uintptr_t new_dsdt = acpi_map_phys_page(dsdt_addr, (BLOCK_SIZE +
-	// sdt->Length - 1) / BLOCK_SIZE); acpi_phys_page_unmap(ddsdt); sdt =
-	// (struct SDT *)new_dsdt; uint8_t *dsdt = (uint8_t *)new_dsdt;
+// static void parsing_dsdt(uintptr_t dsdt_addr) {
+// 	// uintptr_t   ddsdt = acpi_map_phys_page(dsdt_addr, 1);
+// 	// struct SDT *sdt   = (struct SDT *)ddsdt;
+// 	// LOG_INFO("ACPI", "DSDT header length %d", sdt->Length);
+// 	// uintptr_t new_dsdt = acpi_map_phys_page(dsdt_addr, (BLOCK_SIZE +
+// 	// sdt->Length - 1) / BLOCK_SIZE); acpi_phys_page_unmap(ddsdt); sdt =
+// 	// (struct SDT *)new_dsdt; uint8_t *dsdt = (uint8_t *)new_dsdt;
 
-	// uint32_t slp_typa = 0;
-	// uint32_t slp_typb = 0;
+// 	// uint32_t slp_typa = 0;
+// 	// uint32_t slp_typb = 0;
 
-	// for (size_t i = 0; i < sdt->Length; i++)
-	// {
-	//     if (dsdt[i] == NAME_OP)
-	//     { // NameOp
-	//         if (strncmp((char *)((uintptr_t)dsdt + i + 1), "_S5_", 4) ==
-	//         0)
-	//         {
-	//             LOG_INFO("ACPI", "found _S5_ at %d", i);
-	//             for (size_t j = i + 5; j < sdt->Length; j++)
-	//             {
-	//                 if (dsdt[j] == PACKAGE_OP)
-	//                 {
-	//                     LOG_INFO("ACPI", "found Package at %d", j);
+// 	// for (size_t i = 0; i < sdt->Length; i++)
+// 	// {
+// 	//     if (dsdt[i] == NAME_OP)
+// 	//     { // NameOp
+// 	//         if (strncmp((char *)((uintptr_t)dsdt + i + 1), "_S5_", 4) ==
+// 	//         0)
+// 	//         {
+// 	//             LOG_INFO("ACPI", "found _S5_ at %d", i);
+// 	//             for (size_t j = i + 5; j < sdt->Length; j++)
+// 	//             {
+// 	//                 if (dsdt[j] == PACKAGE_OP)
+// 	//                 {
+// 	//                     LOG_INFO("ACPI", "found Package at %d", j);
 
-	//                     for (size_t l = j + 1; l < sdt->Length; l++)
-	//                     {
-	//                         if (dsdt[l] == BYTE_PREFIX)
-	//                         {
-	//                             LOG_INFO("ACPI", "found byte prefix
-	//                             first at %d", l); break;
-	//                         }
-	//                     }
-	//                     // break;
-	//                     break;
-	//                 }
-	//                 i = j;
-	//             }
+// 	//                     for (size_t l = j + 1; l < sdt->Length; l++)
+// 	//                     {
+// 	//                         if (dsdt[l] == BYTE_PREFIX)
+// 	//                         {
+// 	//                             LOG_INFO("ACPI", "found byte prefix
+// 	//                             first at %d", l); break;
+// 	//                         }
+// 	//                     }
+// 	//                     // break;
+// 	//                     break;
+// 	//                 }
+// 	//                 i = j;
+// 	//             }
 
-	//             // break;
-	//             // if (*data == 0x12)
-	//             // {                               // PackageOp
-	//             //     data++;                     // skip opcode
-	//             //     size_t  pkg_size = *data++; // asumsi kecil, 1
-	//             byte
-	//             //     uint8_t num_elem = *data++;
-	//             //     // ambil SLP_TYP_A
-	//             //     slp_typa = *data; // simplifikasi, bisa 1/2/4
-	//             bytes
-	//             //     // ambil SLP_TYP_B
-	//             //     slp_typb = *(data + 1); // jika ada
-	//             // }
-	//         }
-	//     }
-	// }
+// 	//             // break;
+// 	//             // if (*data == 0x12)
+// 	//             // {                               // PackageOp
+// 	//             //     data++;                     // skip opcode
+// 	//             //     size_t  pkg_size = *data++; // asumsi kecil, 1
+// 	//             byte
+// 	//             //     uint8_t num_elem = *data++;
+// 	//             //     // ambil SLP_TYP_A
+// 	//             //     slp_typa = *data; // simplifikasi, bisa 1/2/4
+// 	//             bytes
+// 	//             //     // ambil SLP_TYP_B
+// 	//             //     slp_typb = *(data + 1); // jika ada
+// 	//             // }
+// 	//         }
+// 	//     }
+// 	// }
 
-	// LOG_INFO("ACPI", "slp_typa %x slptypb %x", slp_typa, slp_typb);
-}
+// 	// LOG_INFO("ACPI", "slp_typa %x slptypb %x", slp_typa, slp_typb);
+// }
 
 static void parsing_fadt(uintptr_t fadt_addr) {
+	UNUSED(fadt_addr);
 	// struct FADT *fadt = (struct FADT *)fadt_addr;
 	// LOG_INFO("ACPI", "FADT header length %d", fadt->header.Length);
 	// LOG_INFO("ACPI", "FADT PM1a cblk 0x%x", fadt->PM1aControlBlock);
@@ -168,9 +173,9 @@ static void parsing_madt(struct MADT* madt) {
 			break;
 		switch (t->entry_type) {
 		case ACPI_PROCESSOR_LAPIC: {
-			uint8_t apic_id = *(uint8_t*) (ptr + 0x3);
-			uint8_t cpu_id = *(uint8_t*) (ptr + 0x2);
-			uint32_t flags = *(uint32_t*) (ptr + 0x4);
+			uint8_t apic_id = *(uint8_t*) (void*) (ptr + 0x3);
+			uint8_t cpu_id = *(uint8_t*) (void*) (ptr + 0x2);
+			uint32_t flags = *(uint32_t*) (void*) (ptr + 0x4);
 
 			LOG_INFO("ACPI", "found APIC Id %d CPU Id %d", apic_id,
 				 cpu_id);
@@ -179,19 +184,20 @@ static void parsing_madt(struct MADT* madt) {
 			break;
 		}
 		case ACPI_IO_INT_OVERRIDE: {
-			uint8_t bus_src = *(uint8_t*) (ptr + 0x2);
-			uint8_t irq_src = *(uint8_t*) (ptr + 0x3);
-			uint32_t gsi = *(uint8_t*) (ptr + 0x4);
-			uint16_t flags = *(uint16_t*) (ptr + 0x6);
+			uint8_t bus_src = *(uint8_t*) (void*) (ptr + 0x2);
+			uint8_t irq_src = *(uint8_t*) (void*) (ptr + 0x3);
+			uint32_t gsi = *(uint8_t*) (void*) (ptr + 0x4);
+			uint16_t flags = *(uint16_t*) (void*) (ptr + 0x6);
 			LOG_DEBUG("ACPI INT", "BUS %d IRQ %d GSI %d flags %d",
 				  bus_src, irq_src, gsi, flags);
 			ioapic_add_irq_gsi_map(irq_src, gsi, flags);
 			break;
 		}
 		case ACPI_IO_APIC: {
-			uint8_t ioapic_id = *(uint8_t*) (ptr + 0x2);
-			uint32_t ioapic_addr = *(uint32_t*) (ptr + 0x4);
-			uint32_t ioapic_gsi_base = *(uint32_t*) (ptr + 0x8);
+			uint8_t ioapic_id = *(uint8_t*) (void*) (ptr + 0x2);
+			uint32_t ioapic_addr = *(uint32_t*) (void*) (ptr + 0x4);
+			uint32_t ioapic_gsi_base =
+				*(uint32_t*) (void*) (ptr + 0x8);
 			LOG_DEBUG("ACPIO IOAPIC",
 				  "found IOAPIC id %d addr 0x%x GSI Base %d",
 				  ioapic_id, ioapic_addr, ioapic_gsi_base);
@@ -199,9 +205,9 @@ static void parsing_madt(struct MADT* madt) {
 			break;
 		}
 		case ACPI_NMI: {
-			uint8_t processor = *(uint8_t*) (ptr + 0x2);
-			uint16_t flags = *(uint16_t*) (ptr + 0x4);
-			uint8_t lint = *(uint8_t*) (ptr + 0x6);
+			uint8_t processor = *(uint8_t*) (void*) (ptr + 0x2);
+			uint16_t flags = *(uint16_t*) (void*) (ptr + 0x4);
+			uint8_t lint = *(uint8_t*) (void*) (ptr + 0x6);
 			LOG_DEBUG("ACPI NMI", "processor %d flags %d lint %d",
 				  processor, flags, lint);
 
@@ -244,7 +250,6 @@ INIT(acpi) {
 		return;
 	}
 
-	// [FIX 2] uint32_t cukup, uint64_t overkill untuk entry count
 	uint32_t entry_count = (rsdt->h.Length - sizeof(rsdt->h)) / 4;
 	LOG_INFO("RSDT", "rsdt entry count %d", entry_count);
 
@@ -252,14 +257,12 @@ INIT(acpi) {
 		uintptr_t phys_addr = rsdt->PointerToOtherSDT[i];
 		uintptr_t addr = acpi_map_phys_page(phys_addr, 2);
 
-		// [FIX 3] skip jika mapping gagal
 		if (!addr)
 			continue;
 
 		struct SDT* sdt = (struct SDT*) addr;
 
-		// [FIX 4] strict aliasing — pakai may_alias bukan *(uint32_t*)char[]
-		uint32_t sig = *(uint32_t*) (sdt->Signature);
+		uint32_t sig = *(uint32_t*) (void*) (sdt->Signature);
 		LOG_INFO("ACPI", "signature %.4s (0x%x) found", sdt->Signature,
 			 sig);
 

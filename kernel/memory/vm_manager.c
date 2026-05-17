@@ -60,8 +60,8 @@ INIT(vma) {
 
 	VMA_RBT_NIL = (rbt_node*) vxSlabAlloc(rbt_node_cache);
 	VMA_RBT_NIL->data = (virtual_memory_t*) vxSlabAlloc(vma_cache);
-	VMA_RBT_NIL->data->start_address = -1;
-	VMA_RBT_NIL->data->end_address = -1;
+	VMA_RBT_NIL->data->start_address = 0;
+	VMA_RBT_NIL->data->end_address = 0;
 	VMA_RBT_NIL->left = VMA_RBT_NIL->right = VMA_RBT_NIL->parent =
 		VMA_RBT_NIL;
 	virtual_memory_tree_root = VMA_RBT_NIL;
@@ -129,7 +129,7 @@ static void vma_rbt_debug_node(rbt_node* node, int level) {
 	vma_rbt_debug_node(node->right, level + 1);
 }
 
-void vma_rbt_debug(rbt_node* root) {
+__attribute__((unused)) static void vma_rbt_debug(rbt_node* root) {
 	vma_rbt_debug_node(root, 0);
 }
 

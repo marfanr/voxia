@@ -4,10 +4,13 @@
 #include <str.h>
 #include "net/netdev.h"
 #include "net/netutils.h"
+#include "type.h"
 
 static void fill_ip_header(struct ipv4_header* ip_hdr, uint16_t total_length,
 			   uint16_t id, uint16_t flags_fragment,
 			   uint8_t protocol, uint32_t src_ip, uint32_t dst_ip) {
+	UNUSED(id);
+	UNUSED(flags_fragment);
 	ip_hdr->version_ihl = 0x45; // Version 4, IHL 5 (20 bytes)
 	ip_hdr->tos = 0;
 	ip_hdr->total_length = vxHtons(total_length);
@@ -22,8 +25,8 @@ static void fill_ip_header(struct ipv4_header* ip_hdr, uint16_t total_length,
 	ip_hdr->dst_ip = dst_ip;
 
 	ip_hdr->checksum = 0;
-	ip_hdr->checksum =
-		checksum16_adc((uint16_t*) ip_hdr, sizeof(struct ipv4_header));
+	ip_hdr->checksum = checksum16_adc((uint16_t*) (void*) ip_hdr,
+					  sizeof(struct ipv4_header));
 }
 
 void ipv4_send(netdev_t* dev, struct netbuff* nb, uint32_t dst_ip,

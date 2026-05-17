@@ -46,9 +46,9 @@ void handle_tcp(netdev_t* dev, struct ipv4_header* ip, uint8_t mac_dst[6]) {
 	}
 
 	if (ack && !syn) {
-		uint8_t tcp_hdr_len = ((tcp->offset >> 4) & 0x0F) * 4;
-		uint16_t data_len = total_len - ip_hdr_len - tcp_hdr_len;
-		uint8_t* payload = (uint8_t*) tcp + tcp_hdr_len;
+		uint8_t len_ = ((tcp->offset >> 4) & 0x0F) * 4;
+		uint16_t data_len = total_len - ip_hdr_len - len_;
+		uint8_t* payload = (uint8_t*) tcp + len_;
 
 		if (data_len > 0 && tcp->flags & FLAG_PSH) {
 			// LOG2_INFO("TCP", "Data diterima: %d bytes", data_len);
@@ -97,7 +97,7 @@ void send_command(netdev_t* dev, struct ipv4_header* ip, struct tcp_header* tcp,
 
 	uint8_t* opt_ptr = (uint8_t*) (tcp_reply + 1);
 	memcopy(opt_ptr, opt_buf, opt_len);
-	tcp_reply->offset = ((5 + opt_len / 4) << 4);
+	tcp_reply->offset = (uint8_t) ((5 + opt_len / 4) << 4);
 
 	tcp_reply->source_port = tcp->destination_port;
 	tcp_reply->destination_port = tcp->source_port;
@@ -124,8 +124,8 @@ void send_command(netdev_t* dev, struct ipv4_header* ip, struct tcp_header* tcp,
 	pseudo.tcp_length = vxHtons((uint16_t) reply_len);
 
 	uint32_t sum = 0;
-	sum = checksum16_raw((uint16_t*) &pseudo, sizeof(pseudo));
-	sum += checksum16_raw((uint16_t*) tcp_reply, reply_len);
+	sum = checksum16_raw((uint16_t*) (void*) &pseudo, sizeof(pseudo));
+	sum += checksum16_raw((uint16_t*) (void*) tcp_reply, reply_len);
 
 	while (sum >> 16)
 		sum = (sum & 0xFFFF) + (sum >> 16);
@@ -147,7 +147,7 @@ void send_tcp_data(netdev_t* dev, struct ipv4_header* ip,
 	uint8_t tcp_hdr_len_in = ((tcp->offset >> 4) & 0x0F) * 4;
 	uint16_t incoming_data_len = ip_total_len - ip_hdr_len - tcp_hdr_len_in;
 
-	uint16_t total_tcp_len = sizeof(struct tcp_header) + len;
+	uint16_t total_tcp_len = (uint16_t) (sizeof(struct tcp_header) + len);
 
 	auto nb = create_netbuff();
 	// 3. Salin data (payload HTTP) tepat setelah TCP Header
@@ -196,9 +196,10 @@ void send_tcp_data(netdev_t* dev, struct ipv4_header* ip,
 
 	// 6. Hitung Checksum secara sekuensial (Mendukung data berukuran ganjil)
 	uint32_t sum = 0;
-	sum = checksum16_raw((uint16_t*) &pseudo, sizeof(pseudo));
-	sum += checksum16_raw((uint16_t*) tcp_reply, sizeof(struct tcp_header));
-	sum += checksum16_raw((uint16_t*) payload_ptr, len);
+	sum = checksum16_raw((uint16_t*) (void*) &pseudo, sizeof(pseudo));
+	sum += checksum16_raw((uint16_t*) (void*) tcp_reply,
+			      sizeof(struct tcp_header));
+	sum += checksum16_raw((uint16_t*) (void*) payload_ptr, len);
 
 	while (sum >> 16)
 		sum = (sum & 0xFFFF) + (sum >> 16);
@@ -228,7 +229,7 @@ void parse_tcp_options(struct tcp_header* tcp, tcp_options_t* out) {
 
 		case 2: // MSS
 			if (opt[1] == 4)
-				out->mss = (opt[2] << 8) | opt[3];
+				out->mss = (uint16_t) (opt[2] << 8) | opt[3];
 			opt += opt[1];
 			break;
 
@@ -323,7 +324,4 @@ build_synack_options(netdev_t* dev, uint8_t* buf, tcp_options_t* client_opts) {
 	// 	*p++ = 1; // NOP
 
 	return (uint8_t) (p - buf);
-}
-
-void tcp_send() {
 }

@@ -60,7 +60,7 @@ static inline void mmio_outll(uintptr_t addr, uint64_t value) {
 	*((volatile uint64_t*) addr) = value;
 }
 
-static inline uint64_t __attribute__((aligned(1))) mmio_inll(uintptr_t addr) {
+static inline uint64_t mmio_inll(uintptr_t addr) {
 	return *((volatile uint64_t*) addr);
 }
 

@@ -13,11 +13,19 @@
 
 #define KALLOC_BASE_ADDR 0xFFFFFE0000000000ULL
 #define MAX_FREED_VADDRS 512
+#define KALLOC_REDZONE_SIZE 16
+#define KALLOC_REDZONE_MAGIC 0xFDEAABEEU
 
 typedef struct {
 	uintptr_t addr;
 	size_t size; /* BLOCK_SIZE (page) */
 } freed_t;
+
+typedef struct {
+	size_t size;	/* original requested size */
+	uint32_t magic; /* magic number for validation */
+	uint32_t _pad;	/* explicit padding untuk ensure 16 bytes */
+} kalloc_metadata_t;
 
 struct kalloc_cpu_cache {
 	/* free-list heads */
@@ -63,6 +71,21 @@ static inline uintptr_t lock_irqsave(spinlock_t* lk) {
 static inline void unlock_irqrestore(spinlock_t* lk, uintptr_t flags) {
 	spin_release(lk);
 	irq_restore(flags);
+}
+
+static void setup_redzone(void* ptr, size_t size) {
+	uint32_t* p = (uint32_t*) ptr;
+	for (size_t i = 0; i < size / sizeof(uint32_t); i++)
+		p[i] = KALLOC_REDZONE_MAGIC;
+}
+
+static int check_redzone(void* ptr, size_t size) {
+	uint32_t* p = (uint32_t*) ptr;
+	for (size_t i = 0; i < size / sizeof(uint32_t); i++) {
+		if (p[i] != KALLOC_REDZONE_MAGIC)
+			return 0;
+	}
+	return 1;
 }
 
 static uintptr_t vaddr_alloc_locked(size_t page_count) {
@@ -124,47 +147,52 @@ KALLOC_REFILL(2048)
 		uintptr_t flags = lock_irqsave(&cc->lock);                     \
 		if (cc->c_##BUCKET##_count == 0)                               \
 			refill_##BUCKET(cc, &flags);                           \
-		void* ret = cc->c_##BUCKET;                                    \
-		cc->c_##BUCKET = *(void**) cc->c_##BUCKET;                     \
+		void* slot = cc->c_##BUCKET;                                   \
+		cc->c_##BUCKET = *(void**) slot;                               \
 		cc->c_##BUCKET##_count--;                                      \
 		unlock_irqrestore(&cc->lock, flags);                           \
-		return ret;                                                    \
-	} while (0)
-
-#define KALLOC_SLAB_FREE(BUCKET)                                               \
-	do {                                                                   \
-		if ((uintptr_t) ptr % (BUCKET) != 0)                           \
-			goto out_unlock_cpu;                                   \
-		uint32_t cpu = vxGetCoreData()->core_id;                       \
-		struct kalloc_cpu_cache* cc = &cpu_caches[cpu];                \
-		memset(ptr, 0, size);                                          \
-		*(void**) ptr = cc->c_##BUCKET;                                \
-		cc->c_##BUCKET = ptr;                                          \
-		cc->c_##BUCKET##_count++;                                      \
-		unlock_irqrestore(&cc->lock, cpu_flags);                       \
-		return;                                                        \
+                                                                               \
+		kalloc_metadata_t* meta = (kalloc_metadata_t*) slot;           \
+		meta->size = size;                                             \
+		meta->magic = KALLOC_REDZONE_MAGIC;                            \
+                                                                               \
+		void* red_before = (void*) ((uintptr_t) slot                   \
+					    + sizeof(kalloc_metadata_t));      \
+		setup_redzone(red_before, KALLOC_REDZONE_SIZE);                \
+                                                                               \
+		void* data = (void*) ((uintptr_t) red_before                   \
+				      + KALLOC_REDZONE_SIZE);                  \
+		void* red_after = (void*) ((uintptr_t) data + size);           \
+		setup_redzone(red_after, KALLOC_REDZONE_SIZE);                 \
+                                                                               \
+		return data;                                                   \
 	} while (0)
 
 KERNEL_API void* kalloc(size_t size) {
 	if (size == 0)
 		return NULL;
 
-	else if (size <= 64) {
+	/* Check if we can fit in slab buckets with metadata + red zones */
+	size_t metadata_overhead =
+		sizeof(kalloc_metadata_t) + 2 * KALLOC_REDZONE_SIZE;
+
+	if (size + metadata_overhead <= 64) {
 		KALLOC_SLAB_ALLOC(64);
-	} else if (size <= 128) {
+	} else if (size + metadata_overhead <= 128) {
 		KALLOC_SLAB_ALLOC(128);
-	} else if (size <= 256) {
+	} else if (size + metadata_overhead <= 256) {
 		KALLOC_SLAB_ALLOC(256);
-	} else if (size <= 512) {
+	} else if (size + metadata_overhead <= 512) {
 		KALLOC_SLAB_ALLOC(512);
-	} else if (size <= 1024) {
+	} else if (size + metadata_overhead <= 1024) {
 		KALLOC_SLAB_ALLOC(1024);
-	} else if (size <= 2048) {
+	} else if (size + metadata_overhead <= 2048) {
 		KALLOC_SLAB_ALLOC(2048);
 	}
 
-	/*Large alloc (> 2048 byte)*/
-	size_t page_count = ALIGN_UP(size, BLOCK_SIZE) / BLOCK_SIZE;
+	/* Large alloc (> 2048 byte), or doesn't fit in slab */
+	size_t total_size = size + metadata_overhead;
+	size_t page_count = ALIGN_UP(total_size, BLOCK_SIZE) / BLOCK_SIZE;
 
 	uintptr_t gflags = lock_irqsave(&kalloc_global_lock);
 
@@ -177,7 +205,20 @@ KERNEL_API void* kalloc(size_t size) {
 
 	unlock_irqrestore(&kalloc_global_lock, gflags);
 
-	return (void*) virt;
+	/* Setup layout: [metadata] [red_before] [data] [red_after] */
+	kalloc_metadata_t* meta = (kalloc_metadata_t*) virt;
+	meta->size = size;
+	meta->magic = KALLOC_REDZONE_MAGIC;
+
+	void* red_before =
+		(void*) ((uintptr_t) virt + sizeof(kalloc_metadata_t));
+	setup_redzone(red_before, KALLOC_REDZONE_SIZE);
+
+	void* data = (void*) ((uintptr_t) red_before + KALLOC_REDZONE_SIZE);
+	void* red_after = (void*) ((uintptr_t) data + size);
+	setup_redzone(red_after, KALLOC_REDZONE_SIZE);
+
+	return data;
 }
 
 KERNEL_API void kfree(void* ptr, size_t size) {
@@ -188,47 +229,222 @@ KERNEL_API void kfree(void* ptr, size_t size) {
 	struct kalloc_cpu_cache* cc = &cpu_caches[cpu];
 	uintptr_t cpu_flags = lock_irqsave(&cc->lock);
 
-	if (size <= 64) {
-		KALLOC_SLAB_FREE(64);
-	} else if (size <= 128) {
-		KALLOC_SLAB_FREE(128);
-	} else if (size <= 256) {
-		KALLOC_SLAB_FREE(256);
-	} else if (size <= 512) {
-		KALLOC_SLAB_FREE(512);
-	} else if (size <= 1024) {
-		KALLOC_SLAB_FREE(1024);
-	} else if (size <= 2048) {
-		KALLOC_SLAB_FREE(2048);
+	/* Check metadata at offset from pointer */
+	kalloc_metadata_t* meta =
+		(kalloc_metadata_t*) ((uintptr_t) ptr
+				      - sizeof(kalloc_metadata_t)
+				      - KALLOC_REDZONE_SIZE);
+	if (meta->magic != KALLOC_REDZONE_MAGIC) {
+		unlock_irqrestore(&cc->lock, cpu_flags);
+		LOG2_WARN("KALLOC", "metadata failed");
+		return;
+	}
+
+	/* Verify red zones */
+	void* red_before =
+		(void*) ((uintptr_t) meta + sizeof(kalloc_metadata_t));
+	if (!check_redzone(red_before, KALLOC_REDZONE_SIZE)) {
+		unlock_irqrestore(&cc->lock, cpu_flags);
+		LOG2_WARN("KALLOC", "red zone overllaping");
+		return;
+	}
+
+	void* red_after = (void*) ((uintptr_t) ptr + meta->size);
+	if (!check_redzone(red_after, KALLOC_REDZONE_SIZE)) {
+		unlock_irqrestore(&cc->lock, cpu_flags);
+		LOG2_WARN("KALLOC", "red zone overllaping");
+		return;
+	}
+
+	size_t metadata_overhead =
+		sizeof(kalloc_metadata_t) + 2 * KALLOC_REDZONE_SIZE;
+
+	if (size + metadata_overhead <= 64) {
+		void* slot = (void*) meta;
+		memset(slot, 0, 64);
+		*(void**) slot = cc->c_64;
+		cc->c_64 = slot;
+		cc->c_64_count++;
+		unlock_irqrestore(&cc->lock, cpu_flags);
+	} else if (size + metadata_overhead <= 128) {
+		void* slot = (void*) meta;
+		memset(slot, 0, 128);
+		*(void**) slot = cc->c_128;
+		cc->c_128 = slot;
+		cc->c_128_count++;
+		unlock_irqrestore(&cc->lock, cpu_flags);
+	} else if (size + metadata_overhead <= 256) {
+		void* slot = (void*) meta;
+		memset(slot, 0, 256);
+		*(void**) slot = cc->c_256;
+		cc->c_256 = slot;
+		cc->c_256_count++;
+		unlock_irqrestore(&cc->lock, cpu_flags);
+	} else if (size + metadata_overhead <= 512) {
+		void* slot = (void*) meta;
+		memset(slot, 0, 512);
+		*(void**) slot = cc->c_512;
+		cc->c_512 = slot;
+		cc->c_512_count++;
+		unlock_irqrestore(&cc->lock, cpu_flags);
+	} else if (size + metadata_overhead <= 1024) {
+		void* slot = (void*) meta;
+		memset(slot, 0, 1024);
+		*(void**) slot = cc->c_1024;
+		cc->c_1024 = slot;
+		cc->c_1024_count++;
+		unlock_irqrestore(&cc->lock, cpu_flags);
+	} else if (size + metadata_overhead <= 2048) {
+		void* slot = (void*) meta;
+		memset(slot, 0, 2048);
+		*(void**) slot = cc->c_2048;
+		cc->c_2048 = slot;
+		cc->c_2048_count++;
+		unlock_irqrestore(&cc->lock, cpu_flags);
 	} else {
+		unlock_irqrestore(&cc->lock, cpu_flags);
 
 		uintptr_t gflags = lock_irqsave(&kalloc_global_lock);
 
-		memset(ptr, 0, size);
+		size_t total_size = size + metadata_overhead;
+		memset(meta, 0, total_size);
 
-		virtual_memory_t* v = vma_find((uintptr_t) ptr);
+		virtual_memory_t* v = vma_find((uintptr_t) meta);
 		if (!v) {
 			unlock_irqrestore(&kalloc_global_lock, gflags);
-			goto out_unlock_cpu;
+			return;
 		}
 
-		size_t page_count = ALIGN_UP(size, BLOCK_SIZE) / BLOCK_SIZE;
+		size_t page_count =
+			ALIGN_UP(total_size, BLOCK_SIZE) / BLOCK_SIZE;
 
 		vxPhysBaseFree((void*) v->phys_address, page_count);
 		paging_unmap_fill(paging_get_highest_page_map(),
-				  (uintptr_t) ptr, page_count);
-		vma_unregister((uintptr_t) ptr);
+				  (uintptr_t) meta, page_count);
+		vma_unregister((uintptr_t) meta);
 
 		if (freed_vaddr_count < MAX_FREED_VADDRS) {
 			freed_vaddrs[freed_vaddr_count++] = (freed_t){
-				.addr = (uintptr_t) ptr,
+				.addr = (uintptr_t) meta,
 				.size = page_count,
 			};
 		}
 
 		unlock_irqrestore(&kalloc_global_lock, gflags);
 	}
+}
 
-out_unlock_cpu:
-	unlock_irqrestore(&cc->lock, cpu_flags);
+KERNEL_API void kfree2(void* ptr) {
+	if (ptr == NULL)
+		return;
+
+	uint32_t cpu = vxGetCoreData()->core_id;
+	struct kalloc_cpu_cache* cc = &cpu_caches[cpu];
+	uintptr_t cpu_flags = lock_irqsave(&cc->lock);
+
+	/* Check metadata at offset from pointer */
+	kalloc_metadata_t* meta =
+		(kalloc_metadata_t*) ((uintptr_t) ptr
+				      - sizeof(kalloc_metadata_t)
+				      - KALLOC_REDZONE_SIZE);
+	if (meta->magic != KALLOC_REDZONE_MAGIC) {
+		unlock_irqrestore(&cc->lock, cpu_flags);
+		return;
+	}
+
+	auto size = meta->size;
+
+	/* Verify red zones */
+	void* red_before =
+		(void*) ((uintptr_t) meta + sizeof(kalloc_metadata_t));
+	if (!check_redzone(red_before, KALLOC_REDZONE_SIZE)) {
+		unlock_irqrestore(&cc->lock, cpu_flags);
+		LOG2_WARN("KALLOC", "red zone overllaping");
+		return;
+	}
+
+	void* red_after = (void*) ((uintptr_t) ptr + meta->size);
+	if (!check_redzone(red_after, KALLOC_REDZONE_SIZE)) {
+		unlock_irqrestore(&cc->lock, cpu_flags);
+		LOG2_WARN("KALLOC", "red zone overllaping");
+		return;
+	}
+
+	size_t metadata_overhead =
+		sizeof(kalloc_metadata_t) + 2 * KALLOC_REDZONE_SIZE;
+
+	if (size + metadata_overhead <= 64) {
+		void* slot = (void*) meta;
+		memset(slot, 0, 64);
+		*(void**) slot = cc->c_64;
+		cc->c_64 = slot;
+		cc->c_64_count++;
+		unlock_irqrestore(&cc->lock, cpu_flags);
+	} else if (size + metadata_overhead <= 128) {
+		void* slot = (void*) meta;
+		memset(slot, 0, 128);
+		*(void**) slot = cc->c_128;
+		cc->c_128 = slot;
+		cc->c_128_count++;
+		unlock_irqrestore(&cc->lock, cpu_flags);
+	} else if (size + metadata_overhead <= 256) {
+		void* slot = (void*) meta;
+		memset(slot, 0, 256);
+		*(void**) slot = cc->c_256;
+		cc->c_256 = slot;
+		cc->c_256_count++;
+		unlock_irqrestore(&cc->lock, cpu_flags);
+	} else if (size + metadata_overhead <= 512) {
+		void* slot = (void*) meta;
+		memset(slot, 0, 512);
+		*(void**) slot = cc->c_512;
+		cc->c_512 = slot;
+		cc->c_512_count++;
+		unlock_irqrestore(&cc->lock, cpu_flags);
+	} else if (size + metadata_overhead <= 1024) {
+		void* slot = (void*) meta;
+		memset(slot, 0, 1024);
+		*(void**) slot = cc->c_1024;
+		cc->c_1024 = slot;
+		cc->c_1024_count++;
+		unlock_irqrestore(&cc->lock, cpu_flags);
+	} else if (size + metadata_overhead <= 2048) {
+		void* slot = (void*) meta;
+		memset(slot, 0, 2048);
+		*(void**) slot = cc->c_2048;
+		cc->c_2048 = slot;
+		cc->c_2048_count++;
+		unlock_irqrestore(&cc->lock, cpu_flags);
+	} else {
+		unlock_irqrestore(&cc->lock, cpu_flags);
+
+		uintptr_t gflags = lock_irqsave(&kalloc_global_lock);
+
+		size_t total_size = size + metadata_overhead;
+		memset(meta, 0, total_size);
+
+		virtual_memory_t* v = vma_find((uintptr_t) meta);
+		if (!v) {
+			unlock_irqrestore(&kalloc_global_lock, gflags);
+			return;
+		}
+
+		size_t page_count =
+			ALIGN_UP(total_size, BLOCK_SIZE) / BLOCK_SIZE;
+		// serial2_printf("page count %d\n", page_count);
+
+		vxPhysBaseFree((void*) v->phys_address, page_count);
+		paging_unmap_fill(paging_get_highest_page_map(),
+				  (uintptr_t) meta, page_count);
+		vma_unregister((uintptr_t) meta);
+
+		if (freed_vaddr_count < MAX_FREED_VADDRS) {
+			freed_vaddrs[freed_vaddr_count++] = (freed_t){
+				.addr = (uintptr_t) meta,
+				.size = page_count,
+			};
+		}
+
+		unlock_irqrestore(&kalloc_global_lock, gflags);
+	}
 }

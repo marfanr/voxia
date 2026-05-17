@@ -1,6 +1,7 @@
 #include "gdt.h"
 #include "init/init.h"
 #include "libk/serial.h"
+#include "procc/thread.h"
 #include <libk/debug/debug.h>
 #include <str.h>
 #include <memory/memory_utils.h>
@@ -17,23 +18,56 @@ static lm_tss_t tss;
 
 uint8_t stack[4096] __attribute__((aligned(16)));
 
-// +----+-----------------+-------------------+-----------------+-----------------+
-// | ID |     Base        |      Limit        |     Access      |      Flags      |
-// +----+-----------------+-------------------+-----------------+-----------------+
-// |  0  |        0        |        0          |        0        |        0        |
-// |  1  |        0        |      0xFFFF       |      0x9A       |       0x00      |
-// |  2  |        0        |      0xFFFF       |      0x92       |       0x00      |
-// |  3  |        0        |      0xFFFF       |      0x9A       |       0xCF      |
-// |  4  |        0        |      0xFFFF       |      0x92       |       0xCF      |
-// |  5  |        0        |        0          |      0x9A       |       0x20      |
-// |  6  |        0        |        0          |      0x92       |       0x00      |
-// |  7  |        0        |        0          |      0xFA       |       0x20      |
-// |  8  |        0        |        0          |      0xF2       |       0x00      |
-// |  9  |        0        |        0          |      0xBA       |       0x20      |
-// | 10  |        0        |        0          |      0xB2       |       0x00      |
-// | 11  |   &tss (low)    | sizeof(tss) (low) |      0x89       |       0x00      |
-// | 12  |   &tss (high)   | sizeof(tss) (high)|       0x00      |       0x00      |
-// +----+-----------------+-------------------+-----------------+-----------------+
+static gdt_each_core_t __gdt_entries[10];
+uint8_t ap_stack_top[10][65536] __attribute__((aligned(16))); // 64KB
+
+__attribute__((no_stack_protector)) void setup_gdt(int core) {
+	gdt_entry_t* entries = __gdt_entries[core].entries;
+
+	entries[0] = gdt_make_entry(0, 0, 0, 0);
+	entries[1] = gdt_make_entry(0, 0xFFFF, 0x9A, 0x00);
+	entries[2] = gdt_make_entry(0, 0xFFFF, 0x92, 0x00);
+	entries[3] = gdt_make_entry(0, 0xFFFF, 0x9A, 0xCF);
+	entries[4] = gdt_make_entry(0, 0xFFFF, 0x92, 0xCF);
+	entries[5] = gdt_make_entry(0, 0, 0x9A, 0x20);
+	entries[6] = gdt_make_entry(0, 0, 0x92, 0x00);
+	entries[7] = gdt_make_entry(0, 0, 0xFA, 0x20);
+	entries[8] = gdt_make_entry(0, 0, 0xF2, 0x00);
+
+	lm_tss_t* _tss = &__gdt_entries[core].tss;
+	_tss->rsp[0] =
+		(uintptr_t) ap_stack_top[core] + sizeof(ap_stack_top[core]);
+	_tss->rsp[1] = 0;
+	_tss->rsp[2] = 0;
+	_tss->reserved = 0;
+	_tss->reserved2 = 0;
+	_tss->reserved3 = 0;
+	_tss->reserved4 = 0;
+	_tss->ist[0] = _tss->ist[1] = _tss->ist[2] = _tss->ist[3] = 0;
+	_tss->ist[4] = _tss->ist[5] = _tss->ist[6] = 0;
+	_tss->iomap_base = sizeof(*_tss);
+
+	uint64_t base = (uint64_t) _tss; // ← FIX: _tss bukan &_tss
+	uint16_t limit = (uint16_t) (sizeof(*_tss) - 1);
+
+	entries[9].limit_low = limit;
+	entries[9].base_low = (uint16_t) (base & 0xFFFF);
+	entries[9].base_middle = (uint8_t) ((base >> 16) & 0xFF);
+	entries[9].access = 0x89;
+	entries[9].flags = 0x00;
+	entries[9].base_high = (uint8_t) ((base >> 24) & 0xFF);
+
+	uint64_t* tss_high = (uint64_t*) ((uintptr_t) &entries[10]);
+	*tss_high = (base >> 32) & 0xFFFFFFFF;
+
+	gdt_ptr_t* _gdt_ptr = &__gdt_entries[core].pointer;
+	_gdt_ptr->limit = (uint16_t) (sizeof(gdt_entry_t) * 11 - 1);
+	_gdt_ptr->base = (uint64_t) entries;
+
+	gdt_flush(*_gdt_ptr);
+	__asm__ volatile("ltr %%ax" : : "a"((uint16_t) 0x48));
+	reloadGDT(0x28, 0x30);
+}
 
 INIT(Gdt) {
 	gdt_entries[0] = gdt_make_entry(0, 0, 0, 0); // 0x00 null segment
@@ -81,31 +115,30 @@ INIT(Gdt) {
 	tss.ist[6] = 0;
 	tss.iomap_base = 0;
 
-	gdt_entry_t tss_low;
-	tss_low.base_low = ((uint64_t) &tss & 0xFFFF);
-	tss_low.base_middle = (((uint64_t) &tss >> 16) & 0xFF);
-	tss_low.base_high = (((uint64_t) &tss >> 24) & 0xFF);
-	tss_low.limit_low = (uint16_t) sizeof(tss);
-	tss_low.flags = 0;
-	tss_low.access = 0xE9;
-	gdt_entries[11] = tss_low;
+	uint64_t base = (uint64_t) &tss;
+	uint16_t limit = (uint16_t) (sizeof(tss) - 1);
 
-	gdt_entry_t tss_high;
-	tss_high.limit_low = (((uint64_t) &tss >> 32) & 0xFFFF);
-	tss_high.base_low = ((uint64_t) &tss >> 48);
-	tss_high.base_middle = 0;
-	tss_high.base_high = 0;
-	tss_high.flags = 0;
-	tss_high.access = 0;
-	gdt_entries[12] = tss_high;
+	// TSS LOW descriptor (index 9 = selector 0x48)
+	gdt_entries[9].limit_low = limit;
+	gdt_entries[9].base_low = (uint16_t) (base & 0xFFFF);
+	gdt_entries[9].base_middle = (uint8_t) ((base >> 16) & 0xFF);
+	gdt_entries[9].access = 0x89; // Present | Type=TSS64 available
+	gdt_entries[9].flags = 0x00;  // granularity=byte, limit sudah pas
+	gdt_entries[9].base_high = (uint8_t) ((base >> 24) & 0xFF);
 
-	gdt_ptr.limit = sizeof(gdt_entry_t) * (14 + 1) - 1;
+	// TSS HIGH descriptor (index 10) — hanya menyimpan base[63:32], sisanya 0
+	// JANGAN pakai field gdt_entry_t karena mapping bitnya berbeda!
+	uint64_t* tss_high = (uint64_t*) &gdt_entries[10];
+	*tss_high = (base >> 32)
+		    & 0xFFFFFFFF; // upper 32-bit base, reserved 32-bit = 0
+
+	// Limit mencakup index 0..10 = 11 entry
+	gdt_ptr.limit = (uint16_t) (sizeof(gdt_entry_t) * 11 - 1);
 	gdt_ptr.base = (uint64_t) &gdt_entries;
-	gdt_flush(gdt_ptr);
-	__asm__ volatile("ltr %%ax" : : "a"(0x58));
-	reloadGDT(0x28, 0x30);
 
-	// LOG_INFO("GDT", "GDT initialized");
+	gdt_flush(gdt_ptr);
+	__asm__ volatile("ltr %%ax" : : "a"((uint16_t) 0x48));
+	reloadGDT(0x28, 0x30);
 }
 
 gdt_entry_t
@@ -121,6 +154,6 @@ gdt_make_entry(uint32_t base, uint16_t limit, uint8_t access, uint8_t flags) {
 	return entry;
 }
 
-void gdt_flush(gdt_ptr_t gdt_ptr) {
-	__asm__ volatile("lgdt %0" : : "memory"(gdt_ptr));
+void gdt_flush(gdt_ptr_t p) {
+	__asm__ volatile("lgdt %0" : : "memory"(p));
 }

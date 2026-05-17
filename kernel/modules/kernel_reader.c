@@ -53,8 +53,8 @@ INIT(KernelReader) {
 		if (!*name)
 			continue;
 
-		LOG_INFO("ELF", "[%d] name=%s, value=0x%x size=%d", i, name,
-			 symtab[i].st_value, symtab[i].st_size);
+		// LOG_INFO("ELF", "[%d] name=%s, value=0x%x size=%d", i, name,
+		// 	 symtab[i].st_value, symtab[i].st_size);
 
 		symbols_register(
 			&ksymbols, (const char*) (strtab + symtab[i].st_name),

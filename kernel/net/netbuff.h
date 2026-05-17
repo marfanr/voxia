@@ -15,7 +15,7 @@ struct netbuff {
 	uint8_t* data;
 	uint8_t* tail;
 
-	size_t length;
+	uint16_t length;
 };
 
 struct netbuff* create_netbuff();

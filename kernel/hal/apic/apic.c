@@ -15,7 +15,9 @@
 uintptr_t lapic_base_addr = 0;
 uint8_t x2_apic_supported = 0;
 
-void enable_x2apic() {
+void apicSetBaseAddr(uintptr_t addr);
+
+static void enable_x2apic() {
 	uint64_t apic_base = vxRDMSR(0x1B);
 
 	// step 1: AE=1, EXTD=0
@@ -31,6 +33,8 @@ void enable_x2apic() {
 	vxWRSR(0x1B, apic_base);
 
 	x2_apic_supported = 1;
+
+	LOG_INFO("APIC", "X2APIC enabled");
 }
 
 void apic_write(uint32_t reg, uint32_t value) {
@@ -45,7 +49,7 @@ void apic_write(uint32_t reg, uint32_t value) {
 uint32_t apic_read(uint32_t reg) {
 	if (x2_apic_supported) {
 		uint32_t msr = 0x800 + (reg >> 4);
-		return vxRDMSR(msr);
+		return (uint32_t) vxRDMSR(msr);
 	} else {
 		return mmio_inl(lapic_base_addr + reg);
 	}
@@ -86,11 +90,11 @@ void apicInitialize() {
 	if (!x2_apic_supported)
 		apic_write(APIC_DFR, 0xFFFFFFFF);
 
-	LOG2_DEBUG("lapic", "lapic id %d", lapic_id);
+	LOG_DEBUG("lapic", "lapic id %d", lapic_id);
 }
 
 void apic_send_ipi(uint8_t vector, uint8_t dest) {
-	apic_write(APIC_ICR_HIGH, (dest << 24));
+	apic_write(APIC_ICR_HIGH, (uint32_t) (dest << 24));
 	apic_write(APIC_ICR_LOW, (0b110 << 8) | vector);
 }
 

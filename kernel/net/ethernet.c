@@ -24,7 +24,7 @@ void ethernet_send_frame(netdev_t* dev, struct netbuff* netbuff,
 	}
 
 	uintptr_t current_paddr =
-		netbuff->paddr + (netbuff->data - netbuff->head);
+		netbuff->paddr + (uintptr_t) (netbuff->data - netbuff->head);
 
 	struct data_template data[1];
 	data[0] = (struct data_template){.buffer = (void*) current_paddr,

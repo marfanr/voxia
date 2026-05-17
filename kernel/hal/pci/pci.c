@@ -8,7 +8,8 @@
 #define PCI_COMMAND 0XCF8
 #define PCI_DATA 0xCFC
 
-uint32_t pci_readl(uint8_t bus, uint8_t device, uint8_t func, uint8_t offset) {
+static uint32_t
+pci_readl(uint8_t bus, uint8_t device, uint8_t func, uint8_t offset) {
 	uint32_t address;
 	uint32_t tmp = 0;
 	address = (uint32_t) (((uint32_t) bus << 16) | ((uint32_t) device << 11)
@@ -19,8 +20,8 @@ uint32_t pci_readl(uint8_t bus, uint8_t device, uint8_t func, uint8_t offset) {
 	return tmp;
 }
 
-void pci_writel(uint8_t bus, uint8_t device, uint8_t func, uint8_t offset,
-		uint32_t value) {
+static void pci_writel(uint8_t bus, uint8_t device, uint8_t func,
+		       uint8_t offset, uint32_t value) {
 	uint32_t address;
 	address = (uint32_t) (((uint32_t) bus << 16) | ((uint32_t) device << 11)
 			      | ((uint32_t) func << 8) | (offset & 0xFC)
@@ -32,13 +33,13 @@ void pci_writel(uint8_t bus, uint8_t device, uint8_t func, uint8_t offset,
 uint32_t legacy_read32(uintptr_t base, uint8_t bus, uint8_t dev, uint8_t func,
 		       uint16_t offset) {
 	(void) base;
-	return pci_readl(bus, dev, func, offset); /* existing impl */
+	return pci_readl(bus, dev, func, (uint8_t) offset); /* existing impl */
 }
 
 void legacy_write32(uintptr_t base, uint8_t bus, uint8_t dev, uint8_t func,
 		    uint16_t offset, uint32_t val) {
 	(void) base;
-	pci_writel(bus, dev, func, offset, val);
+	pci_writel(bus, dev, func, (uint8_t) offset, val);
 }
 
 // static struct buddy_allocator *pci_allocator;

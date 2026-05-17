@@ -10,7 +10,7 @@ extern void __fast_memset_aligned__(void* dst, int val, size_t len);
 extern int __fast__strncmp__(const char* s1, const char* s2, size_t n);
 extern boolean_t simd_has_avx;
 
-int strcmp(const char* s1, const char* s2) {
+KERNEL_API int strcmp(const char* s1, const char* s2) {
 	while (*s1 && (*s1 == *s2)) {
 		s1++;
 		s2++;
@@ -18,7 +18,7 @@ int strcmp(const char* s1, const char* s2) {
 	return *(unsigned char*) s1 - *(unsigned char*) s2;
 }
 
-int strncmp(const char* s1, const char* s2, size_t n) {
+KERNEL_API int strncmp(const char* s1, const char* s2, size_t n) {
 	if (!simd_has_avx) {
 		while (n-- != 0) {
 			if (*s1 != *s2++)
@@ -35,7 +35,7 @@ int strncmp(const char* s1, const char* s2, size_t n) {
 
 // warn: modifies the input string
 char* rtrim(char* str) {
-	int i = strlen(str) - 1;
+	size_t i = strlen(str) - 1;
 	while (i >= 0 && str[i] == ' ') {
 		str[i] = 0;
 		i--;
@@ -43,14 +43,14 @@ char* rtrim(char* str) {
 	return str;
 }
 
-void strcpy(char* dest, const char* src) {
+KERNEL_API void strcpy(char* dest, const char* src) {
 	while (*src) {
 		*dest++ = *src++;
 	}
 	*dest = 0;
 }
 
-char* strncpy(char* dest, const char* src, size_t n) {
+KERNEL_API char* strncpy(char* dest, const char* src, size_t n) {
 	size_t i;
 	for (i = 0; i < n && src[i] != '\0'; i++)
 		dest[i] = src[i];
@@ -59,7 +59,7 @@ char* strncpy(char* dest, const char* src, size_t n) {
 	return dest;
 }
 
-void strcat(char* dest, const char* src) {
+KERNEL_API void strcat(char* dest, const char* src) {
 	while (*dest)
 		dest++;
 	strcpy(dest, src);
@@ -130,31 +130,38 @@ char* strtok_r(char* str, const char* delim, char** saveptr) {
 	return str;
 }
 
-void KERNEL_API memset(void* ptr, uint8_t value, size_t num) {
+KERNEL_API void memset(void* ptr, int value, size_t num) {
 	if (!simd_has_avx) {
 		uint8_t* ptr_ = (uint8_t*) ptr;
 
 		uint64_t fill = 0;
 		for (size_t i = 0; i < 8; i++) {
 			fill <<= 8;
-			fill |= value;
+			fill |= (uint64_t) value;
+		}
+
+		// Align ke 8-byte dulu
+		while (num > 0 && ((uintptr_t) ptr_ & 7)) {
+			*ptr_++ = (uint8_t) value;
+			num--;
 		}
 
 		size_t blocks = num / 8;
 		size_t tail = num % 8;
 
-		uint64_t* p64 = (uint64_t*) ptr_;
-		for (size_t i = 0; i < blocks; i++)
-			p64[i] = fill;
+		for (size_t i = 0; i < blocks; i++) {
+			memcopy(ptr_ + (i * 8), &fill, 8);
+		}
 
 		ptr_ += blocks * 8;
+
 		for (size_t i = 0; i < tail; i++)
-			ptr_[i] = value;
+			ptr_[i] = (uint8_t) value;
 
 		return;
 	}
 
-	// check is ptr alignmen 32
+	// check is ptr alignment 32
 	if (((uintptr_t) ptr % 32) == 0)
 		__fast_memset_aligned__(ptr, value, num);
 	else
@@ -223,7 +230,7 @@ const char* strsep(char** str, const char delim) {
 	return start;
 }
 
-void memcopy(void* dest, void* src, size_t size) {
+KERNEL_API void memcopy(void* dest, void* src, size_t size) {
 	if (!simd_has_avx) {
 		uint8_t* d = (uint8_t*) dest;
 		uint8_t* s = (uint8_t*) src;
@@ -260,26 +267,36 @@ char* itoa(int value, char* str, int base) {
 		*str = '\0';
 		return str;
 	}
-	int temp = 0;
+
+	if (value == 0) {
+		str[0] = '0';
+		str[1] = '\0';
+		return str;
+	}
+
+	int tmp = 0;
 	char* last = str;
 	char* start = str;
 
 	while (value) {
-		temp = value;
+		tmp = value;
 		value /= base;
-		int digit = temp - value * base;
-		*last++ = (digit < 10) ? ('0' + digit) : ('a' + (digit - 10));
+
+		int digit = tmp - value * base;
+
+		*last++ = (char) ((digit < 10) ? ('0' + digit)
+					       : ('a' + (digit - 10)));
 	}
+
 	*last = '\0';
 
 	// reverse
-	{
-		last--;
-		while (start < last) {
-			char temp = *start;
-			*start++ = *last;
-			*last-- = temp;
-		}
+	last--;
+
+	while (start < last) {
+		char swap = *start;
+		*start++ = *last;
+		*last-- = swap;
 	}
 
 	return str;

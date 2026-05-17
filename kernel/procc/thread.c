@@ -6,6 +6,7 @@
 #include "libk/serial.h"
 #include "memory/slab.h"
 #include "scheduler.h"
+#include "type.h"
 
 static struct slab_cache* thread_cache = nullptr;
 static thread_bucket_t bucket = {0};
@@ -32,10 +33,11 @@ static thread_t* thrCreateInstance() {
 	return (thread_t*) vxSlabAlloc(thread_cache);
 }
 
-thread_t* thrGetById(const thread_id id) {
-	const uint32_t idx = THREAD_GET_ID(id);
-	return bucket.slot[idx].thread;
-}
+// TODO: unused
+// static thread_t* thrGetById(const thread_id id) {
+// 	const uint32_t idx = THREAD_GET_ID(id);
+// 	return bucket.slot[idx].thread;
+// }
 
 static void vxUpdateThreadSlot(const thread_id id, thread_t* thr) {
 	const uint32_t idx = THREAD_GET_ID(id);
@@ -59,11 +61,12 @@ thread_id vxCreateThread(const uintptr_t entry, uint16_t core_affinity,
 	return thr->id;
 }
 
-thread_id vxCreateKThread(const uintptr_t entry, uint16_t core_affinity,
-			  uint8_t priority) {
-	return vxCreateThread(entry, core_affinity, priority,
-			      THREAD_KERNEL & THREAD_PREEMPT_DISABLE);
-}
+// TODO: unused
+// static thread_id vxCreateKThread(const uintptr_t entry, uint16_t core_affinity,
+// 				 uint8_t priority) {
+// 	return vxCreateThread(entry, core_affinity, priority,
+// 			      THREAD_KERNEL & THREAD_PREEMPT_DISABLE);
+// }
 
 void vxThreadExit() {
 	const uint16_t core_id = coreGetCpuID();

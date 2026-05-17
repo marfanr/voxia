@@ -4,22 +4,23 @@
 #include "init/init.h"
 #include "libk/debug/debug.h"
 #include "memory/entry.h"
+#include "memory/memory_utils.h"
 #include "memory/vm_manager.h"
 #include "str.h"
 #include "vfs/enum.h"
-#include "vfs/file.h"
-#include "vfs/vfs.h"
 #include <libk/serial.h>
 
-#define SSFN_CONSOLEBITMAP_1COLOR
-#define SSFN_NOIMPLEMENTATION
+#define SSFN_CONSOLEBITMAP_TRUECOLOR
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunknown-warning-option"
 #include <libk/ssfn.h>
+#pragma GCC diagnostic pop
 
 volatile framebuffer_t* g__fb;
 
 INIT(graphic) {
 	g__fb = &ctx->framebuffer;
-	LOG_DEBUG("FB", "Fb addr 0x%lx", g__fb->framebuffer_addr);
+	LOG2_DEBUG("FB", "Fb addr %p", g__fb->framebuffer_addr);
 
 	if (g__fb->framebuffer_addr == 0)
 		return;
@@ -29,15 +30,16 @@ INIT(graphic) {
 	uint8_t* font_buff = 0;
 	if (vxResolveDentry("/init/fonts/unifont.sfn", 0, &font_dentry, 0)
 	    == VFS_OK) {
-		LOG_DEBUG("VFS", "opened %s (%d kb)", font_dentry->name->c_str,
-			  font_dentry->vnode->size / 1024);
+		LOG2_DEBUG("Graphic", "opened %s (%d kb)",
+			   font_dentry->name->c_str,
+			   font_dentry->vnode->size / 1024);
 		font_buff = (uint8_t*) kalloc(font_dentry->vnode->size);
 		((vops_file_t*) font_dentry->vnode->ops)
 			->read(font_dentry->vnode, font_buff,
 			       font_dentry->vnode->size, 0);
 		ssfn_src = (ssfn_font_t*) font_buff;
 	} else {
-		LOG_WARN("VFS", "failed to load font");
+		LOG2_WARN("Graphic", "failed to load font");
 	}
 
 	// overide fb addr
@@ -56,9 +58,8 @@ INIT(graphic) {
 		}
 	}
 
-	serial_trace("new framebuffer 0x%lx\n", g__fb->framebuffer_addr);
+	serial2_printf("new framebuffer 0x%x\n", g__fb->framebuffer_addr);
 
-	// init ssfn for early boot
 	ssfn_dst.ptr = (uint8_t*) g__fb->framebuffer_addr;
 	ssfn_dst.w = g__fb->framebuffer_width;
 	ssfn_dst.h = g__fb->framebuffer_height;
@@ -75,7 +76,7 @@ void vxPutc(char c, int x, int y, uint32_t fg, uint32_t bg) {
 	ssfn_dst.bg = bg;
 	ssfn_dst.x = x * 7;
 	ssfn_dst.y = y * 15;
-	ssfn_putc(c);
+	ssfn_putc((uint32_t) c);
 }
 
 void put_pixel(int x, int y, uint32_t color) {
@@ -103,9 +104,8 @@ void put_pixel_alpha(int x, int y, pixel_t src) {
 	if (src.a == 0)
 		return;
 
-	uint32_t* dst_ptr =
-		(uint32_t*) ((uint8_t*) g__fb->framebuffer_addr
-			     + y * g__fb->framebuffer_pitch + x * 4);
+	uint32_t* dst_ptr = (uint32_t*) PTR_ADD(
+		g__fb->framebuffer_addr, y * g__fb->framebuffer_pitch + x * 4);
 
 	// Fast path untuk fully opaque
 	if (src.a == 255) {
@@ -155,11 +155,11 @@ void put_pixel_alpha_fast(int x, int y, pixel_t src) {
 		return;
 
 	uint32_t* dst_ptr =
-		(uint32_t*) ((uint8_t*) g__fb->framebuffer_addr
-			     + y * g__fb->framebuffer_pitch + x * 4);
+		(uint32_t*) (void*) (((uint8_t*) g__fb->framebuffer_addr
+				      + y * g__fb->framebuffer_pitch + x * 4));
 
 	if (src.a == 255) {
-		*dst_ptr = (src.r << 16) | (src.g << 8) | src.b;
+		*dst_ptr = (uint32_t) ((src.r << 16) | (src.g << 8) | src.b);
 		return;
 	}
 
@@ -177,23 +177,24 @@ void put_pixel_alpha_fast(int x, int y, pixel_t src) {
 	*dst_ptr = rb | g;
 }
 
-void clear_screen(uint32_t color) {
-	for (int y = 0; y < g__fb->framebuffer_height; y++) {
-		for (int x = 0; x < g__fb->framebuffer_width; x++) {
-			put_pixel(x, y, color);
-		}
-	}
-}
+// static void clear_screen(uint32_t color) {
+// 	for (int y = 0; y < g__fb->framebuffer_height; y++) {
+// 		for (int x = 0; x < g__fb->framebuffer_width; x++) {
+// 			put_pixel(x, y, color);
+// 		}
+// 	}
+// }
 
-void scroll_up(int lines, uint32_t bg_color) {
+__attribute__((unused)) static void scroll_up(int lines, uint32_t bg_color) {
 	int line_height = 15; // Asumsi tinggi karakter 15px
 	int scroll_amount = lines * line_height;
 
 	// Geser framebuffer ke atas
 	memcopy((void*) g__fb->framebuffer_addr,
 		(void*) (g__fb->framebuffer_addr
-			 + scroll_amount * g__fb->framebuffer_pitch),
-		(g__fb->framebuffer_height - lines) * g__fb->framebuffer_pitch);
+			 + (uint64_t) scroll_amount * g__fb->framebuffer_pitch),
+		(size_t) ((g__fb->framebuffer_height - lines)
+			  * g__fb->framebuffer_pitch));
 
 	// Bersihkan area kosong di bawah
 	for (int y = g__fb->framebuffer_height - scroll_amount;

@@ -66,10 +66,6 @@ typedef struct Elf64_Rela {
 	int64_t r_addend;  /* Addend */
 } Elf64_Rela;
 
-#define Elf64_R_SYM(i) ((i) >> 32)
-#define Elf64_R_TYPE(i) ((i) & 0xffffffff)
-#define ELF64_R_INFO(s, t) (((s) << 32) + ((t) & 0xffffffff))
-
 enum Elf_Ptype : uint32_t {
 	PT_NULL = 0, /* Unused entry */
 	PT_LOAD = 1, /* Loadable segment */

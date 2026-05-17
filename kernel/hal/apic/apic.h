@@ -34,8 +34,8 @@ void apic_eoi();
 void apic_write(uint32_t reg, uint32_t value);
 uint32_t apic_read(uint32_t reg);
 void apic_send_ipi(uint8_t vector, uint8_t dest);
-void vxAPICCreateTimer(uint32_t type, uint64_t freq_us, uint8_t vector);
-void vxAPICCreateDeadlineTimer(const uint8_t vector, const double freq_us);
+void vxAPICCreateTimer(uint32_t type, uint64_t freq_us, uint16_t vector);
+void vxAPICCreateDeadlineTimer(const uint8_t vector, const uint64_t freq_us);
 bool vxTSChasInvariant(void);
 
 #endif // __HAL__APIC__APIC_H__

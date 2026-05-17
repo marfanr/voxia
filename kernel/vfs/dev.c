@@ -52,40 +52,40 @@ INIT(Dev) {
 	}
 }
 
-static int DevOpOpenImpl(void* vdata, int op_mode, thread_t* thread) {
-	cdev_ptr_t cdev = (cdev_ptr_t) vdata;
-	if (!cdev->ops)
-		return ERR_DEV_OPS_NOT_IMPLEMENTED;
+// static int DevOpOpenImpl(void* vdata, int op_mode, thread_t* thread) {
+// 	cdev_ptr_t cdev = (cdev_ptr_t) vdata;
+// 	if (!cdev->ops)
+// 		return ERR_DEV_OPS_NOT_IMPLEMENTED;
 
-	if (!cdev->ops->open)
-		return ERR_DEV_OPS_NOT_IMPLEMENTED;
+// 	if (!cdev->ops->open)
+// 		return ERR_DEV_OPS_NOT_IMPLEMENTED;
 
-	return ((cdev_ptr_t) vdata)
-		->ops->open(cdev->ops->data, op_mode, thread);
-}
+// 	return ((cdev_ptr_t) vdata)
+// 		->ops->open(cdev->ops->data, op_mode, thread);
+// }
 
-static int DevOpCloseImpl(void* vdata) {
-	cdev_ptr_t cdev = (cdev_ptr_t) vdata;
-	if (!cdev->ops)
-		return ERR_DEV_OPS_NOT_IMPLEMENTED;
+// static int DevOpCloseImpl(void* vdata) {
+// 	cdev_ptr_t cdev = (cdev_ptr_t) vdata;
+// 	if (!cdev->ops)
+// 		return ERR_DEV_OPS_NOT_IMPLEMENTED;
 
-	if (!cdev->ops->close)
-		return ERR_DEV_OPS_NOT_IMPLEMENTED;
+// 	if (!cdev->ops->close)
+// 		return ERR_DEV_OPS_NOT_IMPLEMENTED;
 
-	return ((cdev_ptr_t) vdata)->ops->close(cdev->ops->data);
-}
+// 	return ((cdev_ptr_t) vdata)->ops->close(cdev->ops->data);
+// }
 
-static int DevOpReadImpl(void* vdata, uintptr_t addr, void* buf, size_t count) {
-	cdev_ptr_t cdev = (cdev_ptr_t) vdata;
-	if (!cdev->ops)
-		return ERR_DEV_OPS_NOT_IMPLEMENTED;
+// static int DevOpReadImpl(void* vdata, uintptr_t addr, void* buf, size_t count) {
+// 	cdev_ptr_t cdev = (cdev_ptr_t) vdata;
+// 	if (!cdev->ops)
+// 		return ERR_DEV_OPS_NOT_IMPLEMENTED;
 
-	if (!cdev->ops->open)
-		return ERR_DEV_OPS_NOT_IMPLEMENTED;
+// 	if (!cdev->ops->open)
+// 		return ERR_DEV_OPS_NOT_IMPLEMENTED;
 
-	return ((cdev_ptr_t) vdata)
-		->ops->read(cdev->ops->data, addr, buf, count);
-}
+// 	return ((cdev_ptr_t) vdata)
+// 		->ops->read(cdev->ops->data, addr, buf, count);
+// }
 
 int KERNEL_API vxMakeDev(cdev_operations_t* ops, uint16_t minor, uint32_t uuid,
 			 uint16_t permission, dev_name_t name) {
@@ -120,7 +120,7 @@ int KERNEL_API vxMakeDev(cdev_operations_t* ops, uint16_t minor, uint32_t uuid,
 			return -1;
 		}
 
-		size_t count = 0;
+		int count = 0;
 		// for (size_t i = 0; i < dev_entry->children.size; i++) {
 		// 	if (strncmp(dev_entry->children.data[i]->name->c_str,
 		// 		    name, strlen(name))) {
@@ -130,12 +130,21 @@ int KERNEL_API vxMakeDev(cdev_operations_t* ops, uint16_t minor, uint32_t uuid,
 
 		kstring name_str;
 		if (count > 0) {
-			char temp[count / 10 + 1];
+			char temp[32];
+
+			size_t name_len = strlen(name);
+			size_t max_len = name_len + sizeof(temp);
+
+			char* tmp = kalloc(max_len);
+			if (!tmp) {
+				return -1;
+			}
+
 			auto inc = itoa(count, temp, 10);
-			char tmp[strlen(name) + (count / 10 + 1)];
 			strcpy(tmp, name);
 			strcat(tmp, inc);
 			name_str = str(tmp);
+			kfree2(tmp);
 		} else {
 			name_str = str(name);
 		}

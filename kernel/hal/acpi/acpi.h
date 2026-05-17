@@ -76,6 +76,6 @@ struct cpu_core* vxGetCpuInfo(uint8_t apicid);
 
 uintptr_t acpi_map_phys_page(uintptr_t phys_addr, size_t len);
 void acpi_phys_page_unmap(uintptr_t addr);
-uint16_t vxGetNumberOfCores();
+uint8_t vxGetNumberOfCores();
 
 #endif // __HAL__ACPI__ACPI_H_

@@ -27,9 +27,9 @@ static pci_access_ops_t ecam_ops = {
 	.write32 = ecam_write32,
 };
 
-void register_segment(uint16_t seg_id, uint8_t start, uint8_t end,
-		      uintptr_t vbase, pci_access_ops_t* ops,
-		      PCI_SEGMENT_TYPE type);
+extern void
+register_segment(uint16_t seg_id, uint8_t start, uint8_t end, uintptr_t vbase,
+		 pci_access_ops_t* ops, PCI_SEGMENT_TYPE type);
 
 boolean_t has_ecam = false;
 

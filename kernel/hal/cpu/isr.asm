@@ -1,4 +1,3 @@
-
 %macro pushall 0
     push rax
     push rbx
@@ -14,7 +13,7 @@
     push r12
     push r13
     push r14
-    push r15    
+    push r15
 %endmacro
 
 %macro popall 0
@@ -36,49 +35,69 @@
 %endmacro
 
 extern vxInterruptHandler
+
 int_common:
-    mov qword [saved_rax], rax
-    cmp qword [rsp + 24], 0x28
-    je .next
-    ; swapgs
-    .next:
-        pushall
+    pushall
 
-        sub rsp, 512
-        fxsave [rsp]           ; simpan semua FPU/SSE state ke stack
+    ; rbx = frame pointer (callee-saved → aman melewati call)
+    mov rbx, rsp
 
-        mov rdi, rsp
-        call vxInterruptHandler
+    ; ── Bersihkan CR0.TS + CR0.EM supaya fxsave tidak #NM ──
+    mov rax, cr0
+    and rax, ~((1 << 2) | (1 << 3))
+    mov cr0, rax
 
-        fxrstor [rsp]
-        add rsp, 512
+    ; ── Alokasi + align buffer fxsave ──
+    ; Butuh 512 byte, aligned 16
+    ; Tambah 16 ekstra untuk jaga-jaga alignment setelah and
+    sub rsp, 512 + 16
+    and rsp, -16            ; rsp sekarang aligned 16
+    fxsave [rsp]            ; simpan FPU state
 
-        popall
+    ; ── Simpan fpu pointer ke stack SEBELUM adjust alignment ──
+    ; Ini kunci keamanan di -O2: tidak andalkan register caller-saved
+    push rsp                ; [rsp] = fpu_ptr → ini callee akan lihat sebagai
+                            ; local di stack kita sendiri, aman
+    ; sekarang rsp % 16 == 8 (karena push 8 byte ke aligned-16 address)
+    ; → setelah `call` push ret addr (8 byte) → rsp aligned 16 ✓
 
-        add rsp, 16
-        cmp qword [rsp + 8], 0x28
-        je .next1
-        ; swapgs
-    .next1:
-        iretq
+    mov rdi, rbx            ; arg1: interrupt_stack_frame_t* (frame)
+    mov rsi, [rsp]          ; arg2: fpu_state_t* (fpu_ptr yang baru kita push)
+    call vxInterruptHandler
+
+    ; ── Restore FPU dari pointer yang kita simpan di stack ──
+    ; rbx masih valid (callee-saved)
+    ; [rsp] masih berisi fpu_ptr karena kita tidak pop/add sejak push
+    mov rax, [rsp]          ; ambil fpu_ptr dari stack (bukan dari register!)
+    fxrstor [rax]
+
+    pop rax                 ; buang fpu_ptr dari stack (balance push di atas)
+
+    ; ── Kembalikan rsp ke posisi setelah pushall ──
+    mov rsp, rbx            ; rbx masih valid (callee-saved, tidak berubah)
+
+    popall
+
+    add rsp, 16             ; buang int_no + err_code
+    iretq
 
 
 %macro isr 1
 isr_%1:
 %if !(%1 == 8 || (%1 >= 10 && %1 <= 14) || %1 == 17 || %1 == 21 || %1 == 29 || %1 == 30)
-    push 0
+    push 0                  ; dummy err_code
 %endif
-    push %1
+    push %1                 ; int_no
     jmp int_common
 %endmacro
 
 %assign i 0
 %rep 256
-isr i
+    isr i
 %assign i i+1
 %endrep
 
-[global int_table]
+global int_table
 section .data
 int_table:
 %assign i 0
@@ -87,36 +106,33 @@ int_table:
 %assign i i+1
 %endrep
 
-extern syscall
-global syscall_interupt
+; extern syscall
+; global syscall_interupt
 
-syscall_interupt:        
-        pushall
-        ; mov rbp, rsp
-        ; save rax and rdi to param
-        mov qword [syscall_param], rax       
-        mov qword [syscall_param + 8], rdi
-        mov qword [syscall_param + 16], rsi
-        mov qword [syscall_param + 24], rdx
-        mov qword [syscall_param + 32], rcx
-        mov qword [syscall_param + 40], r8
-        mov qword [syscall_param + 48], r9
+; syscall_interupt:
+;     pushall
 
-        ; assign syscall_param addr as syscall_param 1 on c function
-        mov rdi, syscall_param
-        call syscall 
-        mov qword [syscall_ret], rax
+;     mov qword [syscall_param +  0], rax
+;     mov qword [syscall_param +  8], rdi
+;     mov qword [syscall_param + 16], rsi
+;     mov qword [syscall_param + 24], rdx
+;     mov qword [syscall_param + 32], rcx
+;     mov qword [syscall_param + 40], r8
+;     mov qword [syscall_param + 48], r9
 
-        popall
+;     mov rdi, syscall_param
+;     call syscall
+;     mov qword [syscall_ret], rax
 
-        mov rax, [syscall_ret]
-        iretq
+;     popall
+
+;     mov rax, [syscall_ret]
+;     iretq
 
 
-
-section .bss
-align 16
-global saved_rax
-saved_rax resq 1
-syscall_param resq 6
-syscall_ret resq 1
+; section .bss
+; align 16
+; global saved_rax
+; saved_rax     resq 1
+; syscall_param resq 7        ; rax, rdi, rsi, rdx, rcx, r8, r9
+; syscall_ret   resq 1

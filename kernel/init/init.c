@@ -13,42 +13,99 @@
 #include "net/socket.h"
 #include "procc/proccess.h"
 #include "procc/thread.h"
+#include "vfs/dentry.h"
+#include "vfs/vfs.h"
 #include <hal/acpi/hpet.h>
 #include <str.h>
 #include <net/netutils.h>
+#include <memory/kalloc.h>
+
+// prototypes
+__attribute__((noreturn)) void _start(struct stivale2_struct* stivale2_struct);
+
+KERNEL_API void _ZdlPv(void* ptr);
+KERNEL_API void _ZdlPvm(void* ptr, size_t size);
+int atexit(void (*function)(void));
+KERNEL_API void __cxa_finalize(void* dso_handle);
 
 static init_context_t ctx = {};
 void render_bmp32_with_alpha(uint8_t* pixels, int width, int height, int new_w,
 			     int new_h, int posx, int posy);
 
-void kernel_init() {
-	execve("/dev/initrd/sbin/runner.elf", 0, 0);
-	LOG_INFO("KNIT", "kernel init...");
-	vxThreadExit();
-}
+// static void kernel_init() {
+// 	execve("/dev/initrd/sbin/runner.elf", 0, 0);
+// 	LOG_INFO("KNIT", "kernel init...");
+// 	vxThreadExit();
+// }
 
 // entry point of kernel
-extern void _start(struct stivale2_struct* stivale2_struct) {
+__attribute__((unused, noreturn)) extern void
+_start(struct stivale2_struct* stivale2_struct) {
 	serial_setup();
 	build_context_from_stivale2(stivale2_struct, &ctx);
 	run_all_init_calls(&ctx);
-	// KDEBUG(DEBUG_LEVEL_INFO, "ok");
 
 	// for logger
-	irq_register(0, 0x45, (void*) serial2_flush, true, 0x28, 0,
+	auto irq = irq_alloc_entry(0);
+	irq_register(0, irq, (void*) serial2_flush, true, 0x28, 0,
 		     INTERRUPT_ATTR_KERNEL);
-	vxAPICCreateTimer(APIC_TIMER_PERIOD, 1, 0x45);
+	vxAPICCreateTimer(APIC_TIMER_PERIOD, 100, irq);
 
 	pmm_log_usage();
 	KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...");
 
-	// tempat untuk test
+	/* Kalloc metadata test */
+	typedef struct {
+		size_t size;
+		uint32_t magic;
+		uint32_t _pad;
+	} kalloc_metadata_t;
+
+	void* test_ptr = kalloc(256);
+	if (test_ptr) {
+		kalloc_metadata_t* meta =
+			(kalloc_metadata_t*) ((uintptr_t) test_ptr
+					      - sizeof(kalloc_metadata_t) - 16);
+		LOG2_INFO("KALLOC_TEST",
+			  "Allocated 256 bytes at %p, sizeof(meta)=%d",
+			  test_ptr, sizeof(kalloc_metadata_t));
+		LOG2_INFO("KALLOC_TEST",
+			  "metadata: size=%d, magic=0x%x, pad=0x%x", meta->size,
+			  meta->magic, meta->_pad);
+		kfree2(test_ptr);
+		LOG2_INFO("KALLOC_TEST", "Freed successfully");
+	}
+
+	/* Large allocation test */
+	void* large_ptr = kalloc(4096);
+	if (large_ptr) {
+		kalloc_metadata_t* meta =
+			(kalloc_metadata_t*) ((uintptr_t) large_ptr
+					      - sizeof(kalloc_metadata_t) - 16);
+		LOG2_INFO("KALLOC_TEST",
+			  "Allocated 4096 bytes at %p, sizeof(meta)=%d",
+			  large_ptr, sizeof(kalloc_metadata_t));
+		LOG2_INFO("KALLOC_TEST",
+			  "metadata: size=%d, magic=0x%x, pad=0x%x", meta->size,
+			  meta->magic, meta->_pad);
+		kfree2(large_ptr);
+		LOG2_INFO("KALLOC_TEST", "Large alloc freed successfully");
+	}
+
+	// test block
+	{
+		dentry_ptr mount_point;
+		vxnamei("/opt/mount", &mount_point);
+		vfs_mount("/dev/cd0", "ISO9660", mount_point, 0);
+	}
+	// wait until /
+
 	// auto nic = IOforgeNICFindByName("E1000");
 	// if (nic) {
 	// 	LOG2_INFO("NIC TEST", "NIC E1000 exit");
 	// }
 
-	// TEST
+	// // TEST
 	// create_netdev("eth", NETDEV_TYPE_ETHERNET);
 
 	// bind netdev to nic
@@ -172,38 +229,39 @@ extern void _start(struct stivale2_struct* stivale2_struct) {
 	INFLOOP;
 }
 
-extern framebuffer_t* g__fb;
+// extern framebuffer_t* g__fb;
 
-void render_bmp32_with_alpha(uint8_t* pixels, int width, int height, int new_w,
-			     int new_h, int posx, int posy) {
-	int* srcx_table = kalloc(new_w * sizeof(int));
-	int* srcy_table = kalloc(new_h * sizeof(int));
+// void render_bmp32_with_alpha(uint8_t* pixels, int width, int height, int new_w,
+// 			     int new_h, int posx, int posy) {
+// 	int* srcx_table = kalloc(new_w * sizeof(int));
+// 	int* srcy_table = kalloc(new_h * sizeof(int));
 
-	for (int x = 0; x < new_w; x++)
-		srcx_table[x] = (x * width) / new_w;
+// 	for (int x = 0; x < new_w; x++)
+// 		srcx_table[x] = (x * width) / new_w;
 
-	for (int y = 0; y < new_h; y++)
-		srcy_table[y] = (y * height) / new_h;
+// 	for (int y = 0; y < new_h; y++)
+// 		srcy_table[y] = (y * height) / new_h;
 
-	int row_size = width * 4; // BGRA
-	for (int y = 0; y < new_h; y++) {
-		int srcy = srcy_table[y];
-		size_t row_idx = (height - 1 - srcy) * row_size;
+// 	int row_size = width * 4; // BGRA
+// 	for (int y = 0; y < new_h; y++) {
+// 		int srcy = srcy_table[y];
+// 		size_t row_idx = (height - 1 - srcy) * row_size;
 
-		for (int x = 0; x < new_w; x++) {
-			int srcx = srcx_table[x];
-			size_t idx = row_idx + srcx * 4;
+// 		for (int x = 0; x < new_w; x++) {
+// 			int srcx = srcx_table[x];
+// 			size_t idx = row_idx + srcx * 4;
 
-			pixel_t src = {.b = pixels[idx + 0],
-				       .g = pixels[idx + 1],
-				       .r = pixels[idx + 2],
-				       .a = pixels[idx + 3]};
-			put_pixel_alpha_fast(posx + x, posy + y, src);
-		}
-	}
-}
+// 			pixel_t src = {.b = pixels[idx + 0],
+// 				       .g = pixels[idx + 1],
+// 				       .r = pixels[idx + 2],
+// 				       .a = pixels[idx + 3]};
+// 			put_pixel_alpha_fast(posx + x, posy + y, src);
+// 		}
+// 	}
+// }
 
 // cpp runtime stub
+
 KERNEL_API void _ZdlPv(void* ptr) {
 	// Simple operator delete implementation
 	kfree(ptr, sizeof(ptr)); // Atau memory manager Anda
@@ -215,14 +273,14 @@ KERNEL_API void _ZdlPvm(void* ptr, size_t size) {
 }
 
 KERNEL_API
-int atexit(void (*function)(void)) {
+int atexit(__attribute__((unused)) void (*function)(void)) {
 	// Stub implementation - return success
 	LOG_DEBUG("LIBC", "atexit called, but not implemented");
 	return 0;
 }
 
 // Di kernel code
-KERNEL_API void __cxa_finalize(void* dso_handle) {
+KERNEL_API void __cxa_finalize(__attribute__((unused)) void* dso_handle) {
 	// Stub implementation
 	LOG_DEBUG("LIBC", "__cxa_finalize called, but not implemented");
 }

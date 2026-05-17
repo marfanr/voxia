@@ -12,6 +12,7 @@
 #include "memory/memory_utils.h"
 #include "memory/slab.h"
 #include "procc/thread.h"
+#include "type.h"
 
 static struct slab_cache* scheduler_cache = nullptr;
 static scheduler_core_t scheduler[VOXIA_MAX_CORE] = {0};
@@ -35,12 +36,6 @@ scheduler_queue_t* vxSchedulerGetCurrentQueue(uint16_t core) {
 }
 
 static void vxDeatachFromScheduler(scheduler_queue_t* current) {
-	/* FIX #2: Simpan core_id SEBELUM memodifikasi linked list.
-	 * Sebelumnya spin_release di akhir fungsi ini memakai
-	 * current->thread->core_affinity — tapi prev/next pointer sudah
-	 * di-null-kan di tengah fungsi, sehingga jika ada akses
-	 * concurrent, core_affinity bisa dibaca dari memori yang sudah
-	 * berubah. Simpan core_id lokal di awal sebagai snapshot. */
 	const uint16_t core_id = current->thread->core_affinity;
 	spin_acquire(&scheduler[core_id].lock);
 
@@ -60,19 +55,18 @@ static void vxDeatachFromScheduler(scheduler_queue_t* current) {
 	current->next_queue = nullptr;
 	current->prev_queue = nullptr;
 
-	/* Pakai core_id lokal yang sudah di-snapshot di awal,
-	 * bukan current->thread->core_affinity yang mungkin sudah stale. */
 	spin_release(&scheduler[core_id].lock);
 }
 
 static void
 vxSaveRegister(interrupt_stack_frame_t* stack, cpu_register_t* reg) {
+	// fpu_state_t* fpu = (fpu_state_t*) ((uint8_t*) stack - 512);
 	reg->rip = stack->rip;
 	reg->cs = stack->cs;
 	reg->rflags = stack->rflags;
 	reg->rsp = stack->rsp;
 	reg->ss = stack->ss;
-	memcopy(reg->fpu_state, stack->fpu_state, sizeof(reg->fpu_state));
+	// memcopy(reg->fpu_state, stack->fpu_state, sizeof(reg->fpu_state));
 	reg->rax = stack->rax;
 	reg->rbx = stack->rbx;
 	reg->rcx = stack->rcx;
@@ -92,12 +86,13 @@ vxSaveRegister(interrupt_stack_frame_t* stack, cpu_register_t* reg) {
 
 static void
 vxRestoreRegister(interrupt_stack_frame_t* stack, cpu_register_t* reg) {
+	// fpu_state_t* fpu = (fpu_state_t*) ((uint8_t*) stack - 512);
 	stack->rip = reg->rip;
 	stack->cs = reg->cs;
 	stack->rflags = reg->rflags;
 	stack->rsp = reg->rsp;
 	stack->ss = reg->ss;
-	memcopy(stack->fpu_state, reg->fpu_state, sizeof(stack->fpu_state));
+	// memcopy(stack->fpu_state, reg->fpu_state, sizeof(stack->fpu_state));
 	stack->rax = reg->rax;
 	stack->rbx = reg->rbx;
 	stack->rcx = reg->rcx;
@@ -115,7 +110,7 @@ vxRestoreRegister(interrupt_stack_frame_t* stack, cpu_register_t* reg) {
 	stack->r15 = reg->r15;
 }
 
-void vxSchedulerTick(interrupt_stack_frame_t* reg) {
+static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 	const uint16_t core_id = coreGetCpuID();
 
 	spin_acquire(&scheduler[core_id].lock);
@@ -168,24 +163,11 @@ void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 		goto end_scheduler_tick;
 	}
 	case THREAD_STATE_RUNNING: {
-		// LOG2_INFO("scheduler", "run");
 		vxSaveRegister(reg, &thread->reg);
 		break;
 	}
 	case THREAD_STATE_TERMINATED: {
-		/* FIX #2 (lanjutan): set state ke HAL dulu, lalu release lock
-		 * dengan core_id lokal yang sudah di-snapshot — bukan melalui
-		 * vxDeatachFromScheduler yang akan acquire lock lagi (deadlock).
-		 *
-		 * Sebelumnya: spin_release(&scheduler[core_id].lock) dipanggil
-		 * di sini, lalu vxDeatachFromScheduler dipanggil. Di dalam
-		 * vxDeatachFromScheduler, spin_acquire dipanggil ulang pakai
-		 * current->thread->core_affinity. Jika antara release dan
-		 * acquire, thread lain mengubah core_affinity (misalnya thread
-		 * migration), spin_release di akhir vxDeatachFromScheduler akan
-		 * melepas lock core yang SALAH.
-		 *
-		 * Fix: release lock dengan core_id lokal sebelum detach. */
+
 		thread->state = THREAD_STATE_HAL;
 		LOG2_DEBUG("SCHEDULER", "core %d terminated, thread id %d",
 			   core_id, thread->id);
@@ -213,9 +195,6 @@ void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 				vxRestoreRegister(reg, &next->thread->reg);
 			}
 
-			/* FIX #3 (dari sesi sebelumnya, tetap dipertahankan):
-			 * Reset time tracking untuk thread BERIKUTNYA,
-			 * bukan thread yang sedang di-preempt. */
 			next->thread->last_run_time = vxHPETGetMainCount();
 			next->thread->has_update_run_time = true;
 		}
@@ -225,9 +204,6 @@ void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 	}
 
 end_scheduler_tick:
-	/* FIX #2: Release selalu pakai core_id lokal yang di-snapshot
-	 * di awal fungsi, bukan thread->core_affinity yang bisa berubah
-	 * kapan saja jika ada thread migration di masa depan. */
 	spin_release(&scheduler[core_id].lock);
 }
 
@@ -281,7 +257,7 @@ void vxAttachScheduler(thread_t* new_thread) {
 }
 
 void vxStartScheduler() {
-	const uint16_t core_id = coreGetCpuID();
+	const uint8_t core_id = coreGetCpuID();
 	serial2_printf("scheduler init on core %d\n", core_id);
 	irq_register(core_id, 0x45, (void*) vxSchedulerTick, true, 0x28, 0,
 		     INTERRUPT_ATTR_KERNEL);

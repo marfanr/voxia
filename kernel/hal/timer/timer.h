@@ -3,7 +3,7 @@
 
 #include <type.h>
 
-void usleep(const double time_ns);
+void usleep(const uint64_t time_ns);
 
 typedef struct {
 	uint64_t current;
@@ -11,6 +11,6 @@ typedef struct {
 
 void vxTimerCounterInit(time_counter_t* counter);
 uint64_t vxTimerCounterCount(time_counter_t* counter);
-double vxTimerCounterCountInMs(time_counter_t* counter);
-double vxTimerCounterCountInNs(time_counter_t* counter);
+uint64_t vxTimerCounterCountInMs(time_counter_t* counter);
+uint64_t vxTimerCounterCountInNs(time_counter_t* counter);
 #endif // __HAL__TIMER__TIMER_H__

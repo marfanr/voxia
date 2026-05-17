@@ -1,4 +1,4 @@
-#include "console.h"
+#include <console/console.h>
 #include "hal/cpu/spinlock.h"
 #include <hal/graphic/graphic.h>
 #include <libk/serial.h>
@@ -45,7 +45,7 @@ void console_print(const char* str, uint64_t len) {
 }
 
 // convert number to string
-char* val_to_str(uint64_t val, int base) {
+static char* val_to_str(uint64_t val, uint64_t base) {
 	if (val == 0) {
 		return "0";
 	}
@@ -96,7 +96,7 @@ void console_printf(const char* fmt, ...) {
 			}
 			case 'd': {
 				int num = __builtin_va_arg(args, int);
-				char* str = val_to_str(num, 10);
+				char* str = val_to_str((uint64_t) num, 10);
 				while (*str != '\0') {
 					vxPutc(*str++, pos_x, pos_y, fgcolor,
 					       BLACK);
@@ -106,7 +106,7 @@ void console_printf(const char* fmt, ...) {
 			}
 			case 'b': {
 				int num = __builtin_va_arg(args, int);
-				char* str = val_to_str(num, 2);
+				char* str = val_to_str((uint64_t) num, 2);
 				while (*str != '\0') {
 					vxPutc(*str++, pos_x, pos_y, fgcolor,
 					       BLACK);
@@ -155,8 +155,8 @@ void console_vaprintf(const char* fmt, __builtin_va_list args) {
 				break;
 			}
 			case 'd': {
-				int num = __builtin_va_arg(args, uint64_t);
-				char* str = val_to_str(num, 10);
+				uint64_t num = __builtin_va_arg(args, uint64_t);
+				char* str = val_to_str((uint64_t) num, 10);
 				while (*str != '\0') {
 					vxPutc(*str++, pos_x, pos_y, fgcolor,
 					       BLACK);
@@ -166,7 +166,7 @@ void console_vaprintf(const char* fmt, __builtin_va_list args) {
 			}
 			case 'x': {
 				uint64_t num = __builtin_va_arg(args, uint64_t);
-				char* str = val_to_str(num, 16);
+				char* str = val_to_str((uint64_t) num, 16);
 				while (*str != '\0') {
 					vxPutc(*str, pos_x, pos_y, fgcolor,
 					       BLACK);
@@ -176,8 +176,8 @@ void console_vaprintf(const char* fmt, __builtin_va_list args) {
 				break;
 			}
 			case 'b': {
-				int num = __builtin_va_arg(args, uint64_t);
-				char* str = val_to_str(num, 2);
+				uint64_t num = __builtin_va_arg(args, uint64_t);
+				char* str = val_to_str((uint64_t) num, 2);
 				while (*str != '\0') {
 					vxPutc(*str++, pos_x, pos_y, fgcolor,
 					       BLACK);

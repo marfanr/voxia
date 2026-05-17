@@ -48,9 +48,7 @@ struct hpet {
 } __attribute__((packed));
 
 void vxHPETInitialize(uintptr_t addr);
-void hpet_write(uint32_t reg, uint64_t value);
-uint64_t hpet_read(uint32_t reg);
-void hpet_level_timer_setup(int n, uint64_t tick_count, int irq);
+void hpet_level_timer_setup(uint32_t n, uint64_t tick_count, int irq);
 uint64_t vxHPETMinTickNs(void);
 void hpet_enable();
 void hpet_disable();

@@ -31,7 +31,8 @@ struct rbt_node {
 	rbt_node_color color;
 };
 
-static void rbt_rotate_left(rbt_node** root, rbt_node* x, rbt_node* NIL) {
+static inline void
+rbt_rotate_left(rbt_node** root, rbt_node* x, rbt_node* NIL) {
 	// serial_trace("rbt_rotate_left: rotating left on node with id %d\n",
 	//  FIELD_ACCESS(x->data, RBT_ID_NAME));
 	rbt_node* y = x->right;
@@ -51,7 +52,8 @@ static void rbt_rotate_left(rbt_node** root, rbt_node* x, rbt_node* NIL) {
 	x->parent = y;
 }
 
-static void rbt_rotate_right(rbt_node** root, rbt_node* y, rbt_node* NIL) {
+static inline void
+rbt_rotate_right(rbt_node** root, rbt_node* y, rbt_node* NIL) {
 	// serial_trace("rbt_rotate_right: rotating right on node with id %d\n",
 	//  FIELD_ACCESS(y->data, RBT_ID_NAME));
 	rbt_node* x = y->left;
@@ -72,7 +74,7 @@ static void rbt_rotate_right(rbt_node** root, rbt_node* y, rbt_node* NIL) {
 	y->parent = x;
 }
 
-static void rbt_fix_insert(rbt_node** root, rbt_node* y, rbt_node* NIL) {
+static inline void rbt_fix_insert(rbt_node** root, rbt_node* y, rbt_node* NIL) {
 	// serial_trace("rbt_fix_insert: fixing insert for node with id %d\n",
 	//  FIELD_ACCESS(y->data, RBT_ID_NAME));
 	while (y->parent->color == RBT_RED) {
@@ -117,7 +119,7 @@ static void rbt_fix_insert(rbt_node** root, rbt_node* y, rbt_node* NIL) {
 	(*root)->color = RBT_BLACK;
 }
 
-static int
+static inline int
 rbt_insert_node(rbt_node** root, rbt_node* z, RBT_TYPE* data, rbt_node* NIL) {
 	memset(z, 0, sizeof(rbt_node));
 	z->data = data;
@@ -162,7 +164,8 @@ rbt_insert_node(rbt_node** root, rbt_node* z, RBT_TYPE* data, rbt_node* NIL) {
 	return 1;
 }
 
-static rbt_node* rbt_search_node(rbt_node* root, uint64_t id, rbt_node* NIL) {
+static inline rbt_node*
+rbt_search_node(rbt_node* root, uint64_t id, rbt_node* NIL) {
 	if (root == NIL || FIELD_ACCESS(root->data, RBT_ID_NAME) == id)
 		return root;
 
@@ -172,7 +175,7 @@ static rbt_node* rbt_search_node(rbt_node* root, uint64_t id, rbt_node* NIL) {
 	return rbt_search_node(root->right, id, NIL);
 }
 
-static void rbt_fix_delete(rbt_node** root, rbt_node* x, rbt_node* NIL) {
+static inline void rbt_fix_delete(rbt_node** root, rbt_node* x, rbt_node* NIL) {
 	// serial_trace("rbt_fix_delete: fixing delete for node with id %d\n",
 	//  FIELD_ACCESS(x->data, RBT_ID_NAME));
 	while (x != *root && x->color == RBT_BLACK) {
@@ -231,7 +234,8 @@ static void rbt_fix_delete(rbt_node** root, rbt_node* x, rbt_node* NIL) {
 	x->color = RBT_BLACK;
 }
 
-static void rbt_remove_node(rbt_node** root, rbt_node* z, rbt_node* NIL) {
+static inline void
+rbt_remove_node(rbt_node** root, rbt_node* z, rbt_node* NIL) {
 	rbt_node* y = z;
 	rbt_node* x;
 	rbt_node_color y_original_color = y->color;

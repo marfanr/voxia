@@ -30,12 +30,11 @@ static rbt_node* NIL;
 static rbt_node* vfs_tree;
 static struct slab_cache* rbt_node_cache;
 
-extern vnode_ptr_t create_vnode();
-
 KERNEL_API vnode_t* create_and_attach_vnode() {
 	vnode_t* vnode = create_vnode();
 
 	rbt_node* node = (rbt_node*) vxSlabAlloc(rbt_node_cache);
+	memset(node, 0, sizeof(rbt_node)); // ← tambah ini
 	rbt_insert_node(&vfs_tree, node, vnode, NIL);
 
 	return vnode;
@@ -45,6 +44,7 @@ INIT(Vfs) {
 	vxCreateSlabCache(&rbt_node_cache, "rbt_node", sizeof(rbt_node), 64, 0);
 
 	NIL = (struct rbt_node*) vxSlabAlloc(rbt_node_cache);
+	memset(NIL, 0, sizeof(rbt_node)); // ← tambah ini
 	NIL->data = create_vnode();
 	NIL->left = NIL->right = NIL->parent = NIL;
 	vfs_tree = NIL;
@@ -63,20 +63,27 @@ INIT(Vfs) {
 	LOG_INFO("vfs", "vfs has been installed");
 }
 
-int KERNEL_API vxMakeDirectory(dentry_ptr dir, dentry_ptr dentry,
-			       uint16_t permission) {
+KERNEL_API int
+vxMakeDirectory(dentry_ptr dir, dentry_ptr dentry, uint16_t permission) {
+	UNUSED(dir);
 	// vxAttachDentryToParent(dentry, dir);
 	dentry->vnode->permission = permission;
 	dentry->vnode->type = VNODE_TYPE_DIR;
 	return VFS_OK;
 }
 
-int KERNEL_API vxVFSMount(char* dev, char* path, char* fs, int flags) {
+KERNEL_API int vfs_mount(char* dev, char* fs, dentry_ptr dentry, int flags) {
+	if (!fs || !dentry)
+		return VFS_ERR;
+
 	dentry_ptr dev_entry;
 	if (vxResolveDentry(dev, 0, &dev_entry, 0) == VFS_ENOENT) {
 		LOG_WARN("VFS", "dentry not found..");
 		return VFS_DEV_NOT_FOUND;
 	}
+
+	UNUSED(fs);
+	UNUSED(flags);
 
 	// auto dev_vnode = dev_entry->vnode;
 	// auto cdev = vxRetrieveDev(dev_vnode->major ? dev_vnode->major : 0,
@@ -121,6 +128,7 @@ int KERNEL_API vxVFSMount(char* dev, char* path, char* fs, int flags) {
 }
 
 int KERNEL_API vxVFSOpen(char* path, int flags) {
+	UNUSED(flags);
 	// will be implemented
 	dentry_ptr dentry;
 	vxResolveDentry(path, 0, &dentry, 0);

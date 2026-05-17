@@ -17,7 +17,7 @@
 
 static interrupt_per_core_data_t interrupt_per_core_data[VOXIA_MAX_CORE] = {0};
 
-void interrupt_io_wait() {
+static void interrupt_io_wait() {
 	outb(0x80, 0);
 }
 
@@ -37,7 +37,8 @@ static void interrupt_pic_remap(void) {
 	outb(PIC2_DATA, 0xFF);
 }
 
-void interrupt_reload(interrupt_pointers_t* ptr, interrupt_entry_t* tbl) {
+static void
+interrupt_reload(interrupt_pointers_t* ptr, interrupt_entry_t* tbl) {
 	ptr->limit = MAX_INTERRUPTS * sizeof(interrupt_entry_t) - 1;
 	ptr->base = (uint64_t) &tbl[0];
 	asm volatile("lidt %0" : : "m"(*ptr));
@@ -45,22 +46,30 @@ void interrupt_reload(interrupt_pointers_t* ptr, interrupt_entry_t* tbl) {
 }
 
 extern void* int_table[];
-extern void syscall_interupt();
+// extern void syscall_interupt();
 
-void interrupt_register(interrupt_entry_t* entries, uint8_t n, void* handler,
-			uint16_t selector, uint8_t ist, uint8_t type_attr) {
-	entries[n].offset_low = (uint64_t) handler;
-	entries[n].selector = selector;
+static void interrupt_register(interrupt_entry_t* entries, int n, void* handler,
+			       int selector, uint8_t ist, uint8_t type_attr) {
+	entries[n].offset_low = (uint16_t) ((uint64_t) handler & 0xFFFF);
+	entries[n].selector = (uint16_t) selector;
 	entries[n].ist = ist;
 	entries[n].type_attr = type_attr;
-	entries[n].offset_mid = (uint64_t) handler >> 16;
+	entries[n].offset_mid = (uint16_t) ((uint64_t) handler >> 16);
 	entries[n].offset_high = (uint64_t) handler >> 32;
 	entries[n].zero = 0;
+
+	// serial_printf("registered interrupt 0x%x\n", n);
+	// serial_printf("low %x\n", entries[n].offset_low);
+	// serial_printf("mid %x\n", entries[n].offset_mid);
+	// serial_printf("high %x\n", entries[n].offset_high);
+	// serial_printf("selector %x\n", entries[n].selector);
+	// serial_printf("ist %x\n", entries[n].ist);
+	// serial_printf("type_attr %x\n", entries[n].type_attr);
+	// serial_printf("handler 0x%x", handler);
 }
 
-void irq_register(uint8_t core, uint8_t n, void* handler,
-		  boolean_t use_default_isr, uint16_t selector, uint8_t ist,
-		  uint8_t type_attr) {
+void irq_register(uint8_t core, int n, void* handler, boolean_t use_default_isr,
+		  uint16_t selector, uint8_t ist, uint8_t type_attr) {
 
 	irq_entry_t* entry = &interrupt_per_core_data[core].irq_entries[n];
 	int slot = -1;
@@ -72,7 +81,7 @@ void irq_register(uint8_t core, uint8_t n, void* handler,
 
 		uint8_t free_mask = (uint8_t) ~old;
 		int e = __builtin_ctz(free_mask);
-		uint8_t new = old | (1 << e);
+		uint8_t new = (uint8_t) (old | (1 << e));
 
 		if (__atomic_compare_exchange_n(&entry->mask, &old, new, false,
 						__ATOMIC_ACQ_REL,
@@ -123,13 +132,14 @@ void irq_setup(uint16_t core) {
 			(void*) (uint64_t) int_table[i], 0x28, 0,
 			INTERRUPT_ATTR_KERNEL);
 
+	// if (core == 0)
 	interrupt_pic_remap();
 	interrupt_reload(&interrupt_per_core_data[core].interrupt_pointers,
 			 interrupt_per_core_data[core].interrupt_entries);
 
-	interrupt_register(interrupt_per_core_data[core].interrupt_entries,
-			   0x73, (void*) (uint64_t) syscall_interupt, 0x28, 0,
-			   INTERRUPT_ATTR_USER);
+	// interrupt_register(interrupt_per_core_data[core].interrupt_entries,
+	// 		   0x73, (void*) (uint64_t) syscall_interupt, 0x28, 0,
+	// 		   INTERRUPT_ATTR_USER);
 }
 
 INIT(Interrupt) {
@@ -208,16 +218,18 @@ extern void virtio_irq();
 extern boolean_t elf_has_running;
 extern uintptr_t rip_before_run_elf;
 
-void iddle() {
+static void iddle() {
 	for (;;)
 		;
 }
 
 spinlock_t int_lock;
 
-extern void vxInterruptHandler(interrupt_stack_frame_t* rsp) {
-	uint16_t cpu_id;
-	__asm__ volatile("movw %%gs:0, %0" : "=r"(cpu_id));
+__attribute__((no_stack_protector)) extern void
+vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
+	UNUSED(fpu);
+	auto cpu = vxGetCoreData();
+	auto cpu_id = cpu->core_id;
 
 	uint64_t int_number = rsp->int_no;
 
@@ -240,7 +252,6 @@ extern void vxInterruptHandler(interrupt_stack_frame_t* rsp) {
 		// 	      rsp->rip, rsp->rsp, rsp->err_code, cr2);
 		// serial_printf("  rax=0x%lx  rbx=0x%lx  rcx=0x%lx  rdx=0x%lx\n",
 		// 	      rsp->rax, rsp->rbx, rsp->rcx, rsp->rdx);
-		// serial2_flush();
 
 		const scheduler_queue_t* queue =
 			vxSchedulerGetCurrentQueue(cpu_id);
@@ -264,12 +275,15 @@ extern void vxInterruptHandler(interrupt_stack_frame_t* rsp) {
 	}
 
 	{
+
 		irq_entry_t* irq = &interrupt_per_core_data[cpu_id]
 					    .irq_entries[int_number];
+
 		if (irq->configured) {
 			if (irq->use_default_isr) {
 				auto m = __atomic_load_n(&irq->mask,
 							 __ATOMIC_ACQUIRE);
+
 				while (m) {
 					int i = __builtin_ctz(m);
 					((void (*)(interrupt_stack_frame_t*))

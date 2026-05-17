@@ -21,16 +21,15 @@ virtio_scan_capabilities(struct ioforge_pci_device* pci, uint16_t virtio_cap,
 		return;
 	}
 
-	auto cap_len = pci_read8(pci->pci_bus, pci->pci_dev, pci->pci_func,
-				 virtio_cap + 2);
-	auto next_ptr = pci_read8(pci->pci_bus, pci->pci_dev, pci->pci_func,
-				  virtio_cap + 1);
-	auto cap_type = pci_read8(pci->pci_bus, pci->pci_dev, pci->pci_func,
-				  virtio_cap + 3);
-	auto bar = pci_read8(pci->pci_bus, pci->pci_dev, pci->pci_func,
-			     virtio_cap + 4);
-	auto offset = pci_read32(pci->pci_bus, pci->pci_dev, pci->pci_func,
-				 virtio_cap + 8);
+	uint8_t pci_bus = (uint8_t) pci->pci_bus;
+	uint8_t pci_dev = (uint8_t) pci->pci_dev;
+	uint8_t pci_func = (uint8_t) pci->pci_func;
+
+	auto cap_len = pci_read8(pci_bus, pci_dev, pci_func, virtio_cap + 2);
+	auto next_ptr = pci_read8(pci_bus, pci_dev, pci_func, virtio_cap + 1);
+	auto cap_type = pci_read8(pci_bus, pci_dev, pci_func, virtio_cap + 3);
+	auto bar = pci_read8(pci_bus, pci_dev, pci_func, virtio_cap + 4);
+	auto offset = pci_read32(pci_bus, pci_dev, pci_func, virtio_cap + 8);
 
 	LOG2_INFO("VIRTIO",
 		  "  virtio cap type %d len %d bar %d "
@@ -39,11 +38,9 @@ virtio_scan_capabilities(struct ioforge_pci_device* pci, uint16_t virtio_cap,
 
 	switch (cap_type) {
 	case VIRTIO_PCI_CAP_COMMON_CFG: {
-		LOG2_INFO("VIRTIO", "  common config");
 
 		uint32_t multiplier =
-			pci_read32(pci->pci_bus, pci->pci_dev, pci->pci_func,
-				   virtio_cap + 12);
+			pci_read32(pci_bus, pci_dev, pci_func, virtio_cap + 12);
 
 		auto virtio_common_cap = &v->common_cfg;
 		virtio_common_cap->bar = bar;
@@ -51,15 +48,11 @@ virtio_scan_capabilities(struct ioforge_pci_device* pci, uint16_t virtio_cap,
 		virtio_common_cap->length = multiplier;
 		virtio_common_cap->cfg_type = VIRTIO_PCI_CAP_COMMON_CFG;
 		virtio_common_cap->cap_next = next_ptr;
-
-		LOG2_INFO("VIRTIO", "multiplier %d", multiplier);
 		break;
 	}
 	case VIRTIO_PCI_CAP_NOTIFY_CFG: {
-		LOG2_INFO("VIRTIO", "  notify");
 		uint32_t multiplier =
-			pci_read32(pci->pci_bus, pci->pci_dev, pci->pci_func,
-				   virtio_cap + 12);
+			pci_read32(pci_bus, pci_dev, pci_func, virtio_cap + 12);
 		auto virtio_notify_cap = &v->notify_cfg;
 		virtio_notify_cap->bar = bar;
 		virtio_notify_cap->offset = offset;
@@ -69,10 +62,8 @@ virtio_scan_capabilities(struct ioforge_pci_device* pci, uint16_t virtio_cap,
 		break;
 	}
 	case VIRTIO_PCI_CAP_ISR_CFG: {
-		LOG2_INFO("VIRTIO", "  isr");
 		uint32_t multiplier =
-			pci_read32(pci->pci_bus, pci->pci_dev, pci->pci_func,
-				   virtio_cap + 12);
+			pci_read32(pci_bus, pci_dev, pci_func, virtio_cap + 12);
 		auto virtio_isr_cap = &v->isr_cfg;
 		virtio_isr_cap->bar = bar;
 		virtio_isr_cap->offset = offset;
@@ -84,7 +75,7 @@ virtio_scan_capabilities(struct ioforge_pci_device* pci, uint16_t virtio_cap,
 	}
 }
 
-void for_each_virtio_device(struct ioforge_device* node) {
+static void for_each_virtio_device(struct ioforge_device* node) {
 	if (!node)
 		return;
 
@@ -106,9 +97,9 @@ void for_each_virtio_device(struct ioforge_device* node) {
 
 			{
 				auto cap_ptr = pci->capability_ptr;
-				auto bus = pci->pci_bus;
-				auto device = pci->pci_dev;
-				auto func = pci->pci_func;
+				uint8_t bus = (uint8_t) pci->pci_bus;
+				uint8_t device = (uint8_t) pci->pci_dev;
+				uint8_t func = (uint8_t) pci->pci_func;
 
 				while (cap_ptr != 0 && cap_ptr >= 0x40
 				       && cap_ptr <= 0xFF) {
@@ -207,7 +198,7 @@ find_virtio_device_by_id(uint16_t vendor_id, uint16_t device_id) {
 	while (node) {
 		if (node->type == IOFORGE_VIRTIO) {
 			struct ioforge_virtio_device* v =
-				(struct ioforge_virtio_device*) node;
+				(struct ioforge_virtio_device*) (void*) node;
 			if (v->pci.vendor_id == vendor_id
 			    && v->pci.device_id == device_id) {
 				return v;

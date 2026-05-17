@@ -14,5 +14,9 @@ void fma_mul_add_pd(double* dst, const double* a, const double* b,
 		    const double* c);
 void fma_mul_sub_pd(double* dst, const double* a, const double* b,
 		    const double* c);
+void simd_sub_pd(double* dst, const double* a, const double* b);
+void simd_mul_pd(double* dst, const double* a, const double* b);
+
+void init_simd();
 
 #endif // __LIBK__SIMD_H__

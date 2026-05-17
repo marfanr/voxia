@@ -67,6 +67,7 @@ core_ap_32:
     mov ecx, 0xC0000080
     rdmsr
     or eax, (1 << 8)   ; LME enable
+    or eax, (1 << 11)     ; NXE - No-Execute Enable
     wrmsr
 
     ; Enable paging
@@ -89,20 +90,23 @@ core_ap_64:
     mov gs, ax
     mov fs, ax
 
+    cld
+    mov rax, [pml4_addr]
+    mov cr3, rax 
+    cli
+    
     mov rbx, [data]
     mov rax, qword [rbx + 8]
     mov rsp, rax
-    and rsp, ~0xF
-
-    ; respon handshake
-    mov word [rbx + 24], 1
-
-    cld
-    mov rax, [pml4_addr]
-    mov cr3, rax
+    ; and rsp, ~0xF
+    and rsp, -16
+    sub rsp, 8
     
-    cli
-    mov rbx, [data + 0]
+    ; respon handshake
+    mov qword [rbx + 24], 1
+
+
+    mov rbx, [data]
     mov rax, [rbx]
     mov rdi, [rbx + 16]
     call rax 

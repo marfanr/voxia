@@ -14,6 +14,7 @@
 #include "memory/phys_base_allocator.h"
 #include "memory/vm_manager.h"
 #include "procc/scheduler.h"
+#include <ioforge/ioforge.h>
 
 #define INIT_CORE_MAGIC 0x00EEDDAB
 #define INIT_CORE_ENTRYPOINT 0x8000
@@ -30,9 +31,10 @@ extern void initTimer(init_context_t* _);
 
 extern uint8_t x2_apic_supported;
 
-static each_core_data core_data[VOXIA_MAX_CORE];
+static each_core_data core_data[VOXIA_MAX_CORE] = {0};
 
-void coreUpdateGs(uint16_t id) {
+void coreUpdateGs(uint8_t id) {
+	core_data[id].canary = (id + 0x56) ^ 0x595e9fbd94fda766;
 	core_data[id].core_id = id;
 	core_data[id].usleep_trigerred = false;
 	core_data[id].scheduler = vxGetSchedulerCore(id);
@@ -43,44 +45,55 @@ void coreUpdateGs(uint16_t id) {
 	msrSetKernelGSBase(core_data_addr);
 }
 
-KERNEL_API
-uint16_t coreGetCpuID() {
-	uint16_t id;
-	__asm__ volatile("movw %%gs:0, %0" : "=r"(id));
-	return id;
-}
-
 each_core_data* vxGetCoreData(void) {
 	each_core_data* core = (each_core_data*) msrReadGSBase();
 	return core;
 }
 
-each_core_data* vxGetCoreDataByCoreID(uint16_t core_id) {
+KERNEL_API
+uint8_t coreGetCpuID() {
+	return vxGetCoreData()->core_id;
+}
+
+each_core_data* vxGetCoreDataByCoreID(uint8_t core_id) {
 	each_core_data* core = (each_core_data*) &core_data[core_id];
 	return core;
 }
 
 extern void vxInitializeAPICTimer();
+extern void init_simd();
+extern void setup_gdt(int core);
 
-static volatile int active_core_count = 1;
+extern uintptr_t __stack_chk_guard;
+static volatile uint8_t active_core_count = 1;
 
+__attribute__((no_stack_protector, noreturn))
+__attribute__((section(".cpu_trampoline"))) void
+cpuTrampolinePhase2(uint64_t core_id);
+
+__attribute__((no_stack_protector, noreturn))
 __attribute__((section(".cpu_trampoline"))) void
 cpuTrampolinePhase2(uint64_t core_id) {
 	__atomic_fetch_add(&active_core_count, 1, __ATOMIC_SEQ_CST);
-
 	serial_setup();
+	setup_gdt((uint8_t) core_id);
+	coreUpdateGs((uint8_t) core_id);
+	__stack_chk_guard = vxGetCoreData()->canary;
 
-	initSIMD(nullptr);
-	initGdt(nullptr);
-	coreUpdateGs(core_id);
-	irq_setup(core_id);
+	serial_printf("AP core=%d guard=%lx canary=%lx\n",
+		      vxGetCoreData()->core_id, __stack_chk_guard,
+		      vxGetCoreData()->canary);
+	init_simd();
+
+	irq_setup((uint8_t) core_id);
 	apicInitialize();
-	initTimer(nullptr);
+	vxInitializeAPICTimer();
 	serial2_printf("core %d successfully running\n", core_id);
 
+	// ap_stack_test();
 	// // workqueue init
-	// // LOG_INFO("workqueue", "still running %f ns",
-	// // (double)2.3f/(double)3.f);
+	// // // LOG_INFO("workqueue", "still running %f ns",
+	// // // (double)2.3f/(double)3.f);
 
 	vxStartScheduler();
 
@@ -90,7 +103,7 @@ cpuTrampolinePhase2(uint64_t core_id) {
 
 boolean_t multicore_start = false;
 
-uint32_t get_bsp_apic_id(void) {
+static uint32_t get_bsp_apic_id(void) {
 	uint32_t eax, ebx, ecx, edx;
 	__asm__ volatile("cpuid"
 			 : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
@@ -98,7 +111,7 @@ uint32_t get_bsp_apic_id(void) {
 	return (ebx >> 24) & 0xFF; // Initial APIC ID ada di EBX[31:24]
 }
 
-void sipi_sequential(uint32_t apic_id, uint64_t entrypoint_addr) {
+static void sipi_sequential(uint32_t apic_id, uint64_t entrypoint_addr) {
 	__asm__ volatile("mfence" ::: "memory");
 
 	uint8_t vector = (entrypoint_addr >> 12) & 0xFF;
@@ -107,7 +120,6 @@ void sipi_sequential(uint32_t apic_id, uint64_t entrypoint_addr) {
 		// ======================
 		// xAPIC (MMIO)
 		// ======================
-
 		// INIT assert
 		apic_write(APIC_ICR_HIGH, apic_id << 24);
 		apic_write(APIC_ICR_LOW, (0b101 << 8) | (1 << 14));
@@ -181,8 +193,8 @@ INIT(Core) {
 
 	// 0x8000 - 0x9000 digunakan untuk entry point di tiap core
 	uint64_t entrypoint_addr = INIT_CORE_ENTRYPOINT;
-	size_t size = _binary_hal_cpu_core_ap_bin_end
-		      - _binary_hal_cpu_core_ap_bin_start;
+	size_t size = (uintptr_t) _binary_hal_cpu_core_ap_bin_end
+		      - (uintptr_t) _binary_hal_cpu_core_ap_bin_start;
 	size_t aligned_size = (size + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
 	vxMultipleMmap(paging_get_highest_page_map(), entrypoint_addr,
@@ -213,10 +225,10 @@ INIT(Core) {
 
 	auto bsp_id = (int) get_bsp_apic_id();
 
-	// kirim SIPI (StartUp IPI)
+	// // kirim SIPI (StartUp IPI)
 	auto jum_core = vxGetNumberOfCores();
 	LOG_DEBUG("CORE", "terdeteksi %d core", jum_core);
-	for (int i = 0; i < jum_core; i++) {
+	for (uint8_t i = 0; i < jum_core; i++) {
 		if (i == bsp_id)
 			continue;
 
@@ -231,7 +243,10 @@ INIT(Core) {
 		paging_reload(paging_get_highest_page_map());
 
 		LOG_DEBUG("CORE", "stack untuk core %d = 0x%x", cpu_id, stack);
-		data[1] = (uint64_t) stack;
+		auto stack_top = stack + 5 * BLOCK_SIZE;
+		stack_top &= ~0xFULL; // align ke 16 byte
+		stack_top -= 8;
+		data[1] = stack_top;
 		data[2] = (uint64_t) cpu_id;
 		data[3] = 0; // untuk handshake
 
@@ -255,11 +270,12 @@ INIT(Core) {
 
 				timeout = 10000000ULL;
 				while (data[3] == 0 && timeout-- > 0)
-					vxHPETSleep(ms2ns(1000));
+					vxHPETSleep(ms2ns(10));
 
 				if (data[3] != 0)
 					LOG_INFO("CORE",
-						 "core %d sudah berhasil nyala",
+						 "core %d sudah "
+						 "berhasil nyala",
 						 cpu_id);
 				core_info->status = Active;
 				break;
@@ -271,14 +287,8 @@ INIT(Core) {
 	}
 
 	LOG_INFO("core", "active core count %d", active_core_count);
-
-	// debug
-	// apic_write(APIC_ICR_HIGH, (1 << 24));
-	// apic_write(APIC_ICR_LOW, 0x3D | 0x0 | 0x00004000 | 0x0);
 }
 
-// TODO: ganti mantain status per core
-// ini termausk bsp
-int vxGetActiveCoreCount() {
+uint8_t vxGetActiveCoreCount() {
 	return active_core_count;
 }

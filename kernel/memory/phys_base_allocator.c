@@ -25,7 +25,7 @@ struct stivale2_struct_tag_memmap* saved_memmap_info = 0;
 extern size_t
 __fast_phys_base_find_free_block__(uint64_t* bitmap, size_t num_words);
 
-const char* pMemoryType(uint32_t type) {
+static const char* pMemoryType(uint32_t type) {
 	switch (type) {
 	case ENTRY_MMAP_USABLE:
 		return "USABLE";
@@ -196,7 +196,8 @@ void* vxPhysBaseAlloc(uint64_t block) {
 		uint64_t word_idx = i / 64;
 		uint64_t bit_idx = i % 64;
 
-		uint64_t word = *((uint64_t*) &bitmap_base_[word_idx * 8]);
+		uint64_t word;
+		memcopy(&word, &bitmap_base_[word_idx * 8], sizeof(word));
 
 		// Geser word sesuai posisi bit_idx
 		word >>= bit_idx;

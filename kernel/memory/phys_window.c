@@ -21,6 +21,7 @@ mem_physwindow_t* mem_resolve_physwindow(uintptr_t virt_addr) {
 			return &physical_memory_windows[i];
 		}
 	}
+	return 0;
 }
 
 mem_physwindow_status_t

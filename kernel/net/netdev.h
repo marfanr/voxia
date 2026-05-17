@@ -28,7 +28,7 @@ struct netdev_ops {
 };
 
 struct netdev {
-	uint32_t hash;
+	uint64_t hash;
 	boolean_t is_up;
 	netdev_type_t type;
 	char name[NETDEV_NAME_MAX_LEN];

@@ -1,4 +1,15 @@
-#include "ioforge/ioforge.h"
+#include <hal/pci/pci.h>
+#include <libk/serial.h>
+#include <str.h>
+#include <ioforge/ioforge_usb.h>
+#include <console/console.h>
+#include <ioforge/ioforge.h>
+#include "ioforge/ioforge_pci.h"
+#include "memory/kalloc.h"
+#include "memory/memory_utils.h"
+#include "memory/phys_base_allocator.h"
+#include "memory/vm_manager.h"
+
 #include "block/block.h"
 #include "hal/apic/ioapic.h"
 #include "hal/cpu/core.h"
@@ -6,24 +17,16 @@
 #include "hal/cpu/paging.h"
 #include "hal/timer/timer.h"
 #include "init/init.h"
-#include "ioforge/ioforge_pci.h"
 #include "libk/debug/debug.h"
 #include "libk/io.h"
 #include "libk/type.h"
-#include "memory/kalloc.h"
-#include "memory/memory_utils.h"
-#include "memory/phys_base_allocator.h"
-#include "memory/vm_manager.h"
 #include "type.h"
-#include <hal/pci/pci.h>
-#include <libk/serial.h>
-#include <str.h>
-#include <ioforge/ioforge_usb.h>
 
 static struct ioforge_device* root = 0;
-struct ioforge_device* pci_root = 0;
-struct ioforge_device* usb_controller_root = 0;
-struct ioforge_device* usb_devices_root = 0;
+static struct ioforge_device* pci_root = 0;
+static struct ioforge_device* usb_controller_root = 0;
+static struct ioforge_device* usb_devices_root = 0;
+static struct ioforge_device* block_devices_root = 0;
 
 // static uint64_t incremented_id = 1;
 
@@ -32,20 +35,20 @@ void KERNEL_API print_device_tree(struct ioforge_device* node, int indent) {
 		return;
 
 	for (int i = 0; i < indent; i++)
-		serial2_printf(" ");
+		console_printf(" ");
 
-	if (node->type == IOFORGE_PCI || node->type == IOFORGE_VIRTIO) {
-		struct ioforge_pci_device* pd =
-			(struct ioforge_pci_device*) node;
-		serial2_printf("pci %d:%d\n", pd->vendor_id, pd->device_id);
-	} else if (node->type == IOFORGE_USB_DEVICE) {
+	if (node->type == IOFORGE_USB_DEVICE) {
 		struct ioforge_usb_device* d =
 			(struct ioforge_usb_device*) node;
 		if (d->base.name[0] != 0 && d->serial_number[0] != 0)
-			serial2_printf("usb device: %s %s\n", d->base.name,
+			console_printf("usb device: %s %s\n", d->base.name,
 				       d->serial_number);
+	} else if (node->type == IOFORGE_PCI || node->type == IOFORGE_VIRTIO) {
+		struct ioforge_pci_device* pd =
+			(struct ioforge_pci_device*) node;
+		console_printf("pci %d:%d\n", pd->vendor_id, pd->device_id);
 	} else {
-		serial2_printf("device: %s\n", node->name);
+		console_printf("device: %s\n", node->name);
 	}
 
 	print_device_tree(node->first_child, indent + 1);
@@ -84,6 +87,12 @@ INIT(ioforge) {
 	usb_devices_root->type = IOFORGE_ROOT;
 	ioforge_attach(root, usb_devices_root);
 
+	block_devices_root = kalloc(sizeof(struct ioforge_device));
+	memset(block_devices_root, 0, sizeof(*block_devices_root));
+	strcpy((char*) block_devices_root->name, "BLOCK");
+	block_devices_root->type = IOFORGE_ROOT;
+	ioforge_attach(root, block_devices_root);
+
 	// enumerate pci
 	pci_scan();
 	KDEBUG(DEBUG_LEVEL_INFO, "PCI Scan done\n");
@@ -107,14 +116,14 @@ ioforge_attach(struct ioforge_device* parent, struct ioforge_device* child) {
 }
 
 KERNEL_API struct ioforge_device*
-ioforge_find_by_name(struct ioforge_device* root, const char* name) {
-	if (!root)
+ioforge_find_by_name(struct ioforge_device* r, const char* name) {
+	if (!r)
 		return NULL;
 
-	if (strncmp(root->name, name, 64) == 0)
-		return root;
+	if (strncmp(r->name, name, 64) == 0)
+		return r;
 
-	struct ioforge_device* child = root->first_child;
+	struct ioforge_device* child = r->first_child;
 	while (child) {
 		struct ioforge_device* found =
 			ioforge_find_by_name(child, name);
@@ -136,6 +145,10 @@ KERNEL_API struct ioforge_device* ioforge_get_usb_ctrl_root() {
 
 KERNEL_API struct ioforge_device* ioforge_get_usb_devices_root() {
 	return usb_devices_root;
+}
+
+KERNEL_API struct ioforge_device* ioforge_get_block_devices_root() {
+	return block_devices_root;
 }
 
 bool ioforge_can_contain_pci(IoForgeType type) {
@@ -240,13 +253,13 @@ KERNEL_API void ioforge_sleep(uint32_t time) {
 	usleep(time);
 }
 
-KERNEL_API void ioforge_mmio_outl(uint32_t port, uint32_t value) {
-	mmio_outl(port, value);
-}
+// KERNEL_API void ioforge_mmio_outl(uint32_t port, uint32_t value) {
+// 	mmio_outl(port, value);
+// }
 
-KERNEL_API uint32_t ioforge_mmio_inl(uint32_t port) {
-	return mmio_inl(port);
-}
+// KERNEL_API uint32_t ioforge_mmio_inl(uint32_t port) {
+// 	return mmio_inl(port);
+// }
 
 KERNEL_API uint16_t ioforge_irq_alloc_entry() {
 	auto core_id = coreGetCpuID();
@@ -277,10 +290,4 @@ KERNEL_API void IOforgeStrCopy(char* dst, char* src) {
 
 KERNEL_API void IOforgeStrnCopy(char* dst, char* src, size_t len) {
 	strncpy(dst, src, len);
-}
-
-KERNEL_API void
-registerBlockDevice(const char* name, block_device_operations_t* ops,
-		    void* identifier) {
-	// block_register_device(name, ops, identifier);
 }

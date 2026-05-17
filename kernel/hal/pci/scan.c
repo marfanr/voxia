@@ -40,12 +40,7 @@ void register_segment(uint16_t seg_id, uint8_t start, uint8_t end,
 	s->type = type;
 }
 
-//  legacy
-extern uint32_t legacy_read32(uintptr_t base, uint8_t bus, uint8_t dev,
-			      uint8_t func, uint16_t offset);
-extern void legacy_write32(uintptr_t base, uint8_t bus, uint8_t dev,
-			   uint8_t func, uint16_t offset, uint32_t val);
-
+//  legacy_ops
 static pci_access_ops_t legacy_ops = {
 	.read32 = legacy_read32,
 	.write32 = legacy_write32,
@@ -96,7 +91,8 @@ void pci_write16(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off,
 		 uint16_t val) {
 	uint32_t dword = pci_read32(bus, dev, func, off & ~3);
 	uint32_t shift = (off & 2) * 8;
-	dword = (dword & ~(0xFFFF << shift)) | ((uint32_t) val << shift);
+	dword = (dword & (uint32_t) ~(0xFFFF << shift))
+		| ((uint32_t) val << shift);
 	pci_write32(bus, dev, func, off & ~3, dword);
 }
 //
@@ -104,14 +100,14 @@ void pci_write16(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off,
 // Sekarang: hanya deteksi MSI ada/tidak
 // Yang berguna: actually enable MSI supaya tidak pakai legacy IRQ
 
-static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
+static void vxPCIGatheringBusInfo(uint8_t bus, uint8_t device, uint8_t func) {
 	struct ioforge_pci_device* pci = (struct ioforge_pci_device*) kalloc(
 		sizeof(struct ioforge_pci_device));
 	memset(pci, 0, sizeof(*pci));
 
-	pci->pci_bus = bus;
-	pci->pci_dev = device;
-	pci->pci_func = func;
+	pci->pci_bus = (size_t) bus;
+	pci->pci_dev = (size_t) device;
+	pci->pci_func = (size_t) func;
 
 	pci->device = device;
 
@@ -132,24 +128,25 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 	pci->subclass = pci_read16(bus, device, func, 10) & 0xFF;
 	pci->classes = (pci_read16(bus, device, func, 10) >> 8) & 0xFF;
 
-	uint8_t cache_line_size = pci_read16(bus, device, func, 12) & 0xFF;
-	uint8_t latency_timer = pci_read16(bus, device, func, 13) & 0xFF;
-	uint8_t header_type = pci_read16(bus, device, func, 14) & 0xFF;
+	// uint8_t cache_line_size = pci_read16(bus, device, func, 12) & 0xFF;
+	// uint8_t latency_timer = pci_read16(bus, device, func, 13) & 0xFF;
+	// uint8_t header_type = pci_read16(bus, device, func, 14) & 0xFF;
+	// uint8_t bist = pci_read16(bus, device, func, 15) & 0xFF;
 
-	uint8_t bist = pci_read16(bus, device, func, 15) & 0xFF;
 	for (int i = 0; i < 6; i++) {
 
 		// Fix: disable command register dulu
 		uint16_t cmd = pci_read16(bus, device, func, 0x04);
 		pci_write16(bus, device, func, 0x04, cmd & ~0x7);
 
-		uint32_t bar = pci_read32(bus, device, func, 0x10 + i * 4);
+		uint32_t bar = pci_read32(bus, device, func,
+					  (uint16_t) (0x10 + i * 4));
 		int bar_idx = i; // simpan index asli sebelum i++
 
 		if (bar & 1) {
 			// I/O space
 			pci->bar[i].iospace = 1;
-			pci->bar[i].address = bar & ~3;
+			pci->bar[i].address = bar & ~3UL;
 			LOG_INFO("PCI", "[%d] BAR IO 0x%x (0x%x)", i, bar,
 				 pci->bar[i].address);
 			continue;
@@ -157,13 +154,14 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 
 		// Memory space
 		pci->bar[i].iospace = 0;
-		pci->bar[i].address = bar & ~0xF;
+		pci->bar[i].address = bar & ~0xFUL;
 
 		// Check 64-bit BAR
 		uint64_t addr = pci->bar[i].address;
 		if ((bar & 0x6) == 0x4) {
-			uint32_t bar_high = pci_read32(bus, device, func,
-						       0x10 + (i + 1) * 4);
+			uint32_t bar_high =
+				pci_read32(bus, device, func,
+					   (uint16_t) (0x10 + (i + 1) * 4));
 			addr |= ((uint64_t) bar_high << 32);
 			LOG_INFO("PCI",
 				 "  64-bit BAR detected at index %d (0x%lx)", i,
@@ -172,11 +170,12 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 		}
 
 		uint32_t original_bar = bar;
-		pci_write32(bus, device, func, 0x10 + bar_idx * 4, 0xFFFFFFFF);
-		uint32_t value =
-			pci_read32(bus, device, func, 0x10 + bar_idx * 4);
-		uint32_t size = ~(value & ~0xF) + 1;
-		pci_write32(bus, device, func, 0x10 + bar_idx * 4,
+		pci_write32(bus, device, func, (uint16_t) (0x10 + bar_idx * 4),
+			    0xFFFFFFFF);
+		uint32_t value = pci_read32(bus, device, func,
+					    (uint16_t) (0x10 + bar_idx * 4));
+		uint32_t size = (uint32_t) (~(value & ~0xFUL) + 1);
+		pci_write32(bus, device, func, (uint16_t) (0x10 + bar_idx * 4),
 			    original_bar);
 
 		uint32_t size_4kb = (size + PAGE_SIZE - 1) / PAGE_SIZE;
@@ -189,7 +188,8 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 			paging_reload(paging_get_highest_page_map());
 			vma_register(addr, vaddr, size_4kb * PAGE_SIZE);
 		}
-		uint32_t offset = addr - ALIGN_DOWN(addr, PAGE_SIZE);
+		uint32_t offset =
+			(uint32_t) (addr - ALIGN_DOWN(addr, PAGE_SIZE));
 		LOG_INFO("PCI", "[%d] BAR 0x%lx [0x%lx] (0x%lx) size: %d KB",
 			 bar_idx, addr, vaddr, offset, size_4kb * 4);
 
@@ -198,11 +198,12 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 		pci_write16(bus, device, func, 0x04, cmd); // restore
 	}
 
-	// turn on bus mastering
+	// TODO: turn on bus mastering only if needed by module
 	// sementara untuk e1000 saja
 	// if (pci->vendor_id == 0x8086 && pci->device_id == 0x100C) {
 	if ((pci->vendor_id == 0x8086 && pci->device_id == 0x10D3)
 	    || (pci->vendor_id == 0x8086 && pci->device_id == 0x24C2)
+	    || (pci->vendor_id == 0x8086 && pci->device_id == 0x2922)
 	    || (pci->vendor_id == 0x1AF4)) {
 		auto cmd = pci->command;
 		cmd |= (1 << 2); // Bus Master
@@ -218,23 +219,24 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 		LOG_INFO("PCI", "memory space : %d", memory_space);
 	}
 
-	uint32_t cardbus_cis_pointer =
-		pci_read16(bus, device, func, 41) & 0xFFFF;
-	cardbus_cis_pointer |= pci_read16(bus, device, func, 43) << 16;
-	uint16_t subsystem_vendor_id = pci_read16(bus, device, func, 44);
-	uint16_t subsystem_id = pci_read16(bus, device, func, 46);
-	uint32_t expansion_rom_base_address =
-		pci_read16(bus, device, func, 48) & 0xFFFF;
-	expansion_rom_base_address |= pci_read16(bus, device, func, 50) << 16;
+	// uint32_t cardbus_cis_pointer =
+	// 	pci_read16(bus, device, func, 41) & 0xFFFF;
+	// cardbus_cis_pointer |= pci_read16(bus, device, func, 43) << 16;
+	// uint16_t subsystem_vendor_id = pci_read16(bus, device, func, 44);
+	// uint16_t subsystem_id = pci_read16(bus, device, func, 46);
+	// uint32_t expansion_rom_base_address =
+	// 	pci_read16(bus, device, func, 48) & 0xFFFF;
+	// expansion_rom_base_address |= pci_read16(bus, device, func, 50) << 16;
 	// pci->capability_ptr    = pci_read16(bus, device, func, 52);
+
 	uint8_t interrupt_line = pci_read16(bus, device, func, 60) & 0xFF;
 	uint8_t interrupt_pin = (pci_read16(bus, device, func, 60) >> 8) & 0xFF;
 	LOG_INFO("PCI", "IRQ %d pin : %d", interrupt_line, interrupt_pin);
 	pci->interrupt_line = interrupt_line;
 	pci->interrupt_pin = interrupt_pin;
 
-	uint8_t min_grant = pci_read16(bus, device, func, 62) & 0xFF;
-	uint8_t max_latency = pci_read16(bus, device, func, 63) & 0xFF;
+	// uint8_t min_grant = pci_read16(bus, device, func, 62) & 0xFF;
+	// uint8_t max_latency = pci_read16(bus, device, func, 63) & 0xFF;
 
 	LOG_INFO("PCI", "class : 0x%x subclass : 0x%x", pci->classes,
 		 pci->subclass);
@@ -353,7 +355,7 @@ static void vxPCIGatheringBusInfo(size_t bus, size_t device, size_t func) {
 		switch (pci->device_id) {
 		case 0x1050:
 			LOG_INFO("PCI", "found virtio VGA device");
-			pci->base.flags |= IOFORGE_F_VIRTIO;
+			pci->base.flags |= (uint32_t) IOFORGE_F_VIRTIO;
 			// pci->service.init = (void (*)(struct IoForgeService
 			// *))virtio_gpu_init;
 			break;
@@ -407,7 +409,7 @@ static void pci_check_bus(uint8_t bus) {
 
 extern boolean_t has_ecam;
 
-void pci_scan_bus(pci_segment_t* s) {
+static void pci_scan_bus(pci_segment_t* s) {
 	uint8_t host_header = pci_read8(s->bus_start, 0, 0, 0x0E);
 
 	if (host_header & 0x80) {

@@ -43,10 +43,22 @@ typedef struct {
 } __attribute__((packed)) interrupt_pointers_t;
 
 typedef struct {
-	uint8_t fpu_state[512] __attribute__((aligned(16)));
-	uint64_t rax, rbx, rcx, rdx, rbp, rsi, rdi, r8, r9, r10, r11, r12, r13,
-		r14, r15, int_no, err_code, rip, cs, rflags, rsp, ss;
-} __attribute__((packed)) interrupt_stack_frame_t;
+	uint64_t r15, r14, r13, r12, r11, r10, r9, r8;
+	uint64_t rbp, rdi, rsi, rdx, rcx, rbx, rax;
+
+	uint64_t int_no;
+	uint64_t err_code;
+
+	uint64_t rip;
+	uint64_t cs;
+	uint64_t rflags;
+	uint64_t rsp;
+	uint64_t ss;
+} interrupt_stack_frame_t;
+
+typedef struct {
+	uint8_t data[512];
+} __attribute__((aligned(16))) fpu_state_t;
 
 typedef struct {
 	uint8_t mask;
@@ -62,10 +74,11 @@ typedef struct {
 	interrupt_pointers_t interrupt_pointers;
 } interrupt_per_core_data_t;
 
-void irq_register(uint8_t core, uint8_t n, void* handler,
-		  boolean_t use_default_isr, uint16_t selector, uint8_t ist,
-		  uint8_t type_attr);
+void irq_register(uint8_t core, int n, void* handler, boolean_t use_default_isr,
+		  uint16_t selector, uint8_t ist, uint8_t type_attr);
 void irq_setup(uint16_t core);
 uint16_t irq_alloc_entry(uint8_t core);
 
+extern __attribute__((no_stack_protector)) void
+vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu);
 #endif // __HAL__CPU__INTERRUPT_H__

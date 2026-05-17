@@ -14,6 +14,7 @@
 #include "tcp.h"
 #include "netutils.h"
 #include "netdev.h"
+#include "type.h"
 
 static struct slab_cache* socket_cache = 0;
 static socket_ops_t* socket_ops = 0;
@@ -55,8 +56,8 @@ void vxSocket(sock_family_t family, sock_type_t type, uint16_t protocol,
 #define MYIP "192.168.100.80"
 
 static int socket_receive(socket_t* socket, void* buffer, size_t size) {
-	auto family = socket->family;
-	auto type = socket->type;
+	// auto family = socket->family;
+	// auto type = socket->type;
 
 	auto dev = socket->netdev;
 	if (!dev) {
@@ -76,7 +77,7 @@ static int socket_receive(socket_t* socket, void* buffer, size_t size) {
 	}
 	// serial2_printf("pending rx buffer 0x%x\n", rx.data);
 
-	int n = (rx.len < size) ? rx.len : size;
+	size_t n = (rx.len < size) ? rx.len : size;
 
 	struct ethernet_header* eth = (struct ethernet_header*) rx.data;
 
@@ -119,12 +120,13 @@ static int socket_receive(socket_t* socket, void* buffer, size_t size) {
 
 	// clear rx
 	ioforge_clear_rx_queue(nic, &rx);
-	return n;
+	return 1;
 }
 
 static int
 socket_set_sockopt(socket_t* socket, uint32_t level, uint32_t optname,
 		   const void* optval, uint32_t optlen) {
+	UNUSED(optlen);
 
 	switch (level) {
 	case SOL_SOCKET: {
@@ -141,7 +143,12 @@ socket_set_sockopt(socket_t* socket, uint32_t level, uint32_t optname,
 		}
 	}
 	}
+	return SOCK_ERR_NOTCONN;
 }
 
 static int socket_bind(socket_t* socket, sockaddr_in_t* addr, uint32_t len) {
+	UNUSED(socket);
+	UNUSED(addr);
+	UNUSED(len);
+	return 0;
 }

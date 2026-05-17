@@ -33,47 +33,44 @@ static struct vfs_cache* cache_ = 0;
 
 INIT(VfsCache) {
 	cache_ = create_vfs_cache();
+	serial2_printf("cache at 0x%x\n", cache_);
 }
 
 struct vfs_cache* create_vfs_cache() {
 	struct vfs_cache* cache =
 		(struct vfs_cache*) kalloc(sizeof(struct vfs_cache));
+	memset(cache, 0, sizeof(struct vfs_cache));
 	cache->count = 0;
 	__atomic_clear(&cache->lock, __ATOMIC_RELAXED);
+	serial2_printf("create cache at 0x%x\n", cache);
 	return cache;
 }
 
-void hlist_init(struct hlist_head* h) {
-	h->first = 0;
-}
-
-void hlist_add_head(struct hlist_node* n, struct hlist_head* h) {
+static void hlist_add_head(struct hlist_node* n, struct hlist_head* h) {
 	struct hlist_node* first = h->first;
 	n->next = first;
+	n->prev = NULL;
 	if (first)
-		first->pprev = &n->next;
+		first->prev = n;
 	h->first = n;
-	n->pprev = &h->first;
 }
 
-void vfs_cache_insert(struct vfs_cache* cache, struct dentry* dentry) {
-	// acquire spinlock dengan benar
+__attribute__((always_inline)) void
+vfs_cache_insert(struct vfs_cache* cache, struct dentry* dentry) {
 	while (__atomic_test_and_set(&cache->lock, __ATOMIC_ACQUIRE))
 		;
 
-	// insert ke hash table
 	auto idx = dentry->hash & (VFS_CACHE_SIZE - 1);
+
 	hlist_add_head(&dentry->hash_node, &cache->buckets[idx]);
 	__atomic_fetch_add(&cache->count, 1, __ATOMIC_RELAXED);
 
-	// insert ke child_list parent — dalam lock yang sama, tidak perlu lock lagi
 	if (dentry->parent) {
 		llist_add_tail(&dentry->siblings, &dentry->parent->child_list);
 	} else {
 		LOG_DEBUG("VFS", "'%s' has no parent", dentry->name->c_str);
 	}
 
-	// release
 	__atomic_clear(&cache->lock, __ATOMIC_RELEASE);
 }
 
@@ -82,52 +79,54 @@ cache_lookup(struct vfs_cache* cache, struct dentry* parent, const char* name) {
 	uint32_t h = hash_dentry(name, parent);
 	auto idx = h & (VFS_CACHE_SIZE - 1);
 
-	// hcu_read_lock();
+	while (__atomic_test_and_set(&cache->lock, __ATOMIC_ACQUIRE))
+		;
+
 	struct hlist_head* bucket = &cache->buckets[idx];
 
-	struct dentry* d;
-
-	hlist_for_each(d, bucket, hash_node) {
-		if (d->hash == h && d->parent == parent
-		    && d->name->len == strlen(name)
-		    && strncmp(d->name->c_str, name, d->name->len) == 0) {
-			__atomic_fetch_add(&d->refcount.counter, 1,
-					   __ATOMIC_RELAXED);
+	for (struct hlist_node* pos = bucket->first; pos != NULL;
+	     pos = pos->next) {
+		struct dentry* d = container_of(pos, struct dentry, hash_node);
+		if (d->parent == parent && strcmp(d->name->c_str, name) == 0) {
+			__atomic_clear(&cache->lock, __ATOMIC_RELEASE);
 			return d;
 		}
 	}
-	// hcu_read_unlock();
-	return NULL;
+
+	__atomic_clear(&cache->lock, __ATOMIC_RELEASE);
+
+	return 0;
 }
 
-void hlist_del(struct hlist_node* n) {
-	struct hlist_node* next = n->next;
-	struct hlist_node** pprev = n->pprev;
+// static void hlist_del(struct hlist_node* n) {
+// 	UNUSED(n);
+// 	// struct hlist_node* next = n->next;
+// 	// struct hlist_node** pprev = n->pprev;
 
-	if (next)
-		next->pprev = pprev;
-	*pprev = next;
+// 	// if (next)
+// 	// 	next->pprev = pprev;
+// 	// *pprev = next;
 
-	n->next = NULL;
-	n->pprev = NULL;
-}
+// 	// n->next = NULL;
+// 	// n->pprev = NULL;
+// }
 
 void cache_remove(struct vfs_cache* cache, struct dentry* dentry) {
 	while (__atomic_test_and_set(&cache->lock, __ATOMIC_ACQUIRE))
 		;
 
 	// hapus dari hash table
-	hlist_del(&dentry->hash_node);
+	// hlist_del(&dentry->hash_node);
 	__atomic_fetch_sub(&cache->count, 1, __ATOMIC_RELAXED);
 
 	// hapus dari child_list parent — ini yang kurang
 	if (dentry->parent && dentry->siblings.next != NULL) {
-		llist_del(&dentry->siblings);
+		// llist_del(&dentry->siblings);
 	}
 
 	__atomic_clear(&cache->lock, __ATOMIC_RELEASE);
 }
 
-struct vfs_cache* get_root_cache() {
+KERNEL_API struct vfs_cache* get_root_cache() {
 	return cache_;
 }

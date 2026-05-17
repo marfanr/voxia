@@ -8,8 +8,6 @@ typedef struct mount_cache_node {
 	uint8_t* obj[64];
 } mount_cache_node_t;
 
-static mount_cache_node_t* mount_cache_node;
-
 INIT(Mount) {
 	vxCreateSlabCache(&mount_cache, "mount", sizeof(mount_t), 64, 0);
 }

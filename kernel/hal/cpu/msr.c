@@ -1,12 +1,18 @@
 #include "hal/cpu/msr.h"
+#include "libk/serial.h"
 
 #define MSR_FS_BASE 0xC0000100
 #define MSR_GS_BASE 0xC0000101
 #define MSR_KERNEL_GS_BASE 0xC0000102
 
 void vxWRSR(uint32_t msr, uint64_t value) {
-	uint32_t lo = value & 0xFFFFFFFF, hi = value >> 32;
-	__asm__ volatile("wrmsr" : : "c"(msr), "a"(lo), "d"(hi) : "memory");
+	// serial_printf("value : 0x%lx\n", value);
+
+	uint32_t lo = (uint32_t) value;
+	uint32_t hi = (uint32_t) (value >> 32);
+	// serial_printf("wrmsr 0x%lx: hi=0x%lx lo=0x%lx\n", msr, hi, lo);
+
+	asm volatile("wrmsr" : : "c"(msr), "a"(lo), "d"(hi) : "memory");
 }
 
 uint64_t vxRDMSR(uint32_t msr) {

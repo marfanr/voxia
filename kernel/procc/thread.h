@@ -7,7 +7,7 @@
 
 typedef uint64_t thread_id;
 
-enum {
+enum : uint16_t {
 	THREAD_USER = (1 << 0),
 	THREAD_KERNEL = ~(1 << 0),
 	THREAD_PREEMPT_ENABLE = (1 << 1),
@@ -25,11 +25,11 @@ enum {
 typedef struct thread thread_t;
 struct thread {
 	// --- Cache line 1 (scheduler hot path) ---
-	thread_id id;           // 4B
+	thread_id id;		// 4B
 	uint16_t core_affinity; // 2B
-	uint8_t state;          // 1B
-	uint8_t priority;       // 1B
-	uint16_t flags;         // 2B
+	uint8_t state;		// 1B
+	uint8_t priority;	// 1B
+	uint16_t flags;		// 2B
 	uint64_t last_run_time; // 8B profiling
 	uint32_t uuid;
 	boolean_t has_update_run_time;
@@ -37,7 +37,7 @@ struct thread {
 
 	// --- Cache line 2–4 (context, jarang diakses) ---
 	uintptr_t entry_addr; // 8B
-	uint64_t stack;       // 8B
+	uint64_t stack;	      // 8B
 	cpu_register_t reg;   // 128–160B
 } __attribute__((aligned(64)));
 
@@ -53,12 +53,12 @@ typedef struct thread_bucket {
 	uint32_t top_free;
 } thread_bucket_t;
 
-#define THREAD_MAKE_ID(id, gen) ((uint64_t)(gen) << 32 | ((uint64_t)(id) + 1))
-#define THREAD_GET_ID(thread_id) ((uint32_t)((thread_id) & 0xFFFFFFFFULL) - 1)
-#define THREAD_GET_GEN(thread_id) ((uint32_t)((thread_id) >> 32))
+#define THREAD_MAKE_ID(id, gen) ((uint64_t) (gen) << 32 | ((uint64_t) (id) + 1))
+#define THREAD_GET_ID(thread_id) ((uint32_t) ((thread_id) & 0xFFFFFFFFULL) - 1)
+#define THREAD_GET_GEN(thread_id) ((uint32_t) ((thread_id) >> 32))
 
 thread_id vxCreateThread(const uintptr_t entry, uint16_t core_affinity,
-                         uint8_t priority, uint16_t flags);
+			 uint8_t priority, uint16_t flags);
 void vxThreadExit();
 
 #endif // __PROCC__THREAD_H__

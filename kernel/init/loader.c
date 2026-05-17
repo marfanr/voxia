@@ -47,7 +47,7 @@ stivale2_get_tag(struct stivale2_struct* stivale2_struct, uint64_t id) {
 	}
 }
 
-int stivale2_mem_entry_type_converter(uint32_t type) {
+static uint32_t stivale2_mem_entry_type_converter(uint32_t type) {
 	switch (type) {
 	case STIVALE2_MMAP_USABLE:
 		return ENTRY_MMAP_USABLE;
@@ -67,7 +67,7 @@ int stivale2_mem_entry_type_converter(uint32_t type) {
 		return ENTRY_MMAP_FRAMEBUFFER;
 
 	default:
-		return -1;
+		return (uint32_t) -1;
 	}
 }
 

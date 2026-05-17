@@ -5,7 +5,7 @@
 #include <memory/phys_base_allocator.h>
 
 static struct task* g__task = 0;
-static int g__curr_pid = 1;
+static pid_t g__curr_pid = 1;
 
 void task_initialize() {
 }
@@ -45,7 +45,7 @@ void task_add(char* name, uintptr_t entry, task_state_t state,
 	// serial_trace("task added %s\n", task->name);
 }
 
-struct task* task_get(int pid) {
+struct task* task_get(pid_t pid) {
 	struct task* current = g__task;
 	while (current != 0 && current->pid != pid) {
 		current = current->next;
@@ -53,7 +53,7 @@ struct task* task_get(int pid) {
 	return current;
 }
 
-void task_free(int pid) {
+void task_free(pid_t pid) {
 	struct task* current = g__task;
 	struct task* prev = NULL;
 	while (current != 0 && current->pid != pid) {

@@ -35,24 +35,26 @@
 #define __KERNEL__LIBK__FS__TAR_H_
 
 // This is a struct for the tar header
-typedef struct
-{
-    char filename[100];
-    char mode[8];
-    char uid[8];
-    char gid[8];
-    char size[12];
-    char mtime[12];
-    char chksum[8];
-    char typeflag;
-    char linkedfilename[100];
-    char ustar[6];
-    char ustarVersion[2];
-    char ownerUserName[32];
-    char ownerGroupName[32];
-    char deviceMajorNumber[8];
-    char deviceMinorNumber[8];
-    char filenamePrefix[155];
-} TarHeader __attribute__ ((packed));
+typedef struct {
+	char filename[100];
+	char mode[8];
+	char uid[8];
+	char gid[8];
+	char size[12];
+	char mtime[12];
+	char checksum[8];
+	char typeflag;
+	char linkname[100];
+	char ustar[6];
+	char ustar_version[2];
+	char owner_user[32];
+	char owner_group[32];
+	char dev_major[8];
+	char dev_minor[8];
+	char filename_prefix[155];
+	char _padding[12]; /* <-- tambah ini biar tepat 512 */
+} __attribute__((packed)) TarHeader;
+
+static_assert(sizeof(TarHeader) == 512, "");
 
 #endif // __KERNEL__LIBK__FS__TAR_H_

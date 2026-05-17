@@ -20,15 +20,23 @@ else
 	E := @echo
 endif
 
-CFLAGS := -Wall -Wextra -O0 -pipe -ggdb -g -fno-strict-aliasing \
+KERNEL_SSE_FLAGS := -mno-sse -mno-sse2 -mno-mmx -mno-avx -mno-avx2 \
+                 -mno-red-zone -mno-80387 -mno-3dnow 
+
+WARNING := -Wall -Wextra -Werror -Wshadow -Wpointer-arith -Wcast-align \
+	-Wstrict-prototypes -Wmissing-prototypes -Wundef -Wconversion \
+	-Wdouble-promotion -Wvla -Wstrict-aliasing=2 -Warray-bounds \
+	-Wformat=2 -Wuninitialized
+
+CFLAGS := $(WARNING) -O2 -pipe -ggdb -g -fno-strict-aliasing \
 					-std=gnu2x -ffreestanding \
-					-fno-stack-protector -fno-pie \
-					-mno-80387 -mno-3dnow \
-					-mfpmath=sse -msse -msse2  -mmmx \
-					-mno-red-zone \
+					-fstack-clash-protection -fstack-protector-strong -fno-pie \
+					$(KERNEL_SSE_FLAGS) \
 					-I . -I ../include -nostdlib -nostartfiles -I $(ROOT)/generated \
 					-nodefaultlibs -nostdinc -fno-builtin \
-			-mcmodel=kernel -Wdeprecated-declarations -fvisibility=hidden 
+			-mcmodel=kernel -fno-omit-frame-pointer
+
+CFLAGS := $(CFLAGS)
 
 LDFLAGS := -nostdlib -static \
 					 -z max-page-size=0x1000 \
@@ -46,12 +54,23 @@ all: $(OBJ)
         hal/cpu/core_ap.bin hal/cpu/core_ap.o
 	rm -f hal/cpu/core_ap.bin
 	$(LD) $(LDFLAGS) $(OBJ) hal/cpu/core_ap.o -o $(KERNEL)
-	objdump -t $(KERNEL) | grep '\.export' | awk '{print $$6}' > keep.txt
-	objcopy --strip-unneeded --keep-symbols=keep.txt  $(KERNEL) $(KERNEL)
+# 	objdump -t $(KERNEL) | grep '\.export' | awk '{print $$6}' > keep.txt
+# 	objcopy --strip-unneeded --keep-symbols=keep.txt  $(KERNEL) $(KERNEL)
+
 # 	nm -S --defined-only $(KERNEL) | grep '\.export' >> keep.txt
 # 	nm $(KERNEL) | grep "__export_" | awk '{print $$3}'t > keep.txt
 
 -include $(DFILES)
+
+# ssfn.h is a third-party header incompatible with strict warnings
+SSFN_SUPPRESS := -Wno-sign-conversion -Wno-cast-align \
+                 -Wno-implicit-int-conversion -Wno-unknown-pragmas \
+                 -Wno-missing-prototypes -Wno-error
+
+hal/graphic/graphic.o: hal/graphic/graphic.c
+	$(E) "  CC      $(notdir $<)"
+	$(Q)mkdir -p $(dir $@)
+	$(Q)$(CC) $(CFLAGS) $(SSFN_SUPPRESS) -c $< -o $@
 
 %.o: %.c
 	$(E) "  CC      $(notdir $<)"

@@ -8,42 +8,19 @@ uint32_t vxInetAddr(const char* addr) {
 		uint32_t octet = 0;
 		while (*addr >= '0' && *addr <= '9') {
 			octet = (octet * 10)
-				+ (*addr
-				   - '0'); // Konversi karakter ASCII ke integer
-			addr++; // Geser pointer string ke karakter berikutnya
+				+ (uint32_t) (*addr
+					      - '0'); // FIX 1: cast int -> uint32_t
+			addr++;
 		}
 		b[i] = (uint8_t) octet;
 		if (*addr == '.') {
 			addr++;
 		} else if (*addr == '\0' && i < 3) {
-			return 0; // Atau return error code khusus Anda
+			return 0;
 		}
 	}
 
 	return ip;
-}
-
-uint16_t checksum16(const uint16_t* data, size_t length) {
-	uint32_t sum = 0;
-
-	// jumlahkan per 16-bit
-	while (length > 1) {
-		sum += *data++;
-		length -= 2;
-	}
-
-	// kalau ada sisa 1 byte
-	if (length > 0) {
-		sum += *((uint8_t*) data);
-	}
-
-	// fold 32-bit ke 16-bit
-	while (sum >> 16) {
-		sum = (sum & 0xFFFF) + (sum >> 16);
-	}
-
-	// one's complement
-	return (uint16_t) (~sum);
 }
 
 uint16_t checksum16_adc(const uint16_t* data, size_t length) {
@@ -66,7 +43,7 @@ uint16_t checksum16_adc(const uint16_t* data, size_t length) {
 	sum = (sum & 0xFFFF) + (sum >> 16);
 	sum = (sum & 0xFFFF) + (sum >> 16);
 
-	return ~sum;
+	return (uint16_t) ~sum;
 }
 
 uint32_t checksum16_raw(const uint16_t* data, size_t length) {

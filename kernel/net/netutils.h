@@ -2,12 +2,13 @@
 #define __NET__NETUTILS_H__
 
 #include <type.h>
+
 static inline uint16_t vxHtons(uint16_t value) {
-	return (value << 8) | (value >> 8);
+	return (uint16_t) ((value << 8) | (value >> 8));
 }
 
 static inline uint16_t vxNtohs(uint16_t netshort) {
-	return (netshort >> 8) | (netshort << 8);
+	return (uint16_t) ((netshort >> 8) | (netshort << 8));
 }
 
 // full 4-byte swap
