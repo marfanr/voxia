@@ -18,7 +18,7 @@ void KERNEL_API pci_enable_msi(struct ioforge_pci_device* pci, uint8_t vector,
 	pci_write16(pci_bus, pci_dev, pci_func, cap + 0x2, ctrl & ~1);
 
 	// mirip apic
-	uint32_t msg_addr = 0xFEE00000 | (uint8_t) (cpu << 12);
+	uint32_t msg_addr = 0xFEE00000 | (cpu << 12);
 	uint16_t msg_data = (vector & 0xFF);
 
 	if (ctrl & (1 << 7)) {
@@ -75,7 +75,7 @@ uintptr_t KERNEL_API pci_enable_msix(struct ioforge_pci_device* pci,
 	volatile uint32_t* msix_table = (volatile uint32_t*) selected_bar;
 	for (int i = 0; i < table_size; i++) {
 		msix_table[i * 4 + 0] =
-			0xFEE00000 | (uint8_t) (cpu << 12); // Address Low
+			0xFEE00000 | (cpu << 12); // Address Low
 		msix_table[i * 4 + 1] = 0;		    // Address High
 		msix_table[i * 4 + 2] = (vector & 0xFF);    // Data
 		msix_table[i * 4 + 3] =
