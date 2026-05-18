@@ -119,8 +119,15 @@ AHCIModule::issue_and_wait(ahci_port_t* p, int slot, uint32_t timeout_ms) {
 			    p->tfd, p->serr, p->is);
 			return false;
 		}
+
+		// Small delay initially, then sleep
+		if (spin < 10) {
+			for (volatile int i = 0; i < 1000; i++)
+				__asm__ volatile("pause");
+		} else {
+			ioforge_sleep(1);
+		}
 		spin++;
-		ioforge_sleep(1);
 	}
 
 	if (spin >= timeout_ms) {
@@ -139,7 +146,6 @@ AHCIModule::issue_and_wait(ahci_port_t* p, int slot, uint32_t timeout_ms) {
 		return false;
 	}
 
-	log(mod, "done");
 	return true;
 }
 

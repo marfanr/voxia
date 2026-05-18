@@ -72,6 +72,9 @@ RESOLVED ISSUES (19/5/2026):
 (x) Log serial tidak terbaca/korup saat multi-core aktif.
     - Fix: Standardisasi makro LOG ke serial2_printf (buffered path). [a48938b]
     - Fix: Integrasi KDEBUG dengan output serial2 secara otomatis.
+(x) Performa module [ATAPI] sangat lambat/delay.
+    - Fix: Reduksi timeout identify/capacity dari 30s ke 5s. [fccd933]
+    - Fix: Optimasi polling di AHCI (small pause sebelum sleep) & hapus log redundant.
    
 USB:
 (x) EHCI simpan response input ke vfs

@@ -1,7 +1,9 @@
 #include "ioforge/ioforge.hpp"
 #include "ioforge/ioforge_block.h"
+#include "notify.h"
 #include "type.h"
 #include "vfs/dentry.h"
+#include "vfs/dev.h"
 #include "vfs/vfs.h"
 #include "vfs/vnode.h"
 #include <atapi/atapi.hpp>
@@ -20,10 +22,24 @@ void ATAPIModule::build_acmd(uint8_t opcode, uint32_t lba,
 	acmd[3] = (lba >> 16) & 0xFF;
 	acmd[4] = (lba >> 8) & 0xFF;
 	acmd[5] = (lba >> 0) & 0xFF;
-	acmd[6] = 0;
-	acmd[7] = (sector_count >> 8) & 0xFF;
-	acmd[8] = (sector_count >> 0) & 0xFF;
-	acmd[9] = 0;
+
+	if (opcode == 0xA8 || opcode == 0xAA) {
+		// READ(12) / WRITE(12) - Transfer Length is 4 bytes at [6..9]
+		acmd[6] = (sector_count >> 24) & 0xFF;
+		acmd[7] = (sector_count >> 16) & 0xFF;
+		acmd[8] = (sector_count >> 8) & 0xFF;
+		acmd[9] = (sector_count >> 0) & 0xFF;
+		acmd[10] = 0;
+		acmd[11] = 0;
+	} else {
+		// READ(10) / WRITE(10) - Transfer Length is 2 bytes at [7..8]
+		acmd[6] = 0;
+		acmd[7] = (sector_count >> 8) & 0xFF;
+		acmd[8] = (sector_count >> 0) & 0xFF;
+		acmd[9] = 0;
+		acmd[10] = 0;
+		acmd[11] = 0;
+	}
 }
 
 void ATAPIModule::probe(struct ioforge_block_device* block) {
@@ -50,7 +66,7 @@ void ATAPIModule::read_sector_size(struct ioforge_block_device* block) {
 		.flags = IOFORGE_FLAG_DMA,
 		.packet_cmd = packet,
 		.packet_cmd_len = 12,
-		.timeout_ms = 30000,
+		.timeout_ms = 5000,
 	};
 
 	if (!block->ops.submit(block, &cap_req)) {
@@ -73,10 +89,10 @@ void ATAPIModule::identify(struct ioforge_block_device* block) {
 		.buffer = (void*) buff_phys,
 		.buffer_size = 512,
 		.block_count = 1,
-		.flags = 0,
+		.flags = IOFORGE_FLAG_DMA,
 		.packet_cmd = 0,
 		.packet_cmd_len = 10,
-		.timeout_ms = 30000,
+		.timeout_ms = 5000,
 	};
 
 	if (!block->ops.submit(block, &req)) {
@@ -134,14 +150,23 @@ void ATAPIModule::identify(struct ioforge_block_device* block) {
 		vops_blk_t* vops = (vops_blk_t*) kalloc(sizeof(vops_blk_t));
 		vops->read = ATAPIModule::read;
 		vops->write = ATAPIModule::write;
-		vops->v_data = (void*) block;
+		vops->v_data = block;
+		vnode->ops = (void*) vops;
+
+		auto cdev = create_dev(vops, MAJOR_CDROM);
+		vnode->device.dev.major = cdev->id.major;
+		vnode->device.dev.minor = cdev->id.minor;
+
+		notify_call((char*) "/vfs/block", VFS_NOTIFY_PROBE,
+			    (void*) vnode);
 	}
 	log(mod, "block 0x%x", block);
 
 	IOUtils::DMAFree((void*) buff_phys, (void*) buff, 512);
 }
 
-int ATAPIModule::read(void* vdata, uintptr_t addr, void* buf, size_t count) {
+extern "C" int
+ATAPIModule::read(void* vdata, uintptr_t addr, void* buf, size_t count) {
 	auto i = ATAPIModule::getInstance();
 
 	struct ioforge_block_device* block =
@@ -156,7 +181,6 @@ int ATAPIModule::read(void* vdata, uintptr_t addr, void* buf, size_t count) {
 		return -EINVAL;
 	}
 
-	// ATAPI sector size is typically 2048 bytes (CD-ROM) or 512 bytes
 	const size_t sector_size =
 		block->sector_size ? block->sector_size : 2048;
 	uint32_t lba = (uint32_t) (addr / sector_size);
@@ -164,7 +188,12 @@ int ATAPIModule::read(void* vdata, uintptr_t addr, void* buf, size_t count) {
 		(uint16_t) ((count + sector_size - 1) / sector_size);
 
 	uintptr_t buff_phys;
-	void* buff = IOUtils::DMAAlloc(sector_count * sector_size, &buff_phys);
+	void* buff_ = IOUtils::DMAAlloc(sector_count * sector_size, &buff_phys);
+	if (!buff_) {
+		log(i->mod, "read: DMA alloc failed");
+		return -2;
+	}
+	memset(buff_, 0, sector_count * sector_size);
 
 	uint8_t acmd[16] = {0};
 	i->build_acmd(0xA8, lba, sector_count, acmd);
@@ -178,23 +207,29 @@ int ATAPIModule::read(void* vdata, uintptr_t addr, void* buf, size_t count) {
 		.flags = IOFORGE_FLAG_DMA,
 		.packet_cmd = acmd,
 		.packet_cmd_len = 12,
-		.timeout_ms = 30000,
+		.timeout_ms = 5000,
 	};
 
-	memcopy(buf, buff, count);
-
 	int ret = block->ops.submit(block, &req);
-	if (ret) {
-		log(i->mod, "read: submit failed (lba=%d, count=%d, err=%d)",
-		    lba, sector_count, ret);
-		return ret;
+	if (!ret) {
+		log(i->mod, "read: submit failed (lba=%d, sectors=%d)", lba,
+		    sector_count);
+		IOUtils::DMAFree((void*) buff_phys, buff_,
+				 sector_count * sector_size);
+		return -1;
 	}
 
+	// Salin hasil DMA ke buffer caller
+	memcopy(buf, buff_, count);
+
+	IOUtils::DMAFree((void*) buff_phys, buff_, sector_count * sector_size);
+
 	log(i->mod, "read: success (lba=%d, sectors=%d)", lba, sector_count);
-	return 0;
+	return (int) count;
 }
 
-int ATAPIModule::write(void* vdata, uintptr_t addr, void* buf, size_t count) {
+extern "C" int
+ATAPIModule::write(void* vdata, uintptr_t addr, void* buf, size_t count) {
 	auto i = ATAPIModule::getInstance();
 
 	struct ioforge_block_device* block =
