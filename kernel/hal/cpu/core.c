@@ -6,14 +6,15 @@
 #include "hal/cpu/interrupt.h"
 #include "hal/cpu/msr.h"
 #include "hal/cpu/paging.h"
-#include "hal/timer/timer.h"
 #include "init/init.h"
+#include "libk/debug/debug.h"
 #include "libk/serial.h"
 #include <str.h>
 #include "libk/type.h"
 #include "memory/phys_base_allocator.h"
 #include "memory/vm_manager.h"
 #include "procc/scheduler.h"
+#include "hal/timer/timer.h"
 #include <ioforge/ioforge.h>
 
 #define INIT_CORE_MAGIC 0x00EEDDAB
@@ -88,12 +89,8 @@ cpuTrampolinePhase2(uint64_t core_id) {
 	irq_setup((uint8_t) core_id);
 	apicInitialize();
 	vxInitializeAPICTimer();
+	vxTimerRegisterInterrupt();
 	serial2_printf("core %d successfully running\n", core_id);
-
-	// ap_stack_test();
-	// // workqueue init
-	// // // LOG_INFO("workqueue", "still running %f ns",
-	// // // (double)2.3f/(double)3.f);
 
 	vxStartScheduler();
 
@@ -172,7 +169,7 @@ static void sipi_sequential(uint32_t apic_id, uint64_t entrypoint_addr) {
 		icr |= ((uint64_t) apic_id << 32);
 		LOG_DEBUG("APIC", "ICR SIPI #1      = 0x%lx", icr);
 		vxWRSR(0x830, icr);
-		vxHPETSleep(ms2ns(200));
+		vxHPETSleep(ms2ns(1));
 		LOG_DEBUG("APIC", "SIPI #1 OK");
 
 		// SIPI #2
@@ -182,7 +179,7 @@ static void sipi_sequential(uint32_t apic_id, uint64_t entrypoint_addr) {
 		icr |= ((uint64_t) apic_id << 32);
 		LOG_DEBUG("APIC", "ICR SIPI #2      = 0x%lx", icr);
 		vxWRSR(0x830, icr);
-		vxHPETSleep(ms2ns(200));
+		vxHPETSleep(ms2ns(1));
 		LOG_DEBUG("APIC", "SIPI #2 OK");
 	}
 }
@@ -192,7 +189,7 @@ INIT(Core) {
 	multicore_start = true;
 
 	// 0x8000 - 0x9000 digunakan untuk entry point di tiap core
-	uint64_t entrypoint_addr = INIT_CORE_ENTRYPOINT;
+	uintptr_t entrypoint_addr = INIT_CORE_ENTRYPOINT;
 	size_t size = (uintptr_t) _binary_hal_cpu_core_ap_bin_end
 		      - (uintptr_t) _binary_hal_cpu_core_ap_bin_start;
 	size_t aligned_size = (size + BLOCK_SIZE - 1) / BLOCK_SIZE;
@@ -203,25 +200,12 @@ INIT(Core) {
 	memcopy((void*) entrypoint_addr,
 		(void*) _binary_hal_cpu_core_ap_bin_start, size);
 
-	uintptr_t data_paddr = (uintptr_t) vxPhysBaseAlloc(1);
-	uintptr_t data_vaddr = vma_lookup_free_vaddr(VMA_REGION_A, 1);
-	vxMultipleMmap(paging_get_highest_page_map(), data_vaddr, data_paddr, 1,
-		       0b111);
-	paging_reload(paging_get_highest_page_map());
-	vma_register(data_paddr, data_vaddr, 1);
-
-	volatile uint64_t* data = (volatile uint64_t*) data_vaddr;
-	LOG_DEBUG("CORE", "data at 0x%x", data);
-	data[0] = (uint64_t) cpuTrampolinePhase2;
-	LOG_DEBUG("CORE", "cpu trampoline phase 2 0x%x", data[0]);
-
 	// prepare trampoline
 	// dengan menyisipkan data di 24 byte pertama
 	volatile uint64_t* trampoline_data =
 		(volatile uint64_t*) INIT_CORE_ENTRYPOINT;
 	trampoline_data[0] = INIT_CORE_MAGIC;
 	trampoline_data[1] = (uintptr_t) paging_get_highest_page_map();
-	trampoline_data[2] = (uint64_t) data_vaddr;
 
 	auto bsp_id = (int) get_bsp_apic_id();
 
@@ -246,43 +230,56 @@ INIT(Core) {
 		auto stack_top = stack + 5 * BLOCK_SIZE;
 		stack_top &= ~0xFULL; // align ke 16 byte
 		stack_top -= 8;
-		data[1] = stack_top;
-		data[2] = (uint64_t) cpu_id;
-		data[3] = 0; // untuk handshake
+
+		// Allocate separate data page for each core to avoid collisions
+		uintptr_t per_core_data_paddr = (uintptr_t) vxPhysBaseAlloc(1);
+		uintptr_t per_core_data_vaddr =
+			vma_lookup_free_vaddr(VMA_REGION_A, 1);
+		vxMultipleMmap(paging_get_highest_page_map(),
+			       per_core_data_vaddr, per_core_data_paddr, 1,
+			       0b111);
+		paging_reload(paging_get_highest_page_map());
+		vma_register(per_core_data_paddr, per_core_data_vaddr,
+			     BLOCK_SIZE);
+
+		volatile uint64_t* core_handshake =
+			(volatile uint64_t*) per_core_data_vaddr;
+		core_handshake[0] = (uint64_t) cpuTrampolinePhase2;
+		core_handshake[1] = stack_top;
+		core_handshake[2] = (uint64_t) cpu_id;
+		core_handshake[3] = 0; // Handshake flag
+
+		// Update trampoline data for this core
+		trampoline_data[2] = (uint64_t) per_core_data_vaddr;
 
 		LOG_DEBUG("CORE", "kirim sipi ke CPU Core %d", cpu_id);
 
-		sipi_sequential(cpu_id, entrypoint_addr);
-
-		uint64_t timeout = 10000000ULL;
-		while (data[3] == 0 && timeout-- > 0)
-			__asm__ volatile("pause");
-
-		if (data[3] == 0) {
-			LOG_WARN("CORE", "core %d tidak merespons!", cpu_id);
-
-			// retry
-			for (int j = 0; j < 3; j++) {
-				LOG_INFO("CORE", "retry %d pada core %d", j,
+		bool success = false;
+		for (int retry = 0; retry < 3; retry++) {
+			if (retry > 0)
+				LOG_INFO("CORE", "retry %d pada core %d", retry,
 					 cpu_id);
 
-				sipi_sequential(cpu_id, entrypoint_addr);
+			sipi_sequential(cpu_id, entrypoint_addr);
 
-				timeout = 10000000ULL;
-				while (data[3] == 0 && timeout-- > 0)
-					vxHPETSleep(ms2ns(10));
+			uint64_t timeout = 1000; // 1000 * 100us = 100ms
+			while (core_handshake[3] == 0 && timeout-- > 0) {
+				vxHPETSleep(us2ns(100));
+			}
 
-				if (data[3] != 0)
-					LOG_INFO("CORE",
-						 "core %d sudah "
-						 "berhasil nyala",
-						 cpu_id);
-				core_info->status = Active;
+			if (core_handshake[3] != 0) {
+				success = true;
 				break;
 			}
-		} else {
-			LOG_DEBUG("CORE", "core %d sudah ambil data", cpu_id);
+		}
+
+		if (success) {
+			LOG_INFO("CORE", "core %d sudah berhasil nyala",
+				 cpu_id);
 			core_info->status = Active;
+		} else {
+			LOG_ERROR("CORE", "core %d gagal nyala!", cpu_id);
+			core_info->status = Off;
 		}
 	}
 
