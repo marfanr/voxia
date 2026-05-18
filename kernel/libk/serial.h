@@ -18,16 +18,16 @@ void serial_putc(char c);
 void serial_clear();
 void serial_setup();
 
-#define serial_trace(...) serial_printf(__VA_ARGS__)
+#define serial_trace(...) serial2_printf(__VA_ARGS__)
 #define LOG_INFO(mod, fmt, ...)                                                \
-	serial_printf("[INFO][%s] " fmt "\n", mod, ##__VA_ARGS__)
+	serial2_printf("[INFO][%s] " fmt "\n", mod, ##__VA_ARGS__)
 #define LOG_DEBUG(mod, fmt, ...)                                               \
-	serial_printf("[DEBUG][%s][%s:%d] " fmt "\n", mod, __FILE__, __LINE__, \
-		      ##__VA_ARGS__)
+	serial2_printf("[DEBUG][%s][%s:%d] " fmt "\n", mod, __FILE__,          \
+		       __LINE__, ##__VA_ARGS__)
 #define LOG_ERROR(mod, fmt, ...)                                               \
-	serial_printf("[ERROR][%s] " fmt "\n", mod, ##__VA_ARGS__)
+	serial2_printf("[ERROR][%s] " fmt "\n", mod, ##__VA_ARGS__)
 #define LOG_WARN(mod, fmt, ...)                                                \
-	serial_printf("[WARN][%s] " fmt "\n", mod, ##__VA_ARGS__)
+	serial2_printf("[WARN][%s] " fmt "\n", mod, ##__VA_ARGS__)
 
 void serial2_printf(const char* fmt, ...);
 void serial2_flush();

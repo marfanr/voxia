@@ -1,0 +1,115 @@
+GENERAL TODO:
+(x) benerin scheduler
+(x) integrate PICe dengan PIC scan sekarang
+(x) EHCI diaktifkan lagi sampai bisa  
+(x) buat abstraction (socket) untuk network
+( ) buat shell 
+( ) virtio kernel module
+( ) virtio GPU depeend on virtio
+(x) MSI dan MSIx
+(x) migrate ke X2APIC with backward compatible
+(x) implememnt ipv4
+(x) implement TCP
+( ) bisa requets ke google.com (hardcode IP)
+( ) implement DNS
+( ) implmeent DHCP client protocol
+( ) buat library unutuk gui
+
+( ) prepare userspace 
+( ) porting GCC
+( ) dynamic linking di kernel module dipindah ke app terpisah
+
+( ) refactor virtio dan virtio gpu ke module
+
+( ) mekanisme load kernel module perlu di rombak by vendor dan product id
+( ) voxmo perlu dirombak , di register tidak harus di load ke memory kalau hardwrae nya nda ada (by add condition di ioforge_service)
+
+
+NETWORKING
+(x) implement netdev
+    alurnya socket -> netdev -> nic
+- ( ) buat pilihan di nic bisa by irq atau pooling
+- ( ) handle fragmented data yang masuk 
+saat tidak ada beban, mode irq. kalau banyak request -> pindah pooling di workqueue langsung dengna priority high
+( ) coba pecah jadi 3 route di E1000E
+( ) ixGb 10gb (stabilin tcp + udp, handle fragmentation dulu)
+
+
+URGENT:
+(x) fix masalah buffer overflow di Networking
+(x) fix masalah kadang log masih race condition dan berujung dead lock (curiga di serial2)
+(x) fix masalah saat ping flood -> buffer habis -> network tidak merespon apa2
+(x) handle interupt yang sama dari > 1 device berbeda
+(?) network yang mausk masih sering stuck setelah bberapa kali input
+( ) saat load kmodule cek kalau ada symbol kernel yang gaada tolak aja
+( ) pci bus mastering buat jadi helper
+( ) ibah yang masih pakai strcopy (tanpa length) -> strncopy(fix length)
+(x) race condition di kalloc
+(x) Page Fault pada USBPipe keyboard
+(x) masalah workqueue atau scheduler kadang ada beberapa module tidak terload saat core
+    semakin banyak (FIXED: SIPI handshake race & missing AP timer interrupts)
+(x) console log belum robust kadang page fault
+
+RESOLVED ISSUES (19/5/2026):
+(x) Kernel hang akibat instruksi AVX2 (vpbroadcastb, dsb) pada CPU non-AVX2.
+    - Fix: Tambah deteksi AVX2 di init_simd & fallback safe di memset/strncmp. [6a81820]
+(x) AP Core gagal nyala akibat race condition pada SIPI handshake data.
+    - Fix: Isolasi halaman data handshake (tiap core dapat satu halaman sendiri). [a8444b9]
+(x) Delay lama saat core gagal nyala (booting terasa macet).
+    - Fix: Optimasi timing SIPI (200ms -> 200us) & koreksi timeout loop (1s -> 100ms). [a8444b9]
+(x) Workqueue macet di AP cores karena usleep hang (interupsi timer tidak terdaftar).
+    - Fix: Registrasi global handler usleep di semua core & fallback HPET. [c2f00d6]
+(x) Workqueue fallback & logging perbaikan.
+    - Fix: vxAddWorkqueueTask sekarang hanya mengirim task ke core yang Active. [c2f00d6]
+    - Fix: Log penyalaan core dinaikkan ke LOG_INFO agar selalu terlihat. [a8444b9]
+(x) AHCI/ATAPI timeout tidak akurat & perintah macet.
+    - Fix: Koreksi unit waktu ioforge_sleep & perbaikan pembatalan command. [325532c]
+(x) usleep unit inconsistent & hang pada early boot.
+    - Fix: Standardisasi usleep ke mikrodetik (us) & fallback busy-loop yang akurat.
+    - Fix: Kalibrasi APIC timer menggunakan durasi nanodetik absolut (HPET).
+(x) Bootloop akibat division by zero di HPET & missing VMA registration.
+    - Fix: Safety check di vxHPETSleep & penambahan vma_register di core init. [a8444b9, c2f00d6]
+(x) Log serial tidak terbaca/korup saat multi-core aktif.
+    - Fix: Standardisasi makro LOG ke serial2_printf (buffered path). [a48938b]
+    - Fix: Integrasi KDEBUG dengan output serial2 secara otomatis.
+   
+USB:
+(x) EHCI simpan response input ke vfs
+(x) buat api untuk integrate dengan hid
+(x) make sure hid jalan setelah ehci
+(x) buat pool untuk queue dan reuse queue (tidak perlu alloc berkali kali)
+
+
+TODO (start: 5/3/2026 done: )
+(x) ehci dulu sampai bisa ngobrol dengan hid
+(x) tangkap interrupt keyboard
+- simpan raw dari keyboard ke /dev/input/kbd (sementara)
+(x) integrate X2APIC, mirip kayak di pci
+
+
+NEXT:
+- aktifkan lagi virtio dan virtio gpu
+- buat shell
+- nyicil porting ACPICA
+
+TARGET
+( ) solve semua masalah race condition di memory terutama saat banyak core
+( ) load program di user space
+( ) reimplememnt syscall
+( ) stabilin shceduler dan voxmo
+( ) shell interactive
+( ) ahci 
+( ) nvme
+( ) porting libc (MUSL dulu)
+( ) cek masalah page pml4
+( ) optimize Bitmap Allocator (improve scanning speed for large memory)
+( ) implement Lazy Allocation on kalloc for large requests
+( ) implement Copy-on-Write (COW) mechanism for efficient memory usage
+
+( ) find_by_pci jangan ketemu 1 langsung break, tetapi ganti jadi call lambda
+
+LIST SPECS:
+E1000E: intel 82574 GbE https://docs.rs-online.com/96e8/0900766b81384733.pdf
+IxGbe: 10gigabit: Intel82599 10 GbE https://docs.rs-online.com/a22c/0900766b80f08ddc.pdf
+USB HID: https://www.usb.org/sites/default/files/documents/hid1_11.pdf
+EHCI: https://www.intel.com/content/dam/www/public/us/en/documents/technical-specifications/ehci-specification-for-usb.pdf

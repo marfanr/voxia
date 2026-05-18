@@ -538,7 +538,10 @@ extern boolean_t multicore_start;
 KERNEL_API void serial2_printf(const char* fmt, ...) {
 	__builtin_va_list args;
 	__builtin_va_start(args, fmt);
-	parse_multicore(args, fmt);
+	if (!multicore_start)
+		parse_before_multicore(args, fmt);
+	else
+		parse_multicore(args, fmt);
 	__builtin_va_end(args);
 }
 

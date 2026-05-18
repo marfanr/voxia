@@ -1,10 +1,10 @@
 #include "debug.h"
-#include "hal/cpu/spinlock.h"
+#include <spinlock.h>
 #include "type.h"
 #include <console/console.h>
 #include <libk/serial.h>
 
-static spinlock_t debug_lock;
+extern void parse_multicore(__builtin_va_list args, const char* fmt);
 
 static char* get_debug_level_str(DEBUG_LEVEL level_) {
 	switch (level_) {
@@ -33,10 +33,9 @@ void kernel_debug_impl(const char* file_, uint16_t line_num_,
 		       DEBUG_LEVEL level_, const char* message_, ...) {
 	UNUSED(file_);
 	UNUSED(line_num_);
-	spin_acquire(&debug_lock);
 	__builtin_va_list args;
 	__builtin_va_start(args, message_);
-	console_printf("[", get_debug_level_str(level_));
+	console_printf("[");
 	switch (level_) {
 	case DEBUG_LEVEL_INFO:
 		console_chfg(0x2CC6DE);
@@ -56,13 +55,17 @@ void kernel_debug_impl(const char* file_, uint16_t line_num_,
 	}
 	console_printf("%s", get_debug_level_str(level_));
 	console_chfg(0xFFFFF0);
-	console_printf("]", get_debug_level_str(level_));
-	// console_printf("[%s]", get_debug_level_str(level_));
+	console_printf("]");
 	console_add_space(1);
 	console_vaprintf(message_, args);
-	// console_newline ();
 	__builtin_va_end(args);
-	spin_release(&debug_lock);
+
+	// Also output to serial for headless debugging
+	serial2_printf("[%s] ", get_debug_level_str(level_));
+	__builtin_va_start(args, message_);
+	parse_multicore(args, message_);
+	__builtin_va_end(args);
+	serial2_printf("\n");
 }
 
 // void kernel_assert_impl(const char* file_, uint16_t line_num_) {
