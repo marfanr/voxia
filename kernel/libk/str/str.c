@@ -2,13 +2,13 @@
 #include <vector.h>
 #include "memory/kalloc.h"
 #include "type.h"
+#include "libk/simd.h"
 
 extern void __fast__memcpy__(void* dst, void* val, size_t len);
 extern void __fast__memcpy_aligned__(void* dst, void* val, size_t len);
 extern void __fast_memset__(void* dst, int val, size_t len);
 extern void __fast_memset_aligned__(void* dst, int val, size_t len);
 extern int __fast__strncmp__(const char* s1, const char* s2, size_t n);
-extern boolean_t simd_has_avx;
 
 KERNEL_API int strcmp(const char* s1, const char* s2) {
 	while (*s1 && (*s1 == *s2)) {
@@ -19,7 +19,7 @@ KERNEL_API int strcmp(const char* s1, const char* s2) {
 }
 
 KERNEL_API int strncmp(const char* s1, const char* s2, size_t n) {
-	if (!simd_has_avx) {
+	if (!simd_has_avx2) {
 		while (n-- != 0) {
 			if (*s1 != *s2++)
 				return *(unsigned char*) s1
@@ -131,7 +131,7 @@ char* strtok_r(char* str, const char* delim, char** saveptr) {
 }
 
 KERNEL_API void memset(void* ptr, int value, size_t num) {
-	if (!simd_has_avx) {
+	if (!simd_has_avx2) {
 		uint8_t* ptr_ = (uint8_t*) ptr;
 
 		uint64_t fill = 0;

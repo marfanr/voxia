@@ -4,7 +4,9 @@
 #include <libk/serial.h>
 #include <libk/simd.h>
 
+// TODO: move this to each core struct data
 boolean_t simd_has_avx = false;
+boolean_t simd_has_avx2 = false;
 
 void init_simd() {
 	uint32_t eax, ebx, ecx, edx;
@@ -17,9 +19,14 @@ void init_simd() {
 	bool has_sse = (ecx & (1U << 25)) != 0;
 	bool has_oxsave = (ecx & (1U << 27)) != 0;
 
+	// 2️⃣ Deteksi AVX2 (Leaf 7, subleaf 0)
+	cpuid(7, 0, &eax, &ebx, &ecx, &edx);
+	bool has_avx2 = (ebx & (1U << 5)) != 0;
+
 	if (!has_sse) {
 		LOG2_WARN("SIMD", "SSE not supported, SIMD disabled");
 		simd_has_avx = false;
+		simd_has_avx2 = false;
 		return;
 	}
 
@@ -27,31 +34,34 @@ void init_simd() {
 	if (has_avx && !has_oxsave)
 		has_avx = false;
 
-	// 2️⃣ Aktifkan FPU dan SSE di CR0 & CR4
-	uint64_t cr0;
-	uint64_t cr4;
+	if (has_avx2 && (!has_avx || !has_oxsave))
+		has_avx2 = false;
 
-	__asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
+	// 3️⃣ Aktifkan FPU dan SSE di CR0 & CR4
+	uint64_t cr0_val;
+	uint64_t cr4_val;
 
-	cr0 &= ~(1ULL << 2); // Clear EM bit
-	cr0 |= (1ULL << 1);  // Set MP bit
+	__asm__ volatile("mov %%cr0, %0" : "=r"(cr0_val));
 
-	__asm__ volatile("mov %0, %%cr0" : : "r"(cr0));
+	cr0_val &= ~(1ULL << 2); // Clear EM bit
+	cr0_val |= (1ULL << 1);  // Set MP bit
 
-	__asm__ volatile("mov %%cr4, %0" : "=r"(cr4));
+	__asm__ volatile("mov %0, %%cr0" : : "r"(cr0_val));
 
-	cr4 |= (1ULL << 9);  // OSFXSR
-	cr4 |= (1ULL << 10); // OSXMMEXCPT
+	__asm__ volatile("mov %%cr4, %0" : "=r"(cr4_val));
+
+	cr4_val |= (1ULL << 9);  // OSFXSR
+	cr4_val |= (1ULL << 10); // OSXMMEXCPT
 
 	if (has_xsave)
-		cr4 |= (1ULL << 18); // OSXSAVE
+		cr4_val |= (1ULL << 18); // OSXSAVE
 
-	__asm__ volatile("mov %0, %%cr4" : : "r"(cr4));
+	__asm__ volatile("mov %0, %%cr4" : : "r"(cr4_val));
 
-	// 3️⃣ Init FPU
+	// 4️⃣ Init FPU
 	__asm__ volatile("fninit");
 
-	// 4️⃣ Setup XCR0
+	// 5️⃣ Setup XCR0
 	if (has_xsave) {
 		uint64_t xcr0;
 
@@ -59,10 +69,12 @@ void init_simd() {
 			// x87 + SSE + AVX
 			xcr0 = 0b111ULL;
 			simd_has_avx = true;
+			simd_has_avx2 = has_avx2;
 		} else {
 			// x87 + SSE
 			xcr0 = 0b011ULL;
 			simd_has_avx = false;
+			simd_has_avx2 = false;
 		}
 
 		__asm__ volatile("xsetbv"
@@ -76,6 +88,13 @@ void init_simd() {
 			  "XSAVE/AVX not supported, fallback to SSE only");
 
 		simd_has_avx = false;
+		simd_has_avx2 = false;
+	}
+
+	if (simd_has_avx2) {
+		LOG2_INFO("SIMD", "AVX2 enabled");
+	} else if (simd_has_avx) {
+		LOG2_INFO("SIMD", "AVX enabled");
 	}
 }
 

@@ -19,4 +19,7 @@ void simd_mul_pd(double* dst, const double* a, const double* b);
 
 void init_simd();
 
+extern boolean_t simd_has_avx;
+extern boolean_t simd_has_avx2;
+
 #endif // __LIBK__SIMD_H__
