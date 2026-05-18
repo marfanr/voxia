@@ -51,38 +51,35 @@ static void* ssfn_memcpy(void* __restrict__ __dest,
 #include <memory/kalloc.h>
 
 static void* ssfn_realloc(void* ptr, size_t new_size) {
-	size_t* blk;
-	size_t old_size = 0;
-
 	if (new_size == 0) {
-		if (ptr) {
-			blk = (size_t*) ptr - 1;
-			kfree(blk, blk[0] + sizeof(size_t));
-		}
+		if (ptr)
+			kfree2(ptr);
 		return NULL;
 	}
 
-	blk = (size_t*) kalloc(new_size + sizeof(size_t));
-	if (!blk)
+	if (!ptr)
+		return kalloc(new_size);
+
+	kalloc_metadata_t* meta =
+		(kalloc_metadata_t*) ((uintptr_t) ptr
+				      - sizeof(kalloc_metadata_t)
+				      - KALLOC_REDZONE_SIZE);
+
+	size_t old_size = meta->size;
+	void* new_ptr = kalloc(new_size);
+	if (!new_ptr)
 		return NULL;
-	blk[0] = new_size;
 
-	if (ptr) {
-		size_t* old_blk = (size_t*) ptr - 1;
-		old_size = old_blk[0];
-		size_t copy = old_size < new_size ? old_size : new_size;
-		ssfn_memcpy(blk + 1, ptr, copy);
-		kfree(old_blk, old_size + sizeof(size_t));
-	}
+	size_t copy = old_size < new_size ? old_size : new_size;
+	ssfn_memcpy(new_ptr, ptr, copy);
+	kfree2(ptr);
 
-	return blk + 1;
+	return new_ptr;
 }
 
 static void ssfn_free_(void* ptr) {
-	if (!ptr)
-		return;
-	size_t* blk = (size_t*) ptr - 1; /* ← fix: pakai header size */
-	kfree(blk, blk[0] + sizeof(size_t));
+	if (ptr)
+		kfree2(ptr);
 }
 
 #define SSFN_realloc ssfn_realloc
@@ -107,7 +104,6 @@ INIT(graphic) {
 	if (g__fb->framebuffer_addr == 0)
 		return;
 
-	/* ── load font ──────────────────────────────────────────────────────── */
 	dentry_ptr font_dentry;
 	uint8_t* font_buff = 0;
 	if (vxResolveDentry("/init/fonts/unifont.sfn", 0, &font_dentry, 0)
@@ -123,7 +119,6 @@ INIT(graphic) {
 		LOG2_WARN("Graphic", "failed to load font");
 	}
 
-	/* ── remap framebuffer ke virtual address ───────────────────────────── */
 	for (uint64_t i = 0; i < ctx->memory.memory_entries; i++) {
 		memory_entry_t* entry = &ctx->memory.memory_map[i];
 		if (entry->type == ENTRY_MMAP_FRAMEBUFFER) {
@@ -139,17 +134,18 @@ INIT(graphic) {
 
 	serial2_printf("new framebuffer 0x%x\n", g__fb->framebuffer_addr);
 
-	/* ── setup dst buffer ───────────────────────────────────────────────── */
 	dst.ptr = (uint8_t*) g__fb->framebuffer_addr;
 	dst.w = g__fb->framebuffer_width;
 	dst.h = g__fb->framebuffer_height;
 	dst.p = g__fb->framebuffer_pitch;
 	dst.x = 0;
 	dst.y = 0;
-	dst.fg = 0xFFFFFFFF; /* ARGB: AA RR GG BB — putih opak              */
-	dst.bg = 0xFF000000; /* ARGB: hitam opak                             */
+	dst.fg = 0xFFFFFFFF;
+	dst.bg = 0xFF000000;
 
-	/* ── init SSFN ──────────────────────────────────────────────────────── */
+	serial2_printf("dst: ptr=%p w=%d h=%d p=%d\n", dst.ptr, dst.w, dst.h,
+		       dst.p);
+
 	if (font_buff) {
 		int r = ssfn_load(&ssfn_ctx, font_buff);
 		if (r != SSFN_OK) {
@@ -170,7 +166,7 @@ void vxPutc(char c, int col, int row, uint32_t fg, uint32_t bg) {
 	dst.fg = fg | 0xFF000000; /* pastikan alpha selalu opak               */
 	dst.bg = bg | 0xFF000000;
 	dst.x = col * (FONT_SIZE / 2);
-	dst.y = 20 + row * FONT_SIZE;
+	dst.y = 15 + row * FONT_SIZE;
 
 	char str[2] = {c, '\0'};
 	int r = ssfn_render(&ssfn_ctx, &dst, str);
@@ -302,4 +298,20 @@ __attribute__((unused)) static void scroll_up(int lines, uint32_t bg_color) {
 			put_pixel(x, y, bg_color);
 		}
 	}
+}
+
+uint32_t vxGetWidth(void) {
+	return dst.w;
+}
+uint32_t vxGetHeight(void) {
+	return dst.h;
+}
+
+void vxScroll(int px) {
+	/* geser framebuffer ke atas px pixel, isi bawah dengan hitam */
+	uint32_t row_bytes = dst.p;
+	uint32_t total = row_bytes * (dst.h - px);
+	ssfn_memcpy(dst.ptr, dst.ptr + row_bytes * px, total);
+	/* clear baris terakhir */
+	ssfn_memset(dst.ptr + total, 0, row_bytes * px);
 }
