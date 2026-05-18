@@ -4,6 +4,7 @@
 #include <type.h>
 
 void usleep(const uint64_t time_ns);
+void vxTimerRegisterInterrupt(void);
 
 typedef struct {
 	uint64_t current;

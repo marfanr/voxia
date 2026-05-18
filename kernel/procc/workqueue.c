@@ -2,7 +2,7 @@
 #include "hal/acpi/acpi.h"
 #include "hal/acpi/hpet.h"
 #include "hal/cpu/core.h"
-#include "hal/cpu/spinlock.h"
+#include <spinlock.h>
 #include "init/init.h"
 #include "libk/debug/debug.h"
 #include "libk/serial.h"
@@ -46,17 +46,7 @@ static void workqueue_process() {
 					workqueue_t* dep =
 						workqueue->dependency->data[j];
 
-					/*
-                     * FIX: dependency NULL bukan berarti slot harus di-free.
-                     * Ini adalah data dependency yang tidak valid / sudah
-                     * selesai sebelum dicatat. Anggap sebagai "sudah selesai"
-                     * sehingga tidak memblokir eksekusi.
-                     *
-                     * Jika memang NULL dependency harus membatalkan task,
-                     * set dependency_invalid = true lalu break.
-                     */
 					if (!dep) {
-						/* Dep sudah selesai / tidak ada, lanjutkan cek berikutnya */
 						continue;
 					}
 
@@ -100,30 +90,20 @@ workqueue_t* vxAddWorkqueueTask(void (*task)(void*), void* arg,
 				vector(workqueue_ptr_t) * dependency) {
 	static uint8_t next_core_hint = 1;
 
-	uint8_t core_count = vxGetNumberOfCores();
-	if (core_count <= 1) {
-		LOG2_ERROR("workqueue",
-			   "no worker cores available (only core 0)");
-		return 0;
-	}
+	// Coba cari slot kosong di core yang aktif (selain core 0)
+	// Kita iterasi semua kemungkinan APIC ID untuk fallback yang robust
+	for (uint8_t attempt = 0; attempt < VOXIA_MAX_CORE; attempt++) {
+		uint8_t target_apic_id =
+			((__atomic_fetch_add(&next_core_hint, 1, __ATOMIC_RELAXED))
+			 % (VOXIA_MAX_CORE - 1))
+			+ 1;
 
-	uint8_t worker_count = core_count - 1; /* core 0 bukan worker */
-	uint8_t start_index =
-		(__atomic_fetch_add(&next_core_hint, 1, __ATOMIC_RELAXED)
-		 % worker_count)
-		+ 1;
-
-	for (uint8_t attempt = 0; attempt < worker_count; attempt++) {
-		uint8_t target_index =
-			((start_index - 1 + attempt) % worker_count) + 1;
-
-		each_core_data* core = vxGetCoreDataByCoreID(target_index);
-		if (!core) {
-			LOG2_WARN("workqueue",
-				  "core %d returned null data, skipping",
-				  target_index);
-			continue;
+		auto cpu_info = vxGetCpuInfo(target_apic_id);
+		if (!cpu_info || cpu_info->status != Active) {
+			continue; // Core tidak ada atau tidak aktif, cari yang lain
 		}
+
+		each_core_data* core = vxGetCoreDataByCoreID(target_apic_id);
 
 		/* Cepat-cek apakah masih ada slot kosong sebelum ambil lock */
 		if (__atomic_load_n(&core->workqueue_count, __ATOMIC_ACQUIRE)
@@ -133,10 +113,11 @@ workqueue_t* vxAddWorkqueueTask(void (*task)(void*), void* arg,
 
 		spin_acquire(&lock);
 
-		LOG2_INFO(
-			"workqueue",
-			"adding task to core %d (0x%x), current work count %d",
-			core->core_id, (uintptr_t) core, core->workqueue_count);
+		// Re-check after lock
+		if (core->workqueue_count >= VOXIA_MAX_WORKQUEUE_EACH_CORE) {
+			spin_release(&lock);
+			continue;
+		}
 
 		for (uint16_t i = 0; i < VOXIA_MAX_WORKQUEUE_EACH_CORE; i++) {
 			uint8_t expected = SLOT_EMPTY;
@@ -150,37 +131,23 @@ workqueue_t* vxAddWorkqueueTask(void (*task)(void*), void* arg,
 				core->workqueue[i].data = arg;
 				core->workqueue[i].dependency = dependency;
 
-				/* Pastikan data tertulis sebelum counter diincrement */
 				__atomic_fetch_add(&core->workqueue_count, 1,
 						   __ATOMIC_RELEASE);
-
-				LOG2_INFO("workqueue",
-					  "task added to core %d slot %d "
-					  "(0x%x), total %d",
-					  core->core_id, i,
-					  (uintptr_t) &core->workqueue[i],
-					  core->workqueue_count);
 
 				spin_release(&lock);
 				return &core->workqueue[i];
 			}
 		}
 
-		/* Slot penuh setelah lock, coba core berikutnya */
-		LOG2_WARN("workqueue",
-			  "no slot available on core %d, trying next core",
-			  core->core_id);
 		spin_release(&lock);
 	}
 
-	LOG_ERROR("workqueue",
-		  "no available slot in any worker core (all %d cores full)",
-		  worker_count);
+	LOG_ERROR("workqueue", "no available slot in any active worker core");
 	return 0;
 }
 
 INIT(Workqueue) {
-	for (uint8_t i = 1; i < vxGetActiveCoreCount(); i++) {
+	for (uint8_t i = 1; i < vxGetNumberOfCores(); i++) {
 		auto cpu_info = vxGetCpuInfo(i);
 		if (cpu_info->status != Active) {
 			serial2_printf("cpu %d not active\n", cpu_info->cpuid);

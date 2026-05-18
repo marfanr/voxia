@@ -84,6 +84,12 @@ uint64_t vxHPETGetMainCount() {
 }
 
 void vxHPETSleep(uint64_t ns) {
+	if (!hpet_available || min_tick_ns == 0) {
+		// Fallback to simple busy loop if HPET is not ready
+		for (volatile uint64_t i = 0; i < ns * 10; i++)
+			__asm__ volatile("pause");
+		return;
+	}
 	uint64_t ticks = ns / min_tick_ns;
 	uint64_t start = vxHPETGetMainCount();
 	while ((vxHPETGetMainCount() - start) < ticks)

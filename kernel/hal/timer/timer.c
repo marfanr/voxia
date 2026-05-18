@@ -9,6 +9,7 @@
 
 extern void vxInitializeAPICTimer();
 extern uint64_t calibrated_ticks_1us;
+extern boolean_t g__scheduler__is__running;
 
 static boolean_t trigerred = 0;
 
@@ -22,10 +23,19 @@ static void usleep_backend(interrupt_stack_frame_t* _) {
 			   core->core_id);
 }
 
+void vxTimerRegisterInterrupt() {
+	irq_register(coreGetCpuID(), 0x24, (void*) usleep_backend, true, 0x28,
+		     0, INTERRUPT_ATTR_KERNEL);
+}
+
 void usleep(const uint64_t time_ns) {
-	if (time_ns < 1000000 && vxHPETIsAvailable()) {
-		vxHPETSleep((uint64_t) (time_ns));
-		return;
+	// Gunakan HPET untuk durasi pendek (< 1ms) atau jika HPET tersedia dan kita ingin presisi tinggi
+	// Busy wait dengan HPET aman digunakan di semua core.
+	if (time_ns < 1000000 || !g__scheduler__is__running) {
+		if (vxHPETIsAvailable()) {
+			vxHPETSleep(time_ns);
+			return;
+		}
 	}
 
 	each_core_data* core = vxGetCoreData();
@@ -42,10 +52,7 @@ INIT(Timer) {
 
 	vxInitializeAPICTimer();
 
-	LOG2_INFO("TIMER", "Initializing HPET timer");
-
-	irq_register(coreGetCpuID(), 0x24, (void*) usleep_backend, true, 0x28,
-		     0, INTERRUPT_ATTR_KERNEL);
+	vxTimerRegisterInterrupt();
 }
 
 void vxTimerCounterInit(time_counter_t* counter) {
