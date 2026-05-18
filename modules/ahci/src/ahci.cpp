@@ -474,15 +474,18 @@ void AHCIModule::probe() {
 			{
 				boolean_t present = false;
 				int spin = 0;
-				while (spin++ < 3000) {
-					IOUtils::sleep(10);
+				// Wait up to 500ms (50 * 10ms)
+				while (spin++ < 50) {
 					if (is_device_present(port)) {
 						present = true;
 						break;
 					}
+					IOUtils::sleep(10);
 				}
-				if (!present)
-					break;
+				if (!present) {
+					log(mod, "No device on port %d", i);
+					continue;
+				}
 			}
 
 			port_configure(port, vaddr);
