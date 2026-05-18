@@ -4,6 +4,7 @@
 #include <ioforge/ioforge_usb.h>
 #include <console/console.h>
 #include <ioforge/ioforge.h>
+#include "hal/acpi/hpet.h"
 #include "ioforge/ioforge_pci.h"
 #include "memory/kalloc.h"
 #include "memory/memory_utils.h"
@@ -28,27 +29,25 @@ static struct ioforge_device* usb_controller_root = 0;
 static struct ioforge_device* usb_devices_root = 0;
 static struct ioforge_device* block_devices_root = 0;
 
-// static uint64_t incremented_id = 1;
-
 void KERNEL_API print_device_tree(struct ioforge_device* node, int indent) {
 	if (!node)
 		return;
 
 	for (int i = 0; i < indent; i++)
-		console_printf(" ");
+		serial2_printf(" ");
 
 	if (node->type == IOFORGE_USB_DEVICE) {
 		struct ioforge_usb_device* d =
 			(struct ioforge_usb_device*) node;
 		if (d->base.name[0] != 0 && d->serial_number[0] != 0)
-			console_printf("usb device: %s %s\n", d->base.name,
+			serial2_printf("usb device: %s %s\n", d->base.name,
 				       d->serial_number);
 	} else if (node->type == IOFORGE_PCI || node->type == IOFORGE_VIRTIO) {
 		struct ioforge_pci_device* pd =
 			(struct ioforge_pci_device*) node;
-		console_printf("pci %d:%d\n", pd->vendor_id, pd->device_id);
+		serial2_printf("pci %d:%d\n", pd->vendor_id, pd->device_id);
 	} else {
-		console_printf("device: %s\n", node->name);
+		serial2_printf("device: %s\n", node->name);
 	}
 
 	print_device_tree(node->first_child, indent + 1);
@@ -249,8 +248,8 @@ uintptr_t IOforgeMMapPhys(uintptr_t paddr, size_t size) {
 	return vaddr + offset_paddr;
 }
 
-KERNEL_API void ioforge_sleep(uint32_t time) {
-	usleep(time);
+KERNEL_API void ioforge_sleep(uint32_t ms) {
+	usleep(ms2ns(ms));
 }
 
 // KERNEL_API void ioforge_mmio_outl(uint32_t port, uint32_t value) {
