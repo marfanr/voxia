@@ -9,14 +9,96 @@
 #include "str.h"
 #include "vfs/enum.h"
 #include <libk/serial.h>
+// HAPUS baris ini dari atas — sudah ada di bawah sebelum #include ssfn.h
+// #define SSFN_IMPLEMENTATION   ← HAPUS yang ini (duplikat)
 
-#define SSFN_CONSOLEBITMAP_TRUECOLOR
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunknown-warning-option"
+
+#define _STRING_H_
+
+#define SSFN_memcmp memcmp
+static int memcmp(const void* __s1, const void* __s2, size_t __n) {
+	const unsigned char* a = (const unsigned char*) __s1;
+	const unsigned char* b = (const unsigned char*) __s2;
+	while (__n--) {
+		if (*a != *b)
+			return (int) *a - (int) *b;
+		a++;
+		b++;
+	}
+	return 0;
+}
+
+#define SSFN_memset ssfn_memset
+static void* ssfn_memset(void* __s, int __c, size_t __n) {
+	unsigned char* p = (unsigned char*) __s;
+	while (__n--)
+		*p++ = (unsigned char) __c;
+	return __s;
+}
+
+#define SSFN_memcpy ssfn_memcpy
+static void* ssfn_memcpy(void* __restrict__ __dest,
+			 const void* __restrict__ __src, size_t __n) {
+	unsigned char* d = (unsigned char*) __dest;
+	const unsigned char* s = (const unsigned char*) __src;
+	while (__n--)
+		*d++ = *s++;
+	return __dest;
+}
+
+#include <memory/kalloc.h>
+
+static void* ssfn_realloc(void* ptr, size_t new_size) {
+	size_t* blk;
+	size_t old_size = 0;
+
+	if (new_size == 0) {
+		if (ptr) {
+			blk = (size_t*) ptr - 1;
+			kfree(blk, blk[0] + sizeof(size_t));
+		}
+		return NULL;
+	}
+
+	blk = (size_t*) kalloc(new_size + sizeof(size_t));
+	if (!blk)
+		return NULL;
+	blk[0] = new_size;
+
+	if (ptr) {
+		size_t* old_blk = (size_t*) ptr - 1;
+		old_size = old_blk[0];
+		size_t copy = old_size < new_size ? old_size : new_size;
+		ssfn_memcpy(blk + 1, ptr, copy);
+		kfree(old_blk, old_size + sizeof(size_t));
+	}
+
+	return blk + 1;
+}
+
+static void ssfn_free_(void* ptr) {
+	if (!ptr)
+		return;
+	size_t* blk = (size_t*) ptr - 1; /* ← fix: pakai header size */
+	kfree(blk, blk[0] + sizeof(size_t));
+}
+
+#define SSFN_realloc ssfn_realloc
+#define SSFN_free ssfn_free_
+
+#define SSFN_IMPLEMENTATION
 #include <libk/ssfn.h>
+
+#undef _STRING_H_
 #pragma GCC diagnostic pop
 
+#define FONT_SIZE 15
+
 volatile framebuffer_t* g__fb;
+static ssfn_buf_t dst;
+static ssfn_t ssfn_ctx = {0};
 
 INIT(graphic) {
 	g__fb = &ctx->framebuffer;
@@ -25,7 +107,7 @@ INIT(graphic) {
 	if (g__fb->framebuffer_addr == 0)
 		return;
 
-	// loading font
+	/* ── load font ──────────────────────────────────────────────────────── */
 	dentry_ptr font_dentry;
 	uint8_t* font_buff = 0;
 	if (vxResolveDentry("/init/fonts/unifont.sfn", 0, &font_dentry, 0)
@@ -37,12 +119,11 @@ INIT(graphic) {
 		((vops_file_t*) font_dentry->vnode->ops)
 			->read(font_dentry->vnode, font_buff,
 			       font_dentry->vnode->size, 0);
-		ssfn_src = (ssfn_font_t*) font_buff;
 	} else {
 		LOG2_WARN("Graphic", "failed to load font");
 	}
 
-	// overide fb addr
+	/* ── remap framebuffer ke virtual address ───────────────────────────── */
 	for (uint64_t i = 0; i < ctx->memory.memory_entries; i++) {
 		memory_entry_t* entry = &ctx->memory.memory_map[i];
 		if (entry->type == ENTRY_MMAP_FRAMEBUFFER) {
@@ -51,8 +132,6 @@ INIT(graphic) {
 				       entry->length / PAGE_SIZE, 0b111);
 			vma_register(entry->base, 0xFFFFFA0000000000,
 				     entry->length / PAGE_SIZE);
-			// vma_tree_add(VMA_REGION_A, 0xFFFFFA0000000000,
-			// 0xFFFFFA0000000000 +entry->length);
 			g__fb->framebuffer_addr = 0xFFFFFA0000000000;
 			break;
 		}
@@ -60,23 +139,43 @@ INIT(graphic) {
 
 	serial2_printf("new framebuffer 0x%x\n", g__fb->framebuffer_addr);
 
-	ssfn_dst.ptr = (uint8_t*) g__fb->framebuffer_addr;
-	ssfn_dst.w = g__fb->framebuffer_width;
-	ssfn_dst.h = g__fb->framebuffer_height;
-	ssfn_dst.p = g__fb->framebuffer_pitch;
-	ssfn_dst.x = ssfn_dst.y = 0;
-	ssfn_dst.fg = 0xFFFFFF;
-	ssfn_dst.bg = 0x000000;
+	/* ── setup dst buffer ───────────────────────────────────────────────── */
+	dst.ptr = (uint8_t*) g__fb->framebuffer_addr;
+	dst.w = g__fb->framebuffer_width;
+	dst.h = g__fb->framebuffer_height;
+	dst.p = g__fb->framebuffer_pitch;
+	dst.x = 0;
+	dst.y = 0;
+	dst.fg = 0xFFFFFFFF; /* ARGB: AA RR GG BB — putih opak              */
+	dst.bg = 0xFF000000; /* ARGB: hitam opak                             */
+
+	/* ── init SSFN ──────────────────────────────────────────────────────── */
+	if (font_buff) {
+		int r = ssfn_load(&ssfn_ctx, font_buff);
+		if (r != SSFN_OK) {
+			LOG2_WARN("Graphic", "ssfn_load failed: %d", r);
+			return;
+		}
+
+		ssfn_select(&ssfn_ctx, SSFN_FAMILY_ANY, NULL, /* family */
+			    SSFN_STYLE_REGULAR,		      /* style */
+			    FONT_SIZE			      /* size */
+		);
+	}
 
 	KDEBUG(DEBUG_LEVEL_INFO, "graphic init done\n");
 }
 
-void vxPutc(char c, int x, int y, uint32_t fg, uint32_t bg) {
-	ssfn_dst.fg = fg;
-	ssfn_dst.bg = bg;
-	ssfn_dst.x = x * 7;
-	ssfn_dst.y = y * 15;
-	ssfn_putc((uint32_t) c);
+void vxPutc(char c, int col, int row, uint32_t fg, uint32_t bg) {
+	dst.fg = fg | 0xFF000000; /* pastikan alpha selalu opak               */
+	dst.bg = bg | 0xFF000000;
+	dst.x = col * (FONT_SIZE / 2);
+	dst.y = 20 + row * FONT_SIZE;
+
+	char str[2] = {c, '\0'};
+	int r = ssfn_render(&ssfn_ctx, &dst, str);
+	if (r < 0)
+		serial2_printf("ssfn_render err: %d\n", r);
 }
 
 void put_pixel(int x, int y, uint32_t color) {
