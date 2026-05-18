@@ -15,8 +15,8 @@
 /* Nilai sentinel: slot kosong / sudah dikonsumsi */
 #define SLOT_EMPTY 0x00
 
-/* Batas spin sebelum menyerah (± 1 ms pada 1 GHz) */
-#define SPIN_LIMIT 500000u
+/* Batas spin sebelum menyerah (cepat agar tidak hang) */
+#define SPIN_LIMIT 10000u
 
 typedef struct {
 	char data[128];
@@ -36,6 +36,7 @@ static serial_ring_buffer_t __buffer = {0};
  * Menggunakan __atomic_test_and_set / __atomic_clear (spinlock 1-bit).
  */
 static volatile unsigned char __flush_lock = 0;
+static spinlock_t __serial2_producer_lock = {0};
 
 /* ------------------------------------------------------------------ */
 /*  Hardware setup                                                      */
@@ -266,7 +267,7 @@ static void serial2_send_unsigned_number(uint64_t num, int base, int limit) {
 /*  Format parsers                                                      */
 /* ------------------------------------------------------------------ */
 
-static void parse_multicore(__builtin_va_list args, const char* fmt) {
+void parse_multicore(__builtin_va_list args, const char* fmt) {
 	char temp_buffer[128];
 	uint8_t temp_index = 0;
 
@@ -535,7 +536,12 @@ static void parse_before_multicore(__builtin_va_list args, const char* fmt) {
 
 extern boolean_t multicore_start;
 
+#include <hal/cpu/irq_lock.h>
+
 KERNEL_API void serial2_printf(const char* fmt, ...) {
+	uintptr_t flags = irq_save();
+	spin_acquire(&__serial2_producer_lock);
+
 	__builtin_va_list args;
 	__builtin_va_start(args, fmt);
 	if (!multicore_start)
@@ -543,11 +549,20 @@ KERNEL_API void serial2_printf(const char* fmt, ...) {
 	else
 		parse_multicore(args, fmt);
 	__builtin_va_end(args);
+
+	spin_release(&__serial2_producer_lock);
+	irq_restore(flags);
 }
 
 KERNEL_API void serial_printf(const char* fmt, ...) {
+	uintptr_t flags = irq_save();
+	spin_acquire(&__serial2_producer_lock);
+
 	__builtin_va_list args;
 	__builtin_va_start(args, fmt);
 	parse_before_multicore(args, fmt);
 	__builtin_va_end(args);
+
+	spin_release(&__serial2_producer_lock);
+	irq_restore(flags);
 }

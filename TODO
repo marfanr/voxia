@@ -71,10 +71,16 @@ RESOLVED ISSUES (19/5/2026):
     - Fix: Safety check di vxHPETSleep & penambahan vma_register di core init. [a8444b9, c2f00d6]
 (x) Log serial tidak terbaca/korup saat multi-core aktif.
     - Fix: Standardisasi makro LOG ke serial2_printf (buffered path). [a48938b]
+    - Fix: Implementasi producer-side lock untuk menjamin atomisitas log (mencegah interleaving). [adaf54a]
     - Fix: Integrasi KDEBUG dengan output serial2 secara otomatis.
+(x) Delay lama ("jeda") saat booting di bagian memory usage log.
+    - Fix: Optimasi hitung free memory menggunakan word-level popcount (64x lebih cepat).
+    - Fix: Optimasi inisialisasi bitmap memory menggunakan memset.
 (x) Performa module [ATAPI] sangat lambat/delay.
     - Fix: Reduksi timeout identify/capacity dari 30s ke 5s. [fccd933]
     - Fix: Optimasi polling di AHCI (small pause sebelum sleep) & hapus log redundant.
+(x) AHCI port probing freeze/lama jika port kosong.
+    - Fix: Reduksi timeout deteksi device (30s -> 500ms) & perbaikan alur loop (continue vs break). [c19ceb1]
    
 USB:
 (x) EHCI simpan response input ke vfs
