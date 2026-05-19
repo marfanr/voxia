@@ -1,15 +1,15 @@
 # 🌌 Voxia OS
 
-A modern, modular, and high-performance x86_64 kernel designed with simplicity and elegance in mind.
+A Simple modular x86_64 kernel designed with simplicity and elegance in mind.
 
 ---
 
 ## ✨ Features
 
 - 🚀 **Symmetric Multiprocessing (SMP):** Native support for multi-core processors.
-- 📂 **Advanced VFS:** A flexible Virtual File System with integrated caching and RCU support.
+- 📂 **VFS:** A flexible Virtual File System with integrated caching and RCU support.
 - 🔌 **Voxmo Driver Model:** Modular driver architecture for seamless hardware extensions.
-- 🌐 **Networking:** Built-in network stack with support for E1000 and other NICs.
+- 🌐 **Networking:** Built-in network stack with support for E1000.
 - 🛠️ **Kconfig Integration:** Highly configurable build system using industry standards.
 - 🚢 **Modern Booting:** Seamless UEFI and BIOS support via the Limine bootloader.
 
@@ -51,7 +51,6 @@ make run
 ```
 
 ## 📊 Star History
-
 <a href="https://www.star-history.com/?repos=marfanr%2Fvoxia&type=date&legend=top-left">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=marfanr/voxia&type=date&theme=dark&legend=top-left" />
@@ -59,7 +58,6 @@ make run
    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=marfanr/voxia&type=date&legend=top-left" />
  </picture>
 </a>
-
 ## 📜 License
 
 Voxia is licensed under the [GNU General Public License v3.0](LICENSE).
