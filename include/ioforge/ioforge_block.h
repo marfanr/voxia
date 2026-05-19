@@ -69,7 +69,7 @@ struct ioforge_block_device {
 typedef void (*ioforge_block_visitor_fn)(struct ioforge_block_device* dev,
 					 void* ctx);
 
-void ioforge_find_block_device_by_type(struct ioforge_device* node,
+void foreach_block_device_by_type(struct ioforge_device* node,
 				       uint8_t type,
 				       ioforge_block_visitor_fn callback,
 				       void* ctx);

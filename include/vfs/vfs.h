@@ -9,6 +9,10 @@
 
 #define ROOT_UUID 0
 
+enum {
+    VFS_NOTIFY_PROBE = 1,
+};
+
 #ifdef __cplusplus
 extern "C" {
 #endif

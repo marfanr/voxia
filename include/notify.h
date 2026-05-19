@@ -41,6 +41,8 @@ struct notify_chain {
 };
 
 #define NOTIFY_DEV_HASH_SIZE 64
+#define NOTIFY_DEV_HASH_MASK (NOTIFY_DEV_HASH_SIZE - 1)
+
 
 struct notify_dev_table {
 	spinlock_t lock;
@@ -59,7 +61,7 @@ void notify_dev_create(kstring name);
 int notify_dev_destroy(kstring name);
 
 /* Subscription */
-int notify_register(kstring name, struct notifier* n);
+int notify_register(char* name, struct notifier* n);
 int notify_unregister(kstring name, struct notifier* n);
 
 void wait_until_receive_notify(char* name, uint64_t timeout);

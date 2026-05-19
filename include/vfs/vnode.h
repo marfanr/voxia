@@ -21,10 +21,10 @@
 #ifndef __VFS__VNODE_H__
 #define __VFS__VNODE_H__
 
-#include <vector.h>
-#include <type.h>
-#include <llist.h>
 #include "vfs/dentry.h"
+#include <llist.h>
+#include <type.h>
+#include <vector.h>
 
 enum {
 	VNODE_TYPE_FILE = 1,
@@ -47,7 +47,7 @@ typedef struct {
 } vops_file_t;
 
 typedef struct thread thread_t;
-typedef struct {
+typedef struct  vops_blk{
 	int (*open)(void* vdata, int op_mode, thread_t* thread);
 	int (*read)(void* vdata, uintptr_t addr, void* buf, size_t count);
 	int (*write)(void* vdata, uintptr_t addr, void* buf, size_t count);
@@ -60,6 +60,10 @@ typedef uint64_t vnode_id_t;
 /*
 General VNode
 */
+struct device_id {
+	uint32_t major;
+	uint32_t minor;
+};
 struct vnode {
 	atomic_t refcount;
 	vnode_id_t id;
@@ -70,7 +74,11 @@ struct vnode {
 	uint16_t permission;
 
 	void* fs;
-	void* vnode_private;
+
+	union {
+		void* vnode_private;
+		struct device_id device;
+	};
 };
 typedef struct vnode* vnode_ptr_t;
 
