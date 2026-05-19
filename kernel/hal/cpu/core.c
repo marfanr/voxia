@@ -87,10 +87,10 @@ cpuTrampolinePhase2(uint64_t core_id) {
 	vxTimerRegisterInterrupt();
 	serial2_printf("core %d %d successfully running\n", core_id,
 	               get_current_core_cpuid());
-	// vxGetCpuInfo((uint8_t)core_id)->status = Active;
+	vxGetCpuInfo((uint8_t)core_id)->status = Active;
 
 
-	// vxStartScheduler();
+	vxStartScheduler();
 	
 
 	for (;;)
