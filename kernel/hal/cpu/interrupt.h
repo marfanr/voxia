@@ -64,6 +64,7 @@ typedef struct {
 	uint8_t mask;
 	boolean_t use_default_isr;
 	boolean_t configured;
+	boolean_t allocated;
 	void* handler[MAX_HANDLERS_PER_INTERRUPT];
 } irq_entry_t;
 

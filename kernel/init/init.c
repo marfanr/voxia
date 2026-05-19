@@ -51,6 +51,7 @@ _start(struct stivale2_struct* stivale2_struct) {
 		     INTERRUPT_ATTR_KERNEL);
 	vxAPICCreateTimer(APIC_TIMER_PERIOD, 100, irq);
 
+	
 	pmm_log_usage();
 	KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...\n");
 

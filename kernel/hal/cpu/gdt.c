@@ -18,8 +18,8 @@ static lm_tss_t tss;
 
 uint8_t stack[4096] __attribute__((aligned(16)));
 
-static gdt_each_core_t __gdt_entries[10];
-uint8_t ap_stack_top[10][65536] __attribute__((aligned(16))); // 64KB
+static gdt_each_core_t __gdt_entries[VOXIA_MAX_CORE];
+uint8_t ap_stack_top[VOXIA_MAX_CORE][65536] __attribute__((aligned(16))); // 64KB
 
 __attribute__((no_stack_protector)) void setup_gdt(int core) {
 	gdt_entry_t* entries = __gdt_entries[core].entries;

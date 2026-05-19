@@ -3,20 +3,22 @@ global cpu_trampoline
 org 0x8000
 bits 16
 
+cpu_trampoline:
+    jmp short start_trampoline
+    nop
+
+align 8
 signature: dq 0
 pml4_addr: dq 0
 data: dq 0
 
-jmp cpu_trampoline
-
-; init bertahap 16 bit -> 32 bit -> 64 bit
-cpu_trampoline:
+start_trampoline:
     cli
     xor ax, ax
     mov ds, ax
     mov es, ax
     mov ss, ax
-    
+
     ; cek signature
     ; memastikan tidak ada corrupt
     mov eax, [signature]
@@ -54,7 +56,8 @@ core_ap_32:
     mov fs, ax
 
     ; stack sementara
-    mov esp, 0x9F00
+    ; pakai area di bawah 0x8000 yang aman
+    mov esp, 0x7C00
 
     ; Set up PAE paging
     mov eax, [pml4_addr]
@@ -97,22 +100,23 @@ core_ap_64:
     mov gs, ax
     mov fs, ax
 
+    lea rbx, [rel signature]
+    mov r12, [rbx + 16]    ; load data (signature+16)
+
     cld
-    mov rax, [pml4_addr]
+    mov rax, [rbx + 8]     ; load pml4_addr (signature+8)
     mov cr3, rax 
     cli
-    
-    mov rbx, [data]
-    mov rax, qword [rbx + 8]
+
+    mov rax, [r12 + 8]     ; load stack_top
     mov rsp, rax
-    ; and rsp, ~0xF
     and rsp, -16
     sub rsp, 8
-    
-    
-    mov rbx, [data]
-    mov rax, [rbx]
-    mov rdi, [real_apic_id]
+
+    mov qword [r12 + 16], 1 ; set handshake[2] = 1
+
+    mov rax, [r12]         ; load cpuTrampolinePhase2
+    mov rdi, qword [rel real_apic_id] ; load real_apic_id (32-bit)
     call rax 
     jmp $
 

@@ -146,16 +146,13 @@ static void vxAPICTimerCalibrationUsingHPET() {
 // }
 
 void vxInitializeAPICTimer() {
-	// if (vxGetCoreData()->core_id == 0) {
-	vxAPICTimerCalibrationUsingHPET();
-	// }
-	// Core lain tunggu hasil kalibrasi core 0 selesai
-	// else {
-	// 	while (__atomic_load_n(&calibrated_ticks_1ns, __ATOMIC_ACQUIRE)
-	// 	       == 0)
-	// 		__asm__ volatile("pause");
-	// }
-	// vxAPICTimerCalibrationUsingHPET();
+	if (get_current_core_cpuid() == 0) {
+		vxAPICTimerCalibrationUsingHPET();
+	} else {
+		while (__atomic_load_n(&calibrated_ticks_1ns, __ATOMIC_ACQUIRE)
+		       == 0)
+			__asm__ volatile("pause");
+	}
 }
 
 #define APIC_TIMER_MASKED (1 << 16)
@@ -194,10 +191,13 @@ void vxAPICCreateTimer(uint32_t type, uint64_t interval_us, uint16_t vector) {
 
 	apic_write(TIMER_DIVIDE_CONFIG, 0x0B);
 
+	serial_printf("ok\n");
+
 	uint32_t lvt = (vector & 0xFF) | type | APIC_TIMER_MASKED;
 	apic_write(LVT_TIMER, lvt);
-	lvt &= (uint32_t) ~APIC_TIMER_MASKED;
-	apic_write(LVT_TIMER, lvt);
+
+	lvt = apic_read(LVT_TIMER);
+	apic_write(LVT_TIMER, lvt & (uint32_t)~APIC_TIMER_MASKED);
 	apic_write(TIMER_INITIAL_COUNT, (uint32_t) count);
 }
 

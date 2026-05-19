@@ -73,26 +73,25 @@ __attribute__((no_stack_protector, noreturn))
 __attribute__((section(".cpu_trampoline"))) void
 cpuTrampolinePhase2(uint64_t core_id) {
 	__atomic_fetch_add(&active_core_count, 1, __ATOMIC_SEQ_CST);
-
+	
 	serial_setup();
 	setup_gdt((uint8_t)core_id);
 	update_core_gs((uint8_t)core_id);
 	__stack_chk_guard = vxGetCoreData()->canary;
 
-	serial_printf("AP core=%d guard=%x canary=%x\n",
-	              vxGetCoreData()->core_id, __stack_chk_guard,
-	              vxGetCoreData()->canary);
-	init_simd();
-
 	irq_setup((uint8_t)core_id);
 	apicInitialize();
+	init_simd();
 	vxInitializeAPICTimer();
+
 	vxTimerRegisterInterrupt();
 	serial2_printf("core %d %d successfully running\n", core_id,
 	               get_current_core_cpuid());
-	vxGetCpuInfo((uint8_t)core_id)->status = Active;
+	// vxGetCpuInfo((uint8_t)core_id)->status = Active;
+
 
 	// vxStartScheduler();
+	
 
 	for (;;)
 		__asm__ volatile("hlt");
@@ -105,7 +104,7 @@ static uint32_t get_bsp_apic_id(void) {
 	__asm__ volatile("cpuid"
 	                 : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
 	                 : "a"(1));
-	return (ebx >> 24) & 0xFF; // Initial APIC ID ada di EBX[31:24]
+	return (ebx >> 24) & 0xFF; 
 }
 
 static void sipi_sequential(uint32_t apic_id, uint64_t entrypoint_addr) {
@@ -114,9 +113,6 @@ static void sipi_sequential(uint32_t apic_id, uint64_t entrypoint_addr) {
 	uint8_t vector = (entrypoint_addr >> 12) & 0xFF;
 
 	if (!x2_apic_supported) {
-		// ======================
-		// xAPIC (MMIO)
-		// ======================
 		// INIT assert
 		apic_write(APIC_ICR_HIGH, apic_id << 24);
 		apic_write(APIC_ICR_LOW, (0b101 << 8) | (1 << 14));
@@ -188,7 +184,7 @@ INIT(Core) {
 	LOG_INFO("CORE", "preparing to send IPI");
 	multicore_start = true;
 
-	// 0x8000 - 0x9000 digunakan untuk entry point di tiap core
+	// 0x8000 - 0x9000 used for entry point in each core
 	uintptr_t entrypoint_addr = INIT_CORE_ENTRYPOINT;
 	size_t size = (uintptr_t)_binary_hal_cpu_core_ap_bin_end -
 	              (uintptr_t)_binary_hal_cpu_core_ap_bin_start;
@@ -201,15 +197,13 @@ INIT(Core) {
 	        (void*)_binary_hal_cpu_core_ap_bin_start, size);
 
 	// prepare trampoline
-	// dengan menyisipkan data di 24 byte pertama
 	volatile uint64_t* trampoline_data =
 	    (volatile uint64_t*)INIT_CORE_ENTRYPOINT;
-	trampoline_data[0] = INIT_CORE_MAGIC;
-	trampoline_data[1] = (uintptr_t)paging_get_highest_page_map();
+	trampoline_data[1] = INIT_CORE_MAGIC;
+	trampoline_data[2] = (uintptr_t)paging_get_highest_page_map();
 
 	auto bsp_id = (int)get_bsp_apic_id();
 
-	// // kirim SIPI (StartUp IPI)
 	auto jum_core = vxGetNumberOfCores();
 	LOG_DEBUG("CORE", "terdeteksi %d core", jum_core);
 	for (uint8_t i = 0; i < jum_core; i++) {
@@ -228,8 +222,6 @@ INIT(Core) {
 
 		LOG_DEBUG("CORE", "stack untuk core %d = 0x%x", cpu_id, stack);
 		auto stack_top = stack + 5 * BLOCK_SIZE;
-		stack_top &= ~0xFULL; // align ke 16 byte
-		stack_top -= 8;
 
 		// Allocate separate data page for each core to avoid collisions
 		uintptr_t per_core_data_paddr = (uintptr_t)vxPhysBaseAlloc(1);
@@ -246,16 +238,16 @@ INIT(Core) {
 		    (volatile uint64_t*)per_core_data_vaddr;
 		core_handshake[0] = (uint64_t)cpuTrampolinePhase2;
 		core_handshake[1] = stack_top;
+		core_handshake[2] = 0;
 
 		// Update trampoline data for this core
-		trampoline_data[2] = (uint64_t)per_core_data_vaddr;
+		trampoline_data[3] = (uint64_t)per_core_data_vaddr;
 
 		LOG_DEBUG("CORE", "kirim sipi ke CPU Core %d", cpu_id);
 
 		sipi_sequential(cpu_id, entrypoint_addr);
 
-		uint64_t timeout = 1000; // 5000 * 100us = 500ms
-		while (core_handshake[3] == 0 && timeout-- > 0) {
+		while (__atomic_load_n(&core_handshake[2], __ATOMIC_SEQ_CST) == 0) {
 			vxHPETSleep(us2ns(100));
 		}
 	}
