@@ -13,7 +13,7 @@
 
 #include "block/block.h"
 #include "hal/apic/ioapic.h"
-#include "hal/cpu/core.h"
+#include <hal/cpu/core.h>
 #include "hal/cpu/interrupt.h"
 #include "hal/cpu/paging.h"
 #include "hal/timer/timer.h"
@@ -261,7 +261,7 @@ KERNEL_API void ioforge_sleep(uint32_t ms) {
 // }
 
 KERNEL_API uint16_t ioforge_irq_alloc_entry() {
-	auto core_id = coreGetCpuID();
+	auto core_id = get_current_core_cpuid();
 	auto irq = irq_alloc_entry(core_id);
 	LOG2_INFO("IOFORGE", "allocating irq on core %d = %d", core_id, irq);
 	return irq;
@@ -272,13 +272,13 @@ KERNEL_API uint32_t ioforge_isr_get_vector(uint8_t irq) {
 }
 
 KERNEL_API void ioforge_irq_register(uint8_t n, void* handler) {
-	auto core_id = coreGetCpuID();
+	auto core_id = get_current_core_cpuid();
 	LOG2_INFO("IOFORGE", "registering irq %d on core %d", n, core_id);
 	irq_register(core_id, n, handler, true, 0x28, 0, INTERRUPT_ATTR_KERNEL);
 }
 
 KERNEL_API void ioforge_map_isr(uint8_t irq, uint8_t vector) {
-	auto core_id = coreGetCpuID();
+	auto core_id = get_current_core_cpuid();
 	LOG2_INFO("IOFORGE", "mapping isr %d on core %d", irq, core_id);
 	vxIOAPICMapISR(irq, vector, core_id);
 }

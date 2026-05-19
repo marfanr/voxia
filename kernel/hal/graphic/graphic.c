@@ -189,9 +189,9 @@ void put_pixel(int x, int y, uint32_t color) {
 	pixel->a = (color >> 24) & 0xFF;
 }
 
-static inline uint8_t blend(uint8_t src, uint8_t dst, uint8_t a) {
+static inline uint8_t blend(uint8_t src, uint8_t d, uint8_t a) {
 	// Gunakan multiply+shift yang lebih akurat
-	return ((src * a) + (dst * (255 - a)) + 128) >> 8;
+	return ((src * a) + (d * (255 - a)) + 128) >> 8;
 	// +128 untuk rounding yang lebih baik
 }
 

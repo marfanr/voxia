@@ -27,7 +27,7 @@ extern "C" {
 #endif
 
 struct ioforge_device {
-	const char name[IOFORGE_SERVICE_NAME_MAX_LEN];
+	char name[IOFORGE_SERVICE_NAME_MAX_LEN];
 	IoForgeType type;
 	uint32_t flags;
 	uint32_t address;

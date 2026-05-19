@@ -1,7 +1,7 @@
 #include "procc/workqueue.h"
 #include "hal/acpi/acpi.h"
 #include "hal/acpi/hpet.h"
-#include "hal/cpu/core.h"
+#include <hal/cpu/core.h>
 #include <spinlock.h>
 #include "init/init.h"
 #include "libk/debug/debug.h"

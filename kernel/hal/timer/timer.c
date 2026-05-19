@@ -1,5 +1,5 @@
 #include "hal/apic/apic.h"
-#include "hal/cpu/core.h"
+#include <hal/cpu/core.h>
 #include "hal/cpu/interrupt.h"
 #include "init/init.h"
 #include "libk/serial.h"
@@ -24,7 +24,7 @@ static void usleep_backend(interrupt_stack_frame_t* _) {
 }
 
 void vxTimerRegisterInterrupt() {
-	irq_register(coreGetCpuID(), 0x24, (void*) usleep_backend, true, 0x28,
+	irq_register(get_current_core_cpuid(), 0x24, (void*) usleep_backend, true, 0x28,
 		     0, INTERRUPT_ATTR_KERNEL);
 }
 

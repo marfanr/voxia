@@ -68,7 +68,7 @@ void E1000Module::load() {
 
 	if (msix_cap) {
 		log(mod, "MSI-X Available at cap : 0x%x", msix_cap);
-		auto cpu = coreGetCpuID();
+		auto cpu = get_current_core_cpuid();
 		auto irq = IOUtils::irq_alloc_entry();
 		IOUtils::irq_register(irq, (void*) E1000Module::fireHandler);
 		pci_enable_msix(device, irq, cpu, msix_cap);
@@ -104,7 +104,7 @@ void E1000Module::load() {
 	else if (msi_cap) {
 		log(mod, "MSI Available at 0x%x", msi_cap);
 		auto irq = IOUtils::irq_alloc_entry();
-		auto cpu = coreGetCpuID();
+		auto cpu = get_current_core_cpuid();
 		IOUtils::irq_register(irq, (void*) E1000Module::fireHandler);
 		pci_enable_msi(device, irq, cpu, msi_cap);
 		msix = 0;

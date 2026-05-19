@@ -2,7 +2,7 @@
 
 #include "hal/acpi/hpet.h"
 #include "hal/apic/apic.h"
-#include "hal/cpu/core.h"
+#include <hal/cpu/core.h>
 #include "hal/cpu/interrupt.h"
 #include "hal/cpu/register.h"
 #include "init/init.h"
@@ -111,7 +111,7 @@ vxRestoreRegister(interrupt_stack_frame_t* stack, cpu_register_t* reg) {
 }
 
 static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
-	const uint16_t core_id = coreGetCpuID();
+	const uint16_t core_id = get_current_core_cpuid();
 
 	spin_acquire(&scheduler[core_id].lock);
 
@@ -257,7 +257,7 @@ void vxAttachScheduler(thread_t* new_thread) {
 }
 
 void vxStartScheduler() {
-	const uint8_t core_id = coreGetCpuID();
+	const uint8_t core_id = get_current_core_cpuid();
 	serial2_printf("scheduler init on core %d\n", core_id);
 	irq_register(core_id, 0x45, (void*) vxSchedulerTick, true, 0x28, 0,
 		     INTERRUPT_ATTR_KERNEL);

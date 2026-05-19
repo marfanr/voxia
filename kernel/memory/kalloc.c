@@ -1,4 +1,4 @@
-#include "hal/cpu/core.h"
+#include <hal/cpu/core.h>
 #include "libk/serial.h"
 #include "libk/type.h"
 #include "memory/memory_utils.h"

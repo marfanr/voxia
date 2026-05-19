@@ -1,4 +1,4 @@
-#include "hal/cpu/core.h"
+#include "core.h"
 #include "autoconf.h"
 #include "hal/acpi/acpi.h"
 #include "hal/acpi/hpet.h"
@@ -7,7 +7,6 @@
 #include "hal/cpu/msr.h"
 #include "hal/cpu/paging.h"
 #include "init/init.h"
-#include "libk/debug/debug.h"
 #include "libk/serial.h"
 #include <str.h>
 #include "libk/type.h"
@@ -52,7 +51,7 @@ each_core_data* vxGetCoreData(void) {
 }
 
 KERNEL_API
-uint8_t coreGetCpuID() {
+uint8_t get_current_core_cpuid() {
 	return vxGetCoreData()->core_id;
 }
 

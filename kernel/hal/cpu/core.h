@@ -2,10 +2,14 @@
 #define __HAL__CPU__CORE_H__
 
 #include "autoconf.h"
-#include "libk/type.h"
+#include <type.h>
 #include "procc/scheduler.h"
 #include "procc/thread.h"
 #include "procc/workqueue.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct {
 	uint64_t canary;
@@ -18,9 +22,13 @@ typedef struct {
 } each_core_data;
 
 void coreUpdateGs(uint8_t id);
-uint8_t coreGetCpuID();
+uint8_t get_current_core_cpuid();
 each_core_data* vxGetCoreData();
 each_core_data* vxGetCoreDataByCoreID(uint8_t core_id);
 uint8_t vxGetActiveCoreCount();
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // __HAL__CPU__CORE_H__

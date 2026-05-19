@@ -11,7 +11,7 @@ INIT(ModuleRegister) {
 
 	// reg kernel module
 
-	// vxSetDefaultVoxmoPath(VOXIA_DEFAULT_VOXMO_PATH);
+	vxSetDefaultVoxmoPath(VOXIA_DEFAULT_VOXMO_PATH);
 	// vxVoxmoInstall("e1000");
 	// vxVoxmoInstall("ehci");
 	// vxVoxmoInstall("virtio-gpu");

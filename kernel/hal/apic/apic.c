@@ -1,4 +1,4 @@
-#include "hal/cpu/core.h"
+#include <hal/cpu/core.h>
 #include "hal/cpu/msr.h"
 #include "libk/io.h"
 #include "libk/serial.h"

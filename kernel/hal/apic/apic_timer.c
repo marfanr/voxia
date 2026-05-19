@@ -1,4 +1,4 @@
-#include "hal/cpu/core.h"
+#include <hal/cpu/core.h>
 #include "hal/cpu/cpuid.h"
 #include "hal/cpu/interrupt.h"
 #include "hal/cpu/msr.h"

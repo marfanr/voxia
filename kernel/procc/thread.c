@@ -1,6 +1,6 @@
 #include "procc/thread.h"
 #include "autoconf.h"
-#include "hal/cpu/core.h"
+#include <hal/cpu/core.h>
 #include "init/init.h"
 #include "libk/atomic.h"
 #include "libk/serial.h"
@@ -69,7 +69,7 @@ thread_id vxCreateThread(const uintptr_t entry, uint16_t core_affinity,
 // }
 
 void vxThreadExit() {
-	const uint16_t core_id = coreGetCpuID();
+	const uint16_t core_id = get_current_core_cpuid();
 	auto queue = vxSchedulerGetCurrentQueue(core_id);
 	queue->thread->state = THREAD_STATE_TERMINATED;
 	for (;;)

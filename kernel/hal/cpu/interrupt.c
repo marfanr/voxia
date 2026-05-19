@@ -1,7 +1,7 @@
 #include "./interrupt.h"
 #include "autoconf.h"
 #include "hal/apic/apic.h"
-#include "hal/cpu/core.h"
+#include <hal/cpu/core.h>
 #include "hal/cpu/spinlock.h"
 #include "init/init.h"
 #include "libk/type.h"
