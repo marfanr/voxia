@@ -138,3 +138,5 @@ gdt64_descriptor:
     dq gdt64_start
 
 real_apic_id dd 0
+
+section .note.GNU-stack noalloc noexec nowrite progbits
