@@ -84,9 +84,9 @@ SECTIONS
 
         /*
 
-
         KEEP(*(.init_early.Workqueue))
         KEEP(*(.init_early.ModuleRegister))
+
         KEEP(*(.init_early.Netbuff))
         KEEP(*(.init_early.Netdev))
         KEEP(*(.init_early.Socket))

@@ -6,15 +6,15 @@
 #include "hal/cpu/interrupt.h"
 #include "hal/cpu/msr.h"
 #include "hal/cpu/paging.h"
+#include "hal/timer/timer.h"
 #include "init/init.h"
 #include "libk/serial.h"
-#include <str.h>
 #include "libk/type.h"
 #include "memory/phys_base_allocator.h"
 #include "memory/vm_manager.h"
 #include "procc/scheduler.h"
-#include "hal/timer/timer.h"
 #include <ioforge/ioforge.h>
+#include <str.h>
 
 #define INIT_CORE_MAGIC 0x00EEDDAB
 #define INIT_CORE_ENTRYPOINT 0x8000
@@ -33,30 +33,28 @@ extern uint8_t x2_apic_supported;
 
 static each_core_data core_data[VOXIA_MAX_CORE] = {0};
 
-void coreUpdateGs(uint8_t id) {
+void update_core_gs(uint8_t id) {
 	core_data[id].canary = (id + 0x56) ^ 0x595e9fbd94fda766;
 	core_data[id].core_id = id;
 	core_data[id].usleep_trigerred = false;
 	core_data[id].scheduler = vxGetSchedulerCore(id);
 	core_data[id].workqueue_count = 0;
 
-	const uintptr_t core_data_addr = (uintptr_t) &core_data[id];
+	const uintptr_t core_data_addr = (uintptr_t)&core_data[id];
 	msrSetGSBase(core_data_addr);
 	msrSetKernelGSBase(core_data_addr);
 }
 
 each_core_data* vxGetCoreData(void) {
-	each_core_data* core = (each_core_data*) msrReadGSBase();
+	each_core_data* core = (each_core_data*)msrReadGSBase();
 	return core;
 }
 
 KERNEL_API
-uint8_t get_current_core_cpuid() {
-	return vxGetCoreData()->core_id;
-}
+uint8_t get_current_core_cpuid() { return vxGetCoreData()->core_id; }
 
 each_core_data* vxGetCoreDataByCoreID(uint8_t core_id) {
-	each_core_data* core = (each_core_data*) &core_data[core_id];
+	each_core_data* core = (each_core_data*)&core_data[core_id];
 	return core;
 }
 
@@ -75,23 +73,26 @@ __attribute__((no_stack_protector, noreturn))
 __attribute__((section(".cpu_trampoline"))) void
 cpuTrampolinePhase2(uint64_t core_id) {
 	__atomic_fetch_add(&active_core_count, 1, __ATOMIC_SEQ_CST);
+
 	serial_setup();
-	setup_gdt((uint8_t) core_id);
-	coreUpdateGs((uint8_t) core_id);
+	setup_gdt((uint8_t)core_id);
+	update_core_gs((uint8_t)core_id);
 	__stack_chk_guard = vxGetCoreData()->canary;
 
-	serial_printf("AP core=%d guard=%lx canary=%lx\n",
-		      vxGetCoreData()->core_id, __stack_chk_guard,
-		      vxGetCoreData()->canary);
+	serial_printf("AP core=%d guard=%x canary=%x\n",
+	              vxGetCoreData()->core_id, __stack_chk_guard,
+	              vxGetCoreData()->canary);
 	init_simd();
 
-	irq_setup((uint8_t) core_id);
+	irq_setup((uint8_t)core_id);
 	apicInitialize();
 	vxInitializeAPICTimer();
 	vxTimerRegisterInterrupt();
-	serial2_printf("core %d successfully running\n", core_id);
+	serial2_printf("core %d %d successfully running\n", core_id,
+	               get_current_core_cpuid());
+	vxGetCpuInfo((uint8_t)core_id)->status = Active;
 
-	vxStartScheduler();
+	// vxStartScheduler();
 
 	for (;;)
 		__asm__ volatile("hlt");
@@ -102,8 +103,8 @@ boolean_t multicore_start = false;
 static uint32_t get_bsp_apic_id(void) {
 	uint32_t eax, ebx, ecx, edx;
 	__asm__ volatile("cpuid"
-			 : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
-			 : "a"(1));
+	                 : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+	                 : "a"(1));
 	return (ebx >> 24) & 0xFF; // Initial APIC ID ada di EBX[31:24]
 }
 
@@ -155,8 +156,8 @@ static void sipi_sequential(uint32_t apic_id, uint64_t entrypoint_addr) {
 		icr = 0;
 		icr |= (0b101ULL << 8);
 		icr |= (1ULL << 14);
-		icr |= ((uint64_t) apic_id << 32);
-		LOG_DEBUG("APIC", "ICR INIT assert  = 0x%lx", icr);
+		icr |= ((uint64_t)apic_id << 32);
+		LOG_DEBUG("APIC", "ICR INIT assert  = 0x%x", icr);
 		vxWRSR(0x830, icr);
 		vxHPETSleep(ms2ns(10));
 		LOG_DEBUG("APIC", "INIT assert OK");
@@ -164,9 +165,9 @@ static void sipi_sequential(uint32_t apic_id, uint64_t entrypoint_addr) {
 		// SIPI #1
 		icr = 0;
 		icr |= (0b110ULL << 8);
-		icr |= (uint8_t) vector;
-		icr |= ((uint64_t) apic_id << 32);
-		LOG_DEBUG("APIC", "ICR SIPI #1      = 0x%lx", icr);
+		icr |= (uint8_t)vector;
+		icr |= ((uint64_t)apic_id << 32);
+		LOG_DEBUG("APIC", "ICR SIPI #1      = 0x%x", icr);
 		vxWRSR(0x830, icr);
 		vxHPETSleep(ms2ns(1));
 		LOG_DEBUG("APIC", "SIPI #1 OK");
@@ -174,9 +175,9 @@ static void sipi_sequential(uint32_t apic_id, uint64_t entrypoint_addr) {
 		// SIPI #2
 		icr = 0;
 		icr |= (0b110ULL << 8);
-		icr |= (uint8_t) vector;
-		icr |= ((uint64_t) apic_id << 32);
-		LOG_DEBUG("APIC", "ICR SIPI #2      = 0x%lx", icr);
+		icr |= (uint8_t)vector;
+		icr |= ((uint64_t)apic_id << 32);
+		LOG_DEBUG("APIC", "ICR SIPI #2      = 0x%x", icr);
 		vxWRSR(0x830, icr);
 		vxHPETSleep(ms2ns(1));
 		LOG_DEBUG("APIC", "SIPI #2 OK");
@@ -189,24 +190,24 @@ INIT(Core) {
 
 	// 0x8000 - 0x9000 digunakan untuk entry point di tiap core
 	uintptr_t entrypoint_addr = INIT_CORE_ENTRYPOINT;
-	size_t size = (uintptr_t) _binary_hal_cpu_core_ap_bin_end
-		      - (uintptr_t) _binary_hal_cpu_core_ap_bin_start;
+	size_t size = (uintptr_t)_binary_hal_cpu_core_ap_bin_end -
+	              (uintptr_t)_binary_hal_cpu_core_ap_bin_start;
 	size_t aligned_size = (size + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
 	vxMultipleMmap(paging_get_highest_page_map(), entrypoint_addr,
-		       entrypoint_addr, aligned_size, 0x3);
+	               entrypoint_addr, aligned_size, 0x3);
 	paging_reload(paging_get_highest_page_map());
-	memcopy((void*) entrypoint_addr,
-		(void*) _binary_hal_cpu_core_ap_bin_start, size);
+	memcopy((void*)entrypoint_addr,
+	        (void*)_binary_hal_cpu_core_ap_bin_start, size);
 
 	// prepare trampoline
 	// dengan menyisipkan data di 24 byte pertama
 	volatile uint64_t* trampoline_data =
-		(volatile uint64_t*) INIT_CORE_ENTRYPOINT;
+	    (volatile uint64_t*)INIT_CORE_ENTRYPOINT;
 	trampoline_data[0] = INIT_CORE_MAGIC;
-	trampoline_data[1] = (uintptr_t) paging_get_highest_page_map();
+	trampoline_data[1] = (uintptr_t)paging_get_highest_page_map();
 
-	auto bsp_id = (int) get_bsp_apic_id();
+	auto bsp_id = (int)get_bsp_apic_id();
 
 	// // kirim SIPI (StartUp IPI)
 	auto jum_core = vxGetNumberOfCores();
@@ -218,11 +219,11 @@ INIT(Core) {
 		auto core_info = vxGetCpuInfo(i);
 		auto cpu_id = core_info->apicid;
 
-		uint64_t pstack = (uint64_t) vxPhysBaseAlloc(5);
-		uint64_t stack = (uint64_t) vma_lookup_free_vaddr(VMA_REGION_A,
-								  5); // 8kb
+		uint64_t pstack = (uint64_t)vxPhysBaseAlloc(5);
+		uint64_t stack = (uint64_t)vma_lookup_free_vaddr(VMA_REGION_A,
+		                                                 5); // 8kb
 		vxMultipleMmap(paging_get_highest_page_map(), stack, pstack, 5,
-			       0b111);
+		               0b111);
 		paging_reload(paging_get_highest_page_map());
 
 		LOG_DEBUG("CORE", "stack untuk core %d = 0x%x", cpu_id, stack);
@@ -231,60 +232,35 @@ INIT(Core) {
 		stack_top -= 8;
 
 		// Allocate separate data page for each core to avoid collisions
-		uintptr_t per_core_data_paddr = (uintptr_t) vxPhysBaseAlloc(1);
+		uintptr_t per_core_data_paddr = (uintptr_t)vxPhysBaseAlloc(1);
 		uintptr_t per_core_data_vaddr =
-			vma_lookup_free_vaddr(VMA_REGION_A, 1);
+		    vma_lookup_free_vaddr(VMA_REGION_A, 1);
 		vxMultipleMmap(paging_get_highest_page_map(),
-			       per_core_data_vaddr, per_core_data_paddr, 1,
-			       0b111);
+		               per_core_data_vaddr, per_core_data_paddr, 1,
+		               0b111);
 		paging_reload(paging_get_highest_page_map());
 		vma_register(per_core_data_paddr, per_core_data_vaddr,
-			     BLOCK_SIZE);
+		             BLOCK_SIZE);
 
 		volatile uint64_t* core_handshake =
-			(volatile uint64_t*) per_core_data_vaddr;
-		core_handshake[0] = (uint64_t) cpuTrampolinePhase2;
+		    (volatile uint64_t*)per_core_data_vaddr;
+		core_handshake[0] = (uint64_t)cpuTrampolinePhase2;
 		core_handshake[1] = stack_top;
-		core_handshake[2] = (uint64_t) cpu_id;
-		core_handshake[3] = 0; // Handshake flag
 
 		// Update trampoline data for this core
-		trampoline_data[2] = (uint64_t) per_core_data_vaddr;
+		trampoline_data[2] = (uint64_t)per_core_data_vaddr;
 
 		LOG_DEBUG("CORE", "kirim sipi ke CPU Core %d", cpu_id);
 
-		bool success = false;
-		for (int retry = 0; retry < 3; retry++) {
-			if (retry > 0)
-				LOG_INFO("CORE", "retry %d pada core %d", retry,
-					 cpu_id);
+		sipi_sequential(cpu_id, entrypoint_addr);
 
-			sipi_sequential(cpu_id, entrypoint_addr);
-
-			uint64_t timeout = 1000; // 1000 * 100us = 100ms
-			while (core_handshake[3] == 0 && timeout-- > 0) {
-				vxHPETSleep(us2ns(100));
-			}
-
-			if (core_handshake[3] != 0) {
-				success = true;
-				break;
-			}
-		}
-
-		if (success) {
-			LOG_INFO("CORE", "core %d sudah berhasil nyala",
-				 cpu_id);
-			core_info->status = Active;
-		} else {
-			LOG_ERROR("CORE", "core %d gagal nyala!", cpu_id);
-			core_info->status = Off;
+		uint64_t timeout = 1000; // 5000 * 100us = 500ms
+		while (core_handshake[3] == 0 && timeout-- > 0) {
+			vxHPETSleep(us2ns(100));
 		}
 	}
 
 	LOG_INFO("core", "active core count %d", active_core_count);
 }
 
-uint8_t vxGetActiveCoreCount() {
-	return active_core_count;
-}
+uint8_t vxGetActiveCoreCount() { return active_core_count; }

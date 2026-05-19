@@ -63,7 +63,7 @@ struct ACPI_IO_APIC {
 	uint32_t globalSystemInterruptBase;
 } __attribute__((packed));
 
-typedef enum { Off, Active } cpu_core_status_t;
+typedef enum { Off = 0, Active } cpu_core_status_t;
 
 struct cpu_core {
 	cpu_core_status_t status;

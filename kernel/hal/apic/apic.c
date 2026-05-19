@@ -91,6 +91,7 @@ void apicInitialize() {
 		apic_write(APIC_DFR, 0xFFFFFFFF);
 
 	LOG_DEBUG("lapic", "lapic id %d", lapic_id);
+	update_core_gs((uint8_t)lapic_id);
 }
 
 void apic_send_ipi(uint8_t vector, uint8_t dest) {

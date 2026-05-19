@@ -66,7 +66,7 @@ uintptr_t acpi_map_phys_page(uintptr_t phys_addr, size_t len) {
 	paging_reload(paging_get_highest_page_map());
 	asm volatile("mfence" ::: "memory");
 
-	paging_debug(paging_get_highest_page_map(), vaddr);
+	// paging_debug(paging_get_highest_page_map(), vaddr);
 
 	return (uintptr_t) (vaddr + offset);
 }

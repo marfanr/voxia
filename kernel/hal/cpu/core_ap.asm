@@ -43,6 +43,7 @@ cpu_trampoline:
 
     jmp 0x08:core_ap_32
 
+
 bits 32
 core_ap_32:
     mov ax, 0x10
@@ -75,6 +76,13 @@ core_ap_32:
     or eax, (1 << 31)  ; PG enable
     mov cr0, eax
 
+.signature_ok:
+    ; Baca LAPIC ID dari CPUID (aman di real mode, tidak butuh GDT)
+    mov eax, 1
+    cpuid
+    shr ebx, 24          ; APIC ID ada di EBX[31:24]
+    mov [real_apic_id], ebx   ; simpan dulu sebelum GDT setup
+
     cli
     lgdt [gdt64_descriptor]
     jmp 0x08:core_ap_64
@@ -102,13 +110,10 @@ core_ap_64:
     and rsp, -16
     sub rsp, 8
     
-    ; respon handshake
-    mov qword [rbx + 24], 1
-
-
+    
     mov rbx, [data]
     mov rax, [rbx]
-    mov rdi, [rbx + 16]
+    mov rdi, [real_apic_id]
     call rax 
     jmp $
 
@@ -132,3 +137,5 @@ gdt64_end:
 gdt64_descriptor:
     dw gdt64_end - gdt64_start - 1
     dq gdt64_start
+
+real_apic_id dd 0

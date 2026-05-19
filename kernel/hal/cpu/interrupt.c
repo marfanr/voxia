@@ -143,7 +143,7 @@ void irq_setup(uint16_t core) {
 }
 
 INIT(Interrupt) {
-	coreUpdateGs(0);
+	update_core_gs(0);
 	irq_setup(0);
 }
 
