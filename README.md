@@ -50,16 +50,11 @@ Launch Voxia in a virtualized environment with a single command:
 make run
 ```
 
-## 📊 Star History
-<a href="https://www.star-history.com/?repos=marfanr%2Fvoxia&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=marfanr/voxia&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=marfanr/voxia&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=marfanr/voxia&type=date&legend=top-left" />
- </picture>
-</a>
-## 📜 License
+## Star History
 
+[![Star History Chart](https://api.star-history.com/chart?repos=marfanr/voxia&type=date&legend=top-left)](https://www.star-history.com/?repos=marfanr%2Fvoxia&type=date&legend=top-left)
+
+## 📜 License
 Voxia is licensed under the [GNU General Public License v3.0](LICENSE).
 
 ---
