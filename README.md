@@ -59,6 +59,7 @@ make run
    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=marfanr/voxia&type=date&legend=top-left" />
  </picture>
 </a>
+
 ## 📜 License
 Voxia is licensed under the [GNU General Public License v3.0](LICENSE).
 
