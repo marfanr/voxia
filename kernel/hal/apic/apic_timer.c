@@ -191,8 +191,6 @@ void vxAPICCreateTimer(uint32_t type, uint64_t interval_us, uint16_t vector) {
 
 	apic_write(TIMER_DIVIDE_CONFIG, 0x0B);
 
-	serial_printf("ok\n");
-
 	uint32_t lvt = (vector & 0xFF) | type | APIC_TIMER_MASKED;
 	apic_write(LVT_TIMER, lvt);
 

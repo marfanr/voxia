@@ -15,7 +15,7 @@ INIT(ModuleRegister) {
 	// vxVoxmoInstall("e1000");
 	// vxVoxmoInstall("ehci");
 	// vxVoxmoInstall("virtio-gpu");
-	// vxVoxmoInstall("ahci");
+	vxVoxmoInstall("ahci");
 	// vxVoxmoInstall("atapi");
 	// vxVoxmoInstall("usb-hid");
 
@@ -27,7 +27,7 @@ INIT(ModuleRegister) {
 	// // // todo detect boot partition
 
 	// // // vxVoxmoInstall("intel-hda");
-	// vxVoxmoReload();
+	vxVoxmoReload();
 }
 
 INIT(ProccessRegister) {

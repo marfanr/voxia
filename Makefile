@@ -1,6 +1,6 @@
 # Variabel umum
 QEMU=qemu-system-x86_64
-QEMU_FLAGS=-m 3G -cpu host -M q35 -smp 8  -enable-kvm -rtc base=localtime
+QEMU_FLAGS=-m 3G -cpu host -M q35 -smp 8  -enable-kvm -rtc base=localtime -no-reboot
 QEMU_USB=-device usb-ehci,id=ehci -device usb-kbd,bus=ehci.0,port=1,id=kbd
 # 	-device usb-mouse,bus=ehci.0,port=2,id=mouse
 # QEMU_NETWORK= -netdev user,id=net0,hostfwd=tcp::1234-:1234\
@@ -20,6 +20,7 @@ export ROOT
 all: lib kernel lib modules iso 
 
 modules:
+	@mkdir -p ./initrd/modules
 # 	$(MAKE) -C ./modules/e1000
 # 	$(MAKE) -C ./modules/ehci
 # 	$(MAKE) -C ./modules/usb-hid
@@ -35,7 +36,7 @@ all-hdd: $(HDD)
 
 run:
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d  $(QEMU_NETWORK) $(QEMU_USB) -vga none  -device virtio-serial-pci -s \
-	-monitor stdio -serial file:qemu.log -d trace:usb_ehci_* -D aqemu.log \
+	-monitor stdio -serial file:qemu.log -d trace:cpu_reset* -D aqemu.log \
 	-nographic
 
 debug:
@@ -127,7 +128,6 @@ limine:
 
 kernel:
 	mkdir -p build/kernel
-# 	$(MAKE) -C rust
 	$(MAKE) -C kernel	
 
 # Build ISO

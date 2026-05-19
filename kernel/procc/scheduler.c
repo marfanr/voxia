@@ -150,7 +150,7 @@ static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 			reg->rflags = 0x202;
 			reg->rbp    = 0;
 			LOG2_DEBUG("SCHEDULER",
-			           "core %d ready: user mode rip=0x%lx",
+			           "core %d ready: user mode rip=0x%x",
 			           core_id, thread->entry_addr);
 		} else {
 			reg->rip    = thread->entry_addr;
@@ -160,7 +160,7 @@ static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 			reg->rflags = 0x202;
 			reg->rbp    = 0;
 			LOG2_DEBUG("SCHEDULER",
-			           "core %d ready: kernel mode rip=0x%lx",
+			           "core %d ready: kernel mode rip=0x%x",
 			           core_id, thread->entry_addr);
 		}
 		goto end_scheduler_tick;

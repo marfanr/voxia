@@ -80,12 +80,10 @@ SECTIONS
         KEEP(*(.init_early.Scheduler))
         KEEP(*(.init_early.Thread))
         KEEP(*(.init_early.Core))
-        
-
-        /*
-
         KEEP(*(.init_early.Workqueue))
         KEEP(*(.init_early.ModuleRegister))
+        /*
+
 
         KEEP(*(.init_early.Netbuff))
         KEEP(*(.init_early.Netdev))
