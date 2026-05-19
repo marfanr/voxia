@@ -44,8 +44,10 @@ void pci_enable_msi(struct ioforge_pci_device* pci, uint8_t vector, uint8_t cpu,
 		    uint16_t cap);
 uint16_t pci_cap_find_msi(struct ioforge_pci_device* pci);
 uint16_t pci_cap_find_msix(struct ioforge_pci_device* pci);
-uintptr_t pci_enable_msix(struct ioforge_pci_device* pci, uint8_t vector,
-			  uint8_t cpu, uint8_t cap);
+
+uintptr_t pci_enable_msix(struct ioforge_pci_device* pci,
+				     uint8_t vector, uint8_t cpu,
+				     uint16_t cap);
 
 #ifdef __cplusplus
 }

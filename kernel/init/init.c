@@ -54,13 +54,6 @@ _start(struct stivale2_struct* stivale2_struct) {
 	pmm_log_usage();
 	KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...");
 
-	/* Kalloc metadata test */
-	typedef struct {
-		size_t size;
-		uint32_t magic;
-		uint32_t _pad;
-	} kalloc_metadata_t;
-
 	void* test_ptr = kalloc(256);
 	if (test_ptr) {
 		kalloc_metadata_t* meta =
@@ -93,11 +86,11 @@ _start(struct stivale2_struct* stivale2_struct) {
 	}
 
 	// test block
-	{
-		dentry_ptr mount_point;
-		vxnamei("/opt/mount", &mount_point);
-		vfs_mount("/dev/cd0", "ISO9660", mount_point, 0);
-	}
+	// {
+	// 	dentry_ptr mount_point;
+	// 	vxnamei("/opt/mount", &mount_point);
+	// 	vfs_mount("/dev/cd0", "ISO9660", mount_point, 0);
+	// }
 	// wait until /
 
 	// auto nic = IOforgeNICFindByName("E1000");

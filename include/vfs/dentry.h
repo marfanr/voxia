@@ -24,6 +24,8 @@ struct vnode;
 struct hlist_node;
 struct hlist_head;
 struct dentry {
+	struct llist_head child_list; /* list anak-anak direktori ini */
+	struct llist_head siblings __attribute__((aligned(64)));   /* posisi kita di child_list parent */
 	atomic_t refcount;
 	uint32_t hash;
 	uint32_t flags;
@@ -31,8 +33,6 @@ struct dentry {
 	struct vnode* vnode;
 	dentry_ptr parent;
 	struct hlist_node hash_node;  /* masuk dcache hash table */
-	struct llist_head child_list; /* list anak-anak direktori ini */
-	struct llist_head siblings;   /* posisi kita di child_list parent */
 	struct rcu_head rcu;
 } __attribute__((aligned(64)));
 
@@ -54,7 +54,8 @@ struct dentry {
  * @return int Returns VFS_OK on success, or 0 if an intermediate directory
  * was not found.
  */
-int vxNamei(char* path, dentry_ptr* out);
+int vxnamei(const char* path, dentry_ptr* out);
+int vxnamei2(const char* path, dentry_ptr* out);
 
 /**
  * This function handles memory allocation for a new dentry using the slab

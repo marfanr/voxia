@@ -107,7 +107,7 @@ INIT(initrd) {
 	LOG_INFO("INITRD", "initrd registered");
 }
 
-static size_t
+static int
 initrd_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 	auto data = (struct initrd_internal_vnode_data*) vnode->vnode_private;
 	if (!data)
@@ -116,7 +116,7 @@ initrd_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 	auto off = data->offset;
 	uint8_t* addr = (uint8_t*) __initrd_data.virt_addr + off + offset;
 	memcopy(buf, addr, len);
-	return len;
+	return 1;
 }
 
 __attribute__((unused)) static void

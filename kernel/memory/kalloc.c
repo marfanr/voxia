@@ -13,19 +13,13 @@
 
 #define KALLOC_BASE_ADDR 0xFFFFFE0000000000ULL
 #define MAX_FREED_VADDRS 512
-#define KALLOC_REDZONE_SIZE 16
-#define KALLOC_REDZONE_MAGIC 0xFDEAABEEU
 
 typedef struct {
 	uintptr_t addr;
 	size_t size; /* BLOCK_SIZE (page) */
 } freed_t;
 
-typedef struct {
-	size_t size;	/* original requested size */
-	uint32_t magic; /* magic number for validation */
-	uint32_t _pad;	/* explicit padding untuk ensure 16 bytes */
-} kalloc_metadata_t;
+
 
 struct kalloc_cpu_cache {
 	/* free-list heads */

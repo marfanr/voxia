@@ -19,19 +19,13 @@ export ROOT
 
 all: lib kernel lib modules iso 
 
-modules: lib
-	$(MAKE) -C ./modules/e1000
-	$(MAKE) -C ./modules/ehci
-	$(MAKE) -C ./modules/usb-hid
-	$(MAKE) -C ./modules/virtio-gpu
+modules:
+# 	$(MAKE) -C ./modules/e1000
+# 	$(MAKE) -C ./modules/ehci
+# 	$(MAKE) -C ./modules/usb-hid
+# 	$(MAKE) -C ./modules/virtio-gpu
 # 	$(MAKE) -C ./modules/ahci
 # 	$(MAKE) -C ./modules/runtimeinit all
-
-lib:
-# 	$(MAKE) -C ./library/ioforge
-
-lib-clean:
-	$(MAKE) -C ./library/ioforge clean
 
 
 all-hdd: $(HDD)
@@ -197,7 +191,7 @@ run-flashdisk:
 
 # Cleanup
 .PHONY: clean distclean
-clean: lib-clean
+clean:
 	rm -rf iso_root $(ISO) build
 	$(MAKE) -C kernel clean	
 	$(MAKE) -C modules/ehci clean

@@ -6,8 +6,9 @@
 #define VFS_CACHE_SIZE 32
 
 struct hlist_node {
-	struct hlist_node* next;   // node berikutnya di bucket
-	struct hlist_node** pprev; // pointer-ke-pointer ke field sebelumnya
+	struct hlist_node* next;   
+	struct hlist_node* prev; 
+	void* dentry;
 };
 
 struct hlist_head {
@@ -31,7 +32,7 @@ struct vfs_cache {
 	int count;
 } __attribute__((aligned(64)));
 
-inline void hlist_add_head(struct hlist_node* n, struct hlist_head* h);
+void hlist_add_head(struct hlist_node* n, struct hlist_head* h);
 
 struct vfs_cache* create_vfs_cache();
 struct vfs_cache* get_root_cache();

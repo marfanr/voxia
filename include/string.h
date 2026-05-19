@@ -10,8 +10,8 @@ extern "C" {
 
 typedef struct {
 	char* c_str;
-	uint32_t len;
-	uint32_t cap;
+	size_t len;
+	size_t cap;
 }* kstring;
 
 define_vector(kstring);

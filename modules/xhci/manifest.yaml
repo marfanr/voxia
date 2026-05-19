@@ -1,0 +1,15 @@
+name: XHCI
+description: USB 3.0 (eXtensible Host Controller Interface) driver
+license: MIT
+version: 0.1
+author: mohammad arfan
+
+device:
+  pci:
+    - 6966:13 # QEMU XHCI (1b36:000d)
+
+main: xci.elf
+
+capability:
+  - pci
+  - interrupt

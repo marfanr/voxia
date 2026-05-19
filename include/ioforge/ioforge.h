@@ -16,6 +16,7 @@ typedef enum : uint8_t {
 	IOFORGE_NIC = 0xC3,
 	IOFORGE_USB_CONTROLLER = 0xE3,
 	IOFORGE_VIRTIO = 0xD3,
+	IOFORGE_BLOCK = 0xEE,
 } IoForgeType;
 
 #define IOFORGE_F_ENABLE 1
@@ -39,7 +40,6 @@ struct ioforge_device {
 	// struct ioforge_ops* ops;
 };
 
-uint16_t coreGetCpuID();
 void serial2_printf(const char* fmt, ...);
 void* ioforge_dma_alloc(size_t size, uintptr_t* paddr);
 void* ioforge_dma_alloc(size_t size, uintptr_t* paddr);
@@ -51,7 +51,6 @@ uint32_t ioforge_isr_get_vector(uint8_t irq);
 void ioforge_irq_register(uint8_t n, void* handler);
 void ioforge_map_isr(uint8_t irq, uint8_t vector);
 void serial_printf(const char* fmt, ...);
-uint16_t coreGetCpuID();
 void* ioforge_alloc(size_t size);
 void ioforge_dma_free(void* paddr, void* vaddr, size_t size);
 void IOforgeStrCopy(char* dst, char* src);
@@ -68,6 +67,7 @@ ioforge_find_by_name(struct ioforge_device* root, const char* name);
 bool ioforge_can_contain_pci(IoForgeType type);
 
 struct ioforge_device* ioforge_get_pci_root();
+struct ioforge_device* ioforge_get_block_devices_root();
 
 struct ioforge_pci_device*
 ioforge_find_pci_device(struct ioforge_device* node, uint16_t vendor_id,

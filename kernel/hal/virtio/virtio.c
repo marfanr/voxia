@@ -83,7 +83,7 @@ static void for_each_virtio_device(struct ioforge_device* node) {
 		struct ioforge_pci_device* pci =
 			(struct ioforge_pci_device*) node;
 
-		if (pci->base.flags & IOFORGE_F_VIRTIO) {
+		if (pci->base.flags & (uint32_t)IOFORGE_F_VIRTIO) {
 
 			LOG2_INFO("VIRTIO", "found virtio device at %d:%d:%d",
 				  pci->pci_bus, pci->pci_dev, pci->pci_func);

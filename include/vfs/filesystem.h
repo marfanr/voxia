@@ -20,12 +20,16 @@ typedef struct fs_operations {
 struct filesystem {
 	const char name[16];
 	fs_operations_t* ops;
+	void* private_data;
 	struct filesystem* next;
 };
 typedef filesystem_t* filesystem_ptr_t;
 
-int vxCreateFilesystem(const char name[16], filesystem_ptr_t fs);
+int vxCreateFilesystem(const char name[16], fs_operations_t* ops,
+		       void* private_data);
 filesystem_ptr_t vxFindFilesystem(const char name[16]);
+filesystem_t* get_all_filesystem();
+filesystem_t* get_filesystem(const char name[16]);
 
 #ifdef __cplusplus
 }

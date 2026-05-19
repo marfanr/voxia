@@ -74,6 +74,7 @@ struct vnode {
 };
 typedef struct vnode* vnode_ptr_t;
 
+vnode_ptr_t KERNEL_API create_vnode();
 void vxFreeVnode(vnode_ptr_t vnode);
 
 #ifdef __cplusplus

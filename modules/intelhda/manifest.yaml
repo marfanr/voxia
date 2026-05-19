@@ -1,0 +1,11 @@
+name: INTEL_HDA
+description: intel-hda driver
+license: MIT
+version: 0.1
+author: mohammad arfan
+
+main: usb-hda.elf
+
+cap:
+  - pci
+  - interrupt

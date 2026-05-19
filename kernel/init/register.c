@@ -11,23 +11,23 @@ INIT(ModuleRegister) {
 
 	// reg kernel module
 
-	vxSetDefaultVoxmoPath(VOXIA_DEFAULT_VOXMO_PATH);
-	vxVoxmoInstall("e1000");
-	vxVoxmoInstall("ehci");
-	vxVoxmoInstall("virtio-gpu");
-	vxVoxmoInstall("ahci");
-	vxVoxmoInstall("atapi");
-	vxVoxmoInstall("usb-hid");
+	// vxSetDefaultVoxmoPath(VOXIA_DEFAULT_VOXMO_PATH);
+	// vxVoxmoInstall("e1000");
+	// vxVoxmoInstall("ehci");
+	// vxVoxmoInstall("virtio-gpu");
+	// vxVoxmoInstall("ahci");
+	// vxVoxmoInstall("atapi");
+	// vxVoxmoInstall("usb-hid");
 
-	// // register default filesystem : iso96660, fat
-	// // filesystem_register("ISO9660", 0);
-	// // vxVoxmoInstall("ahci");
-	// // detectBootPartition();
+	// // // register default filesystem : iso96660, fat
+	// // // filesystem_register("ISO9660", 0);
+	// // // vxVoxmoInstall("ahci");
+	// // // detectBootPartition();
 
-	// // todo detect boot partition
+	// // // todo detect boot partition
 
-	// // vxVoxmoInstall("intel-hda");
-	vxVoxmoReload();
+	// // // vxVoxmoInstall("intel-hda");
+	// vxVoxmoReload();
 }
 
 INIT(ProccessRegister) {

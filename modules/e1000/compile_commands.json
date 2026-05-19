@@ -1,0 +1,62 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/clang++",
+      "-Wall",
+      "-Wextra",
+      "-O2",
+      "-pipe",
+      "-ffreestanding",
+      "-fno-exceptions",
+      "-fno-rtti",
+      "-fno-builtin",
+      "-fno-use-cxa-atexit",
+      "-fno-asynchronous-unwind-tables",
+      "-fno-common",
+      "-mno-red-zone",
+      "-std=c++20",
+      "-ggdb",
+      "-g",
+      "-fPIC",
+      "-I/home/arfan/voxia.c/include",
+      "-I./include",
+      "-c",
+      "-o",
+      "build/e1000.o",
+      "src/e1000.cpp"
+    ],
+    "directory": "/home/arfan/voxia.c/modules/e1000",
+    "file": "/home/arfan/voxia.c/modules/e1000/src/e1000.cpp",
+    "output": "/home/arfan/voxia.c/modules/e1000/build/e1000.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/clang++",
+      "-Wall",
+      "-Wextra",
+      "-O2",
+      "-pipe",
+      "-ffreestanding",
+      "-fno-exceptions",
+      "-fno-rtti",
+      "-fno-builtin",
+      "-fno-use-cxa-atexit",
+      "-fno-asynchronous-unwind-tables",
+      "-fno-common",
+      "-mno-red-zone",
+      "-std=c++20",
+      "-ggdb",
+      "-g",
+      "-fPIC",
+      "-I/home/arfan/voxia.c/include",
+      "-I./include",
+      "-c",
+      "-o",
+      "build/init.o",
+      "src/init.cpp"
+    ],
+    "directory": "/home/arfan/voxia.c/modules/e1000",
+    "file": "/home/arfan/voxia.c/modules/e1000/src/init.cpp",
+    "output": "/home/arfan/voxia.c/modules/e1000/build/init.o"
+  }
+]

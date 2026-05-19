@@ -97,6 +97,8 @@ typedef uint8_t boolean_t;
 	__attribute__((deprecated("This function is deprecated and may be "    \
 				  "removed in future versions.")))
 
+#define UNUSED(x) (void)(x)
+
 #if defined(__clang__) || defined(__GNUC__)
 #define offsetof(type, member) __builtin_offsetof(type, member)
 #else
@@ -104,6 +106,6 @@ typedef uint8_t boolean_t;
 #endif
 
 #define container_of(ptr, type, member)                                        \
-	((type*) ((char*) (ptr) - offsetof(type, member)))
+	((type*) ((uintptr_t) (ptr) - offsetof(type, member)))
 
 #endif // __TYPE_H__

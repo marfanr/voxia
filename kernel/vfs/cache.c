@@ -46,7 +46,7 @@ struct vfs_cache* create_vfs_cache() {
 	return cache;
 }
 
-static void hlist_add_head(struct hlist_node* n, struct hlist_head* h) {
+void hlist_add_head(struct hlist_node* n, struct hlist_head* h) {
 	struct hlist_node* first = h->first;
 	n->next = first;
 	n->prev = NULL;

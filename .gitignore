@@ -10,3 +10,5 @@ zig-*
 *.iso
 ovmf*
 elysia.iso
+*.log
+compile_commands.json

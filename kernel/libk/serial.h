@@ -8,8 +8,6 @@
 #define SERIAL_COM3 0x3e8
 #define SERIAL_COM4 0x2e8
 
-// will be deprecated
-// akan digantikan oleh serial2
 int serial_is_transmit_empty(void);
 void serial_send_string(char* str);
 void serial_send_number(int64_t num, int base);
@@ -42,4 +40,5 @@ void serial2_flush();
 #define LOG2_WARN(mod, fmt, ...)                                               \
 	serial2_printf("[WARN][%s] " fmt "\n", mod, ##__VA_ARGS__)
 
+void parse_multicore(__builtin_va_list args, const char* fmt);
 #endif /* __LIBK_SERIAL_H__ */
