@@ -2,7 +2,7 @@
 #include "init/init.h"
 #include "libk/type.h"
 #include <hal/cpu/paging.h>
-#include <hal/cpu/spinlock.h>
+#include <spinlock.h>
 #include <libk/serial.h>
 #include <str.h>
 #include <memory/memory_utils.h>

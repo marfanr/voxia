@@ -4,7 +4,7 @@
 #include "libk/type.h"
 #include "memory/entry.h"
 #include <hal/cpu/paging.h>
-#include <hal/cpu/spinlock.h>
+#include <spinlock.h>
 #include <libk/debug/debug.h>
 #include <libk/serial.h>
 #include <str.h>

@@ -18,7 +18,7 @@ void ATAPIModule::load() {
 
 	log(mod, "Module Loaded");
 
-	foreach_block_device_by_type(
+	foreach_by_type(
 		ioforge_get_block_devices_root(), IOFORGE_BLOCK_TYPE_SATAPI,
 		[this](struct ioforge_block_device* dev) {
 			log(mod, "found SATAPI device at %d", dev->port);

@@ -5,7 +5,7 @@
 #include <str.h>
 
 #include <hal/cpu/paging.h>
-#include <hal/cpu/spinlock.h>
+#include <spinlock.h>
 #include <str.h>
 #include <memory/phys_base_allocator.h>
 #include <memory/memory_utils.h>

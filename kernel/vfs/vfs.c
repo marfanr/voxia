@@ -36,7 +36,7 @@
 static rbt_node* NIL;
 static rbt_node* vfs_tree;
 static struct slab_cache* rbt_node_cache;
-// static void vfs_event_handler(uint32_t event, void* data, void* ctx);
+static void vfs_event_handler(uint32_t event, void* data, void* ctx);
 
 KERNEL_API vnode_t* create_and_attach_vnode() {
 	vnode_t* vnode = create_vnode();
@@ -69,17 +69,18 @@ INIT(Vfs) {
 	}
 
 	// create notify
-	// notify_dev_create(str("/vfs/block"));
-	// {
-	// 	auto n = (struct notifier*) kalloc(sizeof(struct notifier));
-	// 	memset(n, 0, sizeof(struct notifier));
-	// 	n->callback = vfs_event_handler;
-	// 	n->context = 0;
-	// 	n->priority = NOTIFY_HIGHT;
-	// 	n->flags = 0;
+	notify_dev_create(str("/vfs/block"));
 
-	// 	notify_register(str("/vfs/block"), n);
-	// }
+	{
+		auto n = (struct notifier*) kalloc(sizeof(struct notifier));
+		memset(n, 0, sizeof(struct notifier));
+		n->callback = vfs_event_handler;
+		n->context = 0;
+		n->priority = NOTIFY_HIGHT;
+		n->flags = 0;
+
+		notify_register("/vfs/block", n);
+	}
 
 	LOG_INFO("vfs", "vfs has been installed");
 }
@@ -228,22 +229,22 @@ vxMakeDirectory(dentry_ptr dir, dentry_ptr dentry, uint16_t permission) {
 // 	}
 // }
 
-// static void vfs_event_handler(uint32_t event, void* data, void* ctx) {
-// 	UNUSED(data);
-// 	UNUSED(ctx);
+static void vfs_event_handler(uint32_t event, void* data, void* ctx) {
+	UNUSED(data);
+	UNUSED(ctx);
 
-// 	switch (event) {
-// 	case VFS_NOTIFY_PROBE:
-// 		vfs_notify_probe_handler(data, ctx);
-// 		break;
+	// switch (event) {
+	// case VFS_NOTIFY_PROBE:
+	// 	vfs_notify_probe_handler(data, ctx);
+	// 	break;
 
-// 	default:
-// 		break;
-// 	}
+	// default:
+	// 	break;
+	// }
 
-// 	LOG2_DEBUG("VFS NOTIFY", "new event detected (%d)", event);
-// 	KDEBUG(DEBUG_LEVEL_OK, "vfs notify received\n");
-// }
+	LOG2_DEBUG("VFS NOTIFY", "new event detected (%d)", event);
+	KDEBUG(DEBUG_LEVEL_OK, "vfs notify received\n");
+}
 
 #undef RBT_ID_NAME
 #undef RBT_TYPE

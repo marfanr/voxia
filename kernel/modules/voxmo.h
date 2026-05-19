@@ -5,7 +5,7 @@
 #include <vector.h>
 #include <type.h>
 #include "procc/workqueue.h"
-#include "hal/cpu/spinlock.h"
+#include <spinlock.h>
 
 #pragma pack(push, 1)
 struct voxmo_metadata_string {

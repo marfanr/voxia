@@ -1,7 +1,7 @@
 #ifndef __MEMORY_VM_MANAGER_H__
 #define __MEMORY_VM_MANAGER_H__
 
-#include <hal/cpu/spinlock.h>
+#include <spinlock.h>
 #include <type.h>
 
 enum mem_vma_base {

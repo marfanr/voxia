@@ -20,7 +20,7 @@
 
 #include "initrd.h"
 #include "hal/cpu/paging.h"
-#include "hal/cpu/spinlock.h"
+#include <spinlock.h>
 #include "init/init.h"
 #include "libk/oct2bin.h"
 #include <vector.h>

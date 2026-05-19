@@ -1,8 +1,6 @@
 
 #include "ioforge/ioforge_block.h"
 #include "ioforge/ioforge.h"
-#include "libk/serial.h"
-#include "memory/memory_utils.h"
 #include <type.h>
 
 static bool ioforge_can_contain_block_device(IoForgeType type) {
@@ -15,7 +13,7 @@ static bool ioforge_can_contain_block_device(IoForgeType type) {
 	}
 }
 
-void KERNEL_API ioforge_find_block_device_by_type(
+void KERNEL_API foreach_block_device_by_type(
 	struct ioforge_device* node, uint8_t type,
 	ioforge_block_visitor_fn callback, void* ctx) {
 
@@ -33,7 +31,7 @@ void KERNEL_API ioforge_find_block_device_by_type(
 
 	struct ioforge_device* child = node->first_child;
 	while (child) {
-		ioforge_find_block_device_by_type(child, type, callback, ctx);
+		foreach_block_device_by_type(child, type, callback, ctx);
 		child = child->next_sibling;
 	}
 }

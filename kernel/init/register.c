@@ -1,8 +1,6 @@
 #include "autoconf.h"
 #include "init.h"
-#include "libk/serial.h"
 #include "modules/voxmo.h"
-#include "sys/library.h"
 
 INIT(ModuleRegister) {
 	// reg library
@@ -16,7 +14,7 @@ INIT(ModuleRegister) {
 	// vxVoxmoInstall("ehci");
 	// vxVoxmoInstall("virtio-gpu");
 	vxVoxmoInstall("ahci");
-	// vxVoxmoInstall("atapi");
+	vxVoxmoInstall("atapi");
 	// vxVoxmoInstall("usb-hid");
 
 	// // // register default filesystem : iso96660, fat

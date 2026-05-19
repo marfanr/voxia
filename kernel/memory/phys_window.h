@@ -1,7 +1,7 @@
 #ifndef __MEMORY__PHYS_WINDOW_H__
 #define __MEMORY__PHYS_WINDOW_H__
 
-#include <hal/cpu/spinlock.h>
+#include <spinlock.h>
 #include <type.h>
 
 typedef int mem_physwindow_status_t;

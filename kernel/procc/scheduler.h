@@ -1,7 +1,7 @@
 #ifndef __PROCC__SCHEDULER_H__
 #define __PROCC__SCHEDULER_H__
 
-#include "hal/cpu/spinlock.h"
+#include <spinlock.h>
 #include "procc/thread.h"
 #include <type.h>
 

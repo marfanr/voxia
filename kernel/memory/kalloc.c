@@ -5,7 +5,7 @@
 #include "memory/phys_base_allocator.h"
 #include "memory/vm_manager.h"
 #include <hal/cpu/paging.h>
-#include <hal/cpu/spinlock.h>
+#include <spinlock.h>
 #include <str.h>
 #include <memory/kalloc.h>
 #include <hal/cpu/irq_lock.h>

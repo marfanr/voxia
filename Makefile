@@ -26,6 +26,7 @@ modules:
 # 	$(MAKE) -C ./modules/usb-hid
 # 	$(MAKE) -C ./modules/virtio-gpu
 	$(MAKE) -C ./modules/ahci
+	$(MAKE) -C ./modules/atapi
 # 	$(MAKE) -C ./modules/runtimeinit all
 
 
@@ -199,6 +200,7 @@ clean:
 	$(MAKE) -C modules/e1000 clean
 	$(MAKE) -C modules/virtio-gpu clean
 	$(MAKE) -C modules/ahci clean
+	$(MAKE) -C modules/atapi clean
 
 
 distclean: clean

@@ -6,7 +6,7 @@
 #include <hash.h>
 #include <llist.h>
 
-#include "hal/cpu/spinlock.h"
+#include <spinlock.h>
 #include "libk/serial.h"
 #include "libk/type.h"
 #include "llist.h"
@@ -131,11 +131,11 @@ int KERNEL_API vxResolveDentry(char* path, dentry_ptr parent, dentry_ptr* out,
 		}
 
 		dentry_t* next = cache_lookup(root_cache, curr, component);
-		// LOG_INFO("DENTRY", "not found");
-		LOG_DEBUG("VFS",
-			  "resolving '%s': current '%s', next 0x%lx (%s)",
-			  component, curr->name->c_str, next,
-			  next ? next->name->c_str : "NULL");
+		
+		// LOG_DEBUG("VFS",
+		// 	  "resolving '%s': current '%s', next 0x%lx (%s)",
+		// 	  component, curr->name->c_str, next,
+		// 	  next ? next->name->c_str : "NULL");
 
 		if (!next) {
 			if (flag & CREATE_MISSING_ENTRY) {
@@ -156,7 +156,6 @@ int KERNEL_API vxResolveDentry(char* path, dentry_ptr parent, dentry_ptr* out,
 		dentry_put(curr);
 		curr = next;
 	}
-	LOG_DEBUG("DENTRY", "found ");
 
 	*out = curr;
 	return VFS_OK;

@@ -3,7 +3,7 @@
 
 #include "autoconf.h"
 #include "hal/cpu/register.h"
-#include "hal/cpu/spinlock.h"
+#include <spinlock.h>
 
 typedef uint64_t thread_id;
 

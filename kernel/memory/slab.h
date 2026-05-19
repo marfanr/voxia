@@ -2,7 +2,7 @@
 #define __MEMORY_SLAB_H__
 
 #include <type.h>
-#include <hal/cpu/spinlock.h>
+#include <spinlock.h>
 
 // Forward declarations
 struct slab {
