@@ -76,8 +76,7 @@ core_ap_32:
     or eax, (1 << 31)  ; PG enable
     mov cr0, eax
 
-.signature_ok:
-    ; Baca LAPIC ID dari CPUID (aman di real mode, tidak butuh GDT)
+    ; read LAPIC ID
     mov eax, 1
     cpuid
     shr ebx, 24          ; APIC ID ada di EBX[31:24]

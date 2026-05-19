@@ -24,7 +24,7 @@ modules:
 # 	$(MAKE) -C ./modules/ehci
 # 	$(MAKE) -C ./modules/usb-hid
 # 	$(MAKE) -C ./modules/virtio-gpu
-# 	$(MAKE) -C ./modules/ahci
+	$(MAKE) -C ./modules/ahci
 # 	$(MAKE) -C ./modules/runtimeinit all
 
 
