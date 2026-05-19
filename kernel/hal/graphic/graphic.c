@@ -7,6 +7,7 @@
 #include "memory/memory_utils.h"
 #include "memory/vm_manager.h"
 #include "str.h"
+#include "type.h"
 #include "vfs/enum.h"
 #include <libk/serial.h>
 // HAPUS baris ini dari atas — sudah ada di bawah sebelum #include ssfn.h
@@ -96,9 +97,11 @@ volatile framebuffer_t* g__fb;
 static ssfn_buf_t dst;
 static ssfn_t ssfn_ctx = {0};
 
+static boolean_t ssfn_ready = false;
+
 INIT(graphic) {
 	g__fb = &ctx->framebuffer;
-	LOG2_DEBUG("FB", "Fb addr %p", g__fb->framebuffer_addr);
+	LOG2_DEBUG("FB", "Fb addr %x", g__fb->framebuffer_addr);
 
 	if (g__fb->framebuffer_addr == 0)
 		return;
@@ -142,7 +145,7 @@ INIT(graphic) {
 	dst.fg = 0xFFFFFFFF;
 	dst.bg = 0xFF000000;
 
-	serial2_printf("dst: ptr=%p w=%d h=%d p=%d\n", dst.ptr, dst.w, dst.h,
+	serial2_printf("dst: ptr=%x w=%d h=%d p=%d\n", dst.ptr, dst.w, dst.h,
 	               dst.p);
 
 	if (font_buff) {
@@ -156,13 +159,14 @@ INIT(graphic) {
 		            SSFN_STYLE_REGULAR,               /* style */
 		            FONT_SIZE                         /* size */
 		);
+		ssfn_ready = true;
 	}
 
 	KDEBUG(DEBUG_LEVEL_INFO, "graphic init done\n");
 }
 
 void vxPutc(char c, int col, int row, uint32_t fg, uint32_t bg) {
-	if (!ssfn_ctx.lenbuf)
+	if (!ssfn_ready)
 		return;
 
 	dst.fg = fg | 0xFF000000; /* pastikan alpha selalu opak               */

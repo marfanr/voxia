@@ -52,7 +52,7 @@ _start(struct stivale2_struct* stivale2_struct) {
 	vxAPICCreateTimer(APIC_TIMER_PERIOD, 100, irq);
 
 	pmm_log_usage();
-	KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...");
+	KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...\n");
 
 	void* test_ptr = kalloc(256);
 	if (test_ptr) {
@@ -60,7 +60,7 @@ _start(struct stivale2_struct* stivale2_struct) {
 			(kalloc_metadata_t*) ((uintptr_t) test_ptr
 					      - sizeof(kalloc_metadata_t) - 16);
 		LOG2_INFO("KALLOC_TEST",
-			  "Allocated 256 bytes at %p, sizeof(meta)=%d",
+			  "Allocated 256 bytes at %x, sizeof(meta)=%d",
 			  test_ptr, sizeof(kalloc_metadata_t));
 		LOG2_INFO("KALLOC_TEST",
 			  "metadata: size=%d, magic=0x%x, pad=0x%x", meta->size,
@@ -76,7 +76,7 @@ _start(struct stivale2_struct* stivale2_struct) {
 			(kalloc_metadata_t*) ((uintptr_t) large_ptr
 					      - sizeof(kalloc_metadata_t) - 16);
 		LOG2_INFO("KALLOC_TEST",
-			  "Allocated 4096 bytes at %p, sizeof(meta)=%d",
+			  "Allocated 4096 bytes at %x, sizeof(meta)=%d",
 			  large_ptr, sizeof(kalloc_metadata_t));
 		LOG2_INFO("KALLOC_TEST",
 			  "metadata: size=%d, magic=0x%x, pad=0x%x", meta->size,

@@ -1,6 +1,6 @@
 # Variabel umum
 QEMU=qemu-system-x86_64
-QEMU_FLAGS=-m 3G -cpu host -M q35 -smp 2  -enable-kvm -rtc base=localtime
+QEMU_FLAGS=-m 3G -cpu host -M q35 -smp 8  -enable-kvm -rtc base=localtime
 QEMU_USB=-device usb-ehci,id=ehci -device usb-kbd,bus=ehci.0,port=1,id=kbd
 # 	-device usb-mouse,bus=ehci.0,port=2,id=mouse
 # QEMU_NETWORK= -netdev user,id=net0,hostfwd=tcp::1234-:1234\
@@ -136,7 +136,7 @@ iso: limine
 	mkdir -p iso_root
 # 	cp -r build/modules ./initrd
 	cd initrd; tar -F ustar -cvf ../iso_root/initrd.tar *; cd ..
-	cp -r root/* ./iso_root/
+# 	cp -r root/* ./iso_root/
 	cp build/kernel.elf limine.cfg limine/limine.sys limine/limine-cd.bin limine/limine-eltorito-efi.bin iso_root/
 	xorriso -as mkisofs -b limine-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
