@@ -35,7 +35,7 @@ class AHCIModule : public IOforgePCI {
 	int atapi_packet(ahci_port_t* p, struct ahci_internal_vaddr* vaddr,
 			 struct ioforge_block_request* req);
 	int ata_identify(ahci_port_t* p, struct ahci_internal_vaddr* vaddr,
-			 struct ioforge_block_request* req);
+			 struct ioforge_block_request* req, bool is_atapi);
 
 	int ata_flush(ahci_port_t* p, struct ahci_internal_vaddr* vaddr,
 		      struct ioforge_block_request* req);
@@ -45,6 +45,12 @@ class AHCIModule : public IOforgePCI {
       private:
 	struct ioforge_pci_device* dev_;
 	ahci_op_t* op;
+	void build_prdt(ahci_cmd_t* cmd, ahci_cmd_tbl_t* cmdtbl,
+			    void* buffer, size_t size);
 };
+
+// prototype
+extern "C" int
+submit(struct ioforge_block_device* dev, struct ioforge_block_request* req);
 
 #endif //__USB_AHCI__AHCI_HPP__

@@ -12,7 +12,13 @@ OUT_VOXMO   := ../../initrd/modules/$(MODULE_NAME).voxmo
 CXX := clang++
 LD  := ld
 
-CXXFLAGS := -Wall -Wextra -O2 -pipe \
+
+WARNING := -Wall -Wextra -Werror -Wshadow -Wpointer-arith -Wcast-align \
+	-Wstrict-prototypes -Wmissing-prototypes -Wundef -Wconversion \
+	-Wdouble-promotion -Wvla -Wstrict-aliasing=2 -Warray-bounds \
+	-Wformat=2 -Wuninitialized
+
+CXXFLAGS := $(WARNING) -Wall -Wextra -O2 -pipe \
     -ffreestanding -nostdlib -fno-exceptions -fno-rtti -fno-builtin \
     -fno-use-cxa-atexit -fno-asynchronous-unwind-tables -fno-common \
     -mno-red-zone -std=c++20 -ggdb -g -fPIC \

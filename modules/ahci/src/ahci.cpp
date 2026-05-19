@@ -41,26 +41,26 @@ static ahci_device_type_t get_device_type(ahci_port_t* port) {
 
 void AHCIModule::port_power_off(ahci_port_t* port) {
 	// Clear ST (bit 0) dulu
-	port->cmd &= ~(1 << 0);
+	port->cmd &= ~(1UL << 0);
 
 	// Tunggu CR (bit 15) clear
 	int timeout = 500;
 	while (timeout-- > 0) {
 		IOForge::IOUtils::sleep(1);
-		if (!(port->cmd & (1 << 15)))
+		if (!(port->cmd & (1UL << 15)))
 			break;
 	}
 	if (timeout <= 0)
 		log(mod, "Warning: CR not cleared");
 
 	// Baru clear FRE (bit 4)
-	port->cmd &= ~(1 << 4);
+	port->cmd &= ~(1UL << 4);
 
 	// Tunggu FR (bit 14) clear
 	timeout = 500;
 	while (timeout-- > 0) {
 		IOForge::IOUtils::sleep(1);
-		if (!(port->cmd & (1 << 14)))
+		if (!(port->cmd & (1UL << 14)))
 			break;
 	}
 	if (timeout <= 0)
@@ -71,15 +71,15 @@ void AHCIModule::port_power_on(ahci_port_t* port) {
 	// Tunggu CR clear sebelum set ST
 	int timeout = 500;
 	while (timeout-- > 0) {
-		if (!(port->cmd & (1 << 15)))
+		if (!(port->cmd & (1UL << 15)))
 			break;
 		IOForge::IOUtils::sleep(1);
 	}
 
 	// Set FRE dulu, baru ST
-	port->cmd |= (1 << 4); // FRE
+	port->cmd |= (1UL << 4); // FRE
 	IOForge::IOUtils::sleep(1);
-	port->cmd |= (1 << 0); // ST
+	port->cmd |= (1UL << 0); // ST
 }
 
 static int find_cmdslot(ahci_port_t* port) {
@@ -111,9 +111,9 @@ AHCIModule::issue_and_wait(ahci_port_t* p, int slot, uint32_t timeout_ms) {
 	// Timeout untuk menunggu command selesai
 	spin = 0;
 	while (spin < timeout_ms) {
-		if ((p->ci & (1 << slot)) == 0)
+		if ((p->ci & (1UL << slot)) == 0)
 			break;
-		if (p->is & (1 << 30)) {
+		if (p->is & (1UL << 30)) {
 			log("AHCI",
 			    "Task file error: TFD=0x%x SERR=0x%x IS=0x%x",
 			    p->tfd, p->serr, p->is);
@@ -122,7 +122,7 @@ AHCIModule::issue_and_wait(ahci_port_t* p, int slot, uint32_t timeout_ms) {
 
 		// Small delay initially, then sleep
 		if (spin < 10) {
-			for (volatile int i = 0; i < 1000; i++)
+			for (int i = 0; i < 1000; i++)
 				__asm__ volatile("pause");
 		} else {
 			ioforge_sleep(1);
@@ -141,7 +141,7 @@ AHCIModule::issue_and_wait(ahci_port_t* p, int slot, uint32_t timeout_ms) {
 		return false;
 	}
 
-	if (p->is & (1 << 30)) {
+	if (p->is & (1UL << 30)) {
 		log("AHCI", "Read disk error after completion");
 		return false;
 	}
@@ -164,7 +164,7 @@ void AHCIModule::build_prdt(ahci_cmd_t* cmd, ahci_cmd_tbl_t* cmdtbl,
 	}
 
 	uintptr_t addr = (uintptr_t) buffer;
-	int idx = 0;
+	uint16_t idx = 0;
 
 	while (size > 0 && idx < 8) {
 		size_t bytes = (size > 0x400000) ? 0x400000 : size;
@@ -423,7 +423,7 @@ void AHCIModule::port_configure(ahci_port_t* port,
 	uintptr_t clb_phys_addr = 0;
 	auto clb = (uintptr_t) IOForge::IOUtils::DMAAlloc(1024, &clb_phys_addr);
 	IOForge::IOUtils::memset((void*) clb, 0, 1024);
-	auto aligned_clb_paddr = (clb_phys_addr + 1024 - 1) & ~(1024 - 1);
+	auto aligned_clb_paddr = (clb_phys_addr + 1024 - 1) & (uintptr_t)~(1024 - 1);
 
 	port->clbu = (aligned_clb_paddr >> 32) & 0xFFFFFFFF;
 	port->clb = aligned_clb_paddr & 0xFFFFFFFF;
@@ -432,7 +432,7 @@ void AHCIModule::port_configure(ahci_port_t* port,
 	// setupping FIS base address (256 byte alligned)
 	uintptr_t fb_paddr = 0;
 	auto fb = (uintptr_t) IOForge::IOUtils::DMAAlloc(256, &fb_paddr);
-	auto aligned_fb_paddr = (fb_paddr + 256 - 1) & ~(256 - 1);
+	auto aligned_fb_paddr = (fb_paddr + 256 - 1) & (uintptr_t)~(256 - 1);
 
 	port->fb = aligned_fb_paddr & 0xFFFFFFFF;
 	port->fbu = (aligned_fb_paddr >> 32) & 0xFFFFFFFF;
@@ -447,7 +447,7 @@ void AHCIModule::port_configure(ahci_port_t* port,
 		auto ctba = (uintptr_t) IOForge::IOUtils::DMAAlloc(256,
 								   &ctba_paddr);
 		vaddr->cmd[j] = ctba;
-		auto aligned_ctba_paddr = (ctba_paddr + 128 - 1) & ~(128 - 1);
+		auto aligned_ctba_paddr = (ctba_paddr + 128 - 1) & (uintptr_t)~(128 - 1);
 		cmd[j].ctba = aligned_ctba_paddr & 0xFFFFFFFF;
 		cmd[j].ctbau = (aligned_ctba_paddr >> 32) & 0xFFFFFFFF;
 		IOForge::IOUtils::memset((void*) ctba, 0, 256);
@@ -460,8 +460,8 @@ void AHCIModule::probe() {
 	// Check Ports Implemented (PI) register
 	uint32_t ports_implemented = op->pi;
 
-	for (int i = 0; i < 32; i++) {
-		if (ports_implemented & (1 << i)) {
+	for (uint8_t i = 0; i < 32; i++) {
+		if (ports_implemented & (1UL << i)) {
 			log(mod, "Port %d implemented", i);
 
 			// Port i is implemented
@@ -577,14 +577,14 @@ void AHCIModule::setup() {
 	op = (ahci_op_t*) dev_->bar[5].address;
 
 	// Enable AHCI mode dulu
-	op->ghc |= (1 << 31);
+	op->ghc |= (1UL << 31);
 
 	// Reset HBA
-	op->ghc |= (1 << 0);
+	op->ghc |= (1UL << 0);
 
 	// Tunggu reset selesai (bit 0 harus clear sendiri)
 	int timeout = 1000;
-	while ((op->ghc & (1 << 0)) && timeout-- > 0) {
+	while ((op->ghc & (1UL << 0)) && timeout-- > 0) {
 		IOUtils::sleep(1);
 	}
 	if (timeout <= 0) {
@@ -593,11 +593,11 @@ void AHCIModule::setup() {
 	}
 
 	// Enable AHCI + interrupt setelah reset
-	op->ghc |= (1 << 31) | (1 << 1);
+	op->ghc |= (1UL << 31) | (1UL << 1);
 
 	log(mod, "AHCI reset ghc done");
 
-	if (op->cap & (1 << 31)) {
+	if (op->cap & (1UL << 31)) {
 		log(mod, "Support 64bit");
 	}
 
@@ -697,10 +697,10 @@ void AHCIModule::setup() {
 // 	// Wait for completion dengan timeout
 // 	spin = 0;
 // 	while (spin < 5000000) { // Timeout lebih lama
-// 		if ((p->ci & (1 << freeslot)) == 0)
+// 		if ((p->ci & (1UL << freeslot)) == 0)
 // 			break;
 
-// 		if (p->is & (1 << 30)) { // Task file error
+// 		if (p->is & (1UL << 30)) { // Task file error
 // 			log("AHCI",
 // 			    "Task File Error: TFD=0x%x SERR=0x%x IS=0x%x",
 // 			    p->tfd, p->serr, p->is);
@@ -716,7 +716,7 @@ void AHCIModule::setup() {
 // 	}
 
 // 	// Final check
-// 	if (p->is & (1 << 30)) {
+// 	if (p->is & (1UL << 30)) {
 // 		log("AHCI", "ATAPI disk error: TFD=0x%x SERR=0x%x", p->tfd,
 // 		    p->serr);
 // 		return false;
