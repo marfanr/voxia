@@ -157,6 +157,7 @@ void ATAPIModule::identify(struct ioforge_block_device* block) {
 			return;
 		vnode->device.major = cdev->major;
 		vnode->device.minor = cdev->minor;
+		// vops->v_data = vnode;
 
 		notify_call((char*)"/vfs/block", VFS_NOTIFY_PROBE,
 		            (void*)vnode);
@@ -220,7 +221,6 @@ extern "C" int ATAPIModule::read(void* vdata, uintptr_t addr, void* buf,
 		return -1;
 	}
 
-	// Salin hasil DMA ke buffer caller
 	memcopy(buf, buff_, count);
 
 	IOUtils::DMAFree((void*)buff_phys, buff_, sector_count * sector_size);
