@@ -121,6 +121,8 @@ void dentry_put(dentry_ptr dentry);
 void dentry_get(dentry_ptr dentry);
 void delete_dentry(dentry_t* node);
 
+int get_reffcount(dentry_ptr dentry);
+
 void
 print_dentry_tree(dentry_t* node, int depth);
 

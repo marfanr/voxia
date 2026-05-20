@@ -189,9 +189,6 @@ fail:
 	return -1;
 }
 
-// TODO: check path its not comming from BSS
-#define PATH_MAX 4096
-
 int KERNEL_API vxnamei(const char* path, dentry_ptr* out) {
 	if (!path || !out)
 		return -1;
@@ -200,7 +197,7 @@ int KERNEL_API vxnamei(const char* path, dentry_ptr* out) {
 
 	size_t len = strlen(path);
 
-	if (len == 0 || len >= PATH_MAX) {
+	if (len == 0) {
 		return -1;
 	}
 
@@ -236,10 +233,9 @@ int KERNEL_API vxnamei(const char* path, dentry_ptr* out) {
 		if (!component || component[0] == '\0')
 			continue;
 
-		// optional safety
+		
 		// if (strlen(component) >= 128) {
 		// 	dentry_put(curr);
-		// 	// kfree(temp);
 		// 	return -1;
 		// }
 
@@ -340,7 +336,7 @@ void print_dentry_tree(dentry_t* dentry, int depth) {
 	}
 	serial2_printf("\n");
 
-	// rekursi ke semua child
+	/* dong recursive in all children */
 	struct llist_head* pos = dentry->child_list.next;
 	while (pos != &dentry->child_list) {
 		dentry_t* child = container_of(pos, dentry_t, siblings);
@@ -348,4 +344,8 @@ void print_dentry_tree(dentry_t* dentry, int depth) {
 		print_dentry_tree(child, depth + 1);
 		pos = pos->next;
 	}
+}
+
+int get_reffcount(dentry_ptr dentry) {
+	return __atomic_load_n(&dentry->refcount.counter, __ATOMIC_RELAXED);
 }

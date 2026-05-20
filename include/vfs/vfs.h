@@ -19,7 +19,7 @@ extern "C" {
 
 vnode_t* create_and_attach_vnode();
 
-int vfs_mount_dev(vnode_ptr_t dev_vnode, char* fs, dentry_ptr dentry,
+int vfs_mount(dentry_ptr dev_dentry, char* fs, dentry_ptr dentry,
                   int flags);
 int vfs_umount(dentry_ptr dentry);
 

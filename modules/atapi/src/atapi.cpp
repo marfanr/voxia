@@ -160,7 +160,7 @@ void ATAPIModule::identify(struct ioforge_block_device* block) {
 		// vops->v_data = vnode;
 
 		notify_call((char*)"/vfs/block", VFS_NOTIFY_PROBE,
-		            (void*)vnode);
+		            (void*)dentry);
 	}
 	log(mod, "block 0x%x", block);
 

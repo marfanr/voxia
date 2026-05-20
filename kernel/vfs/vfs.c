@@ -99,21 +99,27 @@ INIT(Vfs) {
 }
 
 // TODO: auto detect filesystem
-KERNEL_API int vfs_mount_dev(vnode_ptr_t dev_vnode, char* fs, dentry_ptr dentry,
-                             int flags) {
-	if (!fs || !dentry || !dev_vnode)
+KERNEL_API int vfs_mount(dentry_ptr dev_dentry, char* fs, dentry_ptr dentry,
+                         int flags) {
+	if (!fs || !dev_dentry || !dentry)
 		return VFS_ERR;
 
 	UNUSED(flags);
 
-	if (dev_vnode->type != VNODE_TYPE_BLK) {
-		LOG2_WARN("VFS", "vfs_mount: dev not a block device");
-		return VFS_ERR;
-	}
-
 	auto fs_ = retrieve_filesystem(fs);
 	if (!fs_) {
 		LOG2_WARN("VFS", "vfs_mount: fs %s not found", fs);
+		return VFS_ERR;
+	}
+
+	auto dev_vnode = dev_dentry->vnode;
+	if (!dev_vnode) {
+		LOG2_WARN("VFS", "vfs_mount_dev: dev vnode not found");
+		return VFS_ERR;
+	}
+
+	if (dev_vnode->type != VNODE_TYPE_BLK) {
+		LOG2_WARN("VFS", "vfs_mount: dev not a block device");
 		return VFS_ERR;
 	}
 
@@ -150,6 +156,9 @@ KERNEL_API int vfs_mount_dev(vnode_ptr_t dev_vnode, char* fs, dentry_ptr dentry,
 	// first lookup on filesystem
 	fs_->data.ops->lookup(fs_ins, 0, 0, &dentry);
 
+	dentry_get(dentry);
+	dentry_get(dev_dentry);
+
 	KDEBUG(DEBUG_LEVEL_OK, "mounted %d:%d on %s with filesystem %s\n",
 	       cdev->major, cdev->minor, dentry->name->c_str, fs_->name);
 	return VFS_OK;
@@ -159,11 +168,12 @@ static int vfs_umount_recursive(dentry_t* dentry) {
 	if (!dentry)
 		return VFS_OK;
 
+	serial2_printf("umounted dentry %s\n", dentry->name->c_str);
+
 	auto ch = dentry->child_list.next;
 	while (ch != &dentry->child_list) {
 		auto next = ch->next; // simpan next sebelum child dilepas
 		dentry_t* child = container_of(ch, dentry_t, siblings);
-		serial2_printf("umounted dentry %s\n", child->name->c_str);
 
 		int ret = vfs_umount_recursive(child);
 		if (ret != VFS_OK)
@@ -172,9 +182,10 @@ static int vfs_umount_recursive(dentry_t* dentry) {
 		ch = next;
 	}
 
-	if (__atomic_load_n(&dentry->refcount.counter, __ATOMIC_RELAXED) > 1) {
+	if (get_reffcount(dentry) > 1) {
 		LOG2_WARN("VFS", "umount: dentry '%s' (%d) still in use",
-		          dentry->name ? dentry->name->c_str : "?", dentry->refcount.counter);
+		          dentry->name ? dentry->name->c_str : "?",
+		          dentry->refcount.counter);
 		return VFS_ERR_BUSY;
 	}
 
@@ -204,21 +215,20 @@ int vfs_umount(dentry_ptr dentry) {
 	if (!vnode)
 		return VFS_ERR;
 
-	return vfs_umount_recursive(dentry);
+	dentry_put(dentry);
+	auto ok = vfs_umount_recursive(dentry);
+	if (ok != VFS_OK)
+		dentry_get(dentry);
+	return ok;
 }
 
-// int KERNEL_API vxVFSOpen(char* path, int flags) {
-// 	UNUSED(flags);
-// 	// will be implemented
-// 	dentry_ptr dentry;
-// 	vxResolveDentry(path, 0, &dentry, 0);
-// 	LOG_DEBUG("VFS", "opened %s", dentry->name->c_str);
-// 	return VFS_OK;
-// }
-
-static void detect_cd_filesystem(vnode_ptr_t vnode, void* data, void* ctx) {
+static void detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 	UNUSED(data);
 	UNUSED(ctx);
+
+	auto vnode = dentry->vnode;
+	if (!vnode)
+		return;
 
 	auto ops = (vops_blk_t*)vnode->ops;
 	if (!ops || !ops->read)
@@ -256,7 +266,7 @@ static void detect_cd_filesystem(vnode_ptr_t vnode, void* data, void* ctx) {
 		{
 			dentry_ptr mount_entry;
 			vxnamei("/tmp/root", &mount_entry);
-			vfs_mount_dev(vnode, "ISO9660", mount_entry, 0);
+			vfs_mount(dentry, "ISO9660", mount_entry, 0);
 
 			dentry_ptr out;
 			if (vxResolveDentry("/kernel.elf", mount_entry, &out,
@@ -284,20 +294,23 @@ static void vfs_notify_probe_handler(void* data, void* ctx) {
 	if (!data)
 		return;
 
-	vnode_ptr_t vnode = (vnode_ptr_t)data;
+	dentry_ptr dentry = (dentry_ptr)data;
 
-	auto ops = (vops_blk_t*)vnode->ops;
+	if (!dentry->vnode)
+		return;
+
+	auto ops = (vops_blk_t*)dentry->vnode->ops;
 
 	if (ops == 0)
 		return;
 
-	auto dev_major = vnode->device.major;
+	auto dev_major = dentry->vnode->device.major;
 
 	serial2_printf("vnode major %d %x vdata %x\n", dev_major, ops,
 	               ops->v_data);
 
 	if (dev_major == DEV_MAJOR_CDROM) {
-		detect_cd_filesystem(vnode, data, ctx);
+		detect_cd_filesystem(dentry, data, ctx);
 	}
 }
 
