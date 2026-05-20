@@ -19,17 +19,7 @@
 #define _STRING_H_
 
 #define SSFN_memcmp memcmp
-static int memcmp(const void* __s1, const void* __s2, size_t __n) {
-	const unsigned char* a = (const unsigned char*)__s1;
-	const unsigned char* b = (const unsigned char*)__s2;
-	while (__n--) {
-		if (*a != *b)
-			return (int)*a - (int)*b;
-		a++;
-		b++;
-	}
-	return 0;
-}
+
 
 #define SSFN_memset ssfn_memset
 static void* ssfn_memset(void* __s, int __c, size_t __n) {
@@ -172,7 +162,7 @@ void vxPutc(char c, int col, int row, uint32_t fg, uint32_t bg) {
 	dst.fg = fg | 0xFF000000; /* pastikan alpha selalu opak               */
 	dst.bg = bg | 0xFF000000;
 	dst.x = col * (FONT_SIZE / 2);
-	dst.y = 15 + row * FONT_SIZE;
+	dst.y = FONT_SIZE + row * FONT_SIZE;
 
 	char str[2] = {c, '\0'};
 	int r = ssfn_render(&ssfn_ctx, &dst, str);

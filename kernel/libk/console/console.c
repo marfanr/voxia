@@ -373,7 +373,6 @@ void console_newline(void) {
 }
 
 void console_chfg(uint32_t color) {
-	// Simple variable set, atomicity not strictly required but safer with lock
 	fgcolor = color;
 }
 

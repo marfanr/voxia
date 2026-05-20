@@ -185,7 +185,8 @@ extern "C" int ATAPIModule::read(void* vdata, uintptr_t addr, void* buf,
 
 	const size_t sector_size =
 	    block->sector_size ? block->sector_size : 2048;
-	uint32_t lba = (uint32_t)(addr / sector_size);
+	// uint32_t lba = (uint32_t)(addr / sector_size);
+	uint32_t lba = (uint32_t)addr;
 	uint16_t sector_count =
 	    (uint16_t)((count + sector_size - 1) / sector_size);
 

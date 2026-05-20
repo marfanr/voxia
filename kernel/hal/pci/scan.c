@@ -1,10 +1,8 @@
 #include "./pci.h"
-#include "./pcie.h"
 #include "hal/cpu/paging.h"
 #include <type.h>
 #include "memory/kalloc.h"
 #include "memory/vm_manager.h"
-#include <hal/graphic/virtio.h>
 #include <ioforge/ioforge.h>
 #include <ioforge/ioforge_pci.h>
 #include <libk/io.h>
