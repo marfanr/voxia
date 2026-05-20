@@ -55,7 +55,7 @@ struct dentry {
  * was not found.
  */
 int vxnamei(const char* path, dentry_ptr* out);
-int vxnamei2(const char* path, dentry_ptr* out);
+
 
 /**
  * This function handles memory allocation for a new dentry using the slab
@@ -74,7 +74,7 @@ dentry_ptr KERNEL_API create_dentry(kstring name, struct vnode* vnode,
 				    dentry_ptr parent);
 
 void vxSetDentryAsRoot(dentry_ptr dentry);
-dentry_ptr vxGetRootDirectory();
+dentry_ptr get_root_dentry();
 
 enum {
 	RESOLVE_LAST_ENTRY = (1 << 1),
@@ -120,6 +120,11 @@ uint32_t hash_dentry(const char* name, dentry_ptr parent);
 void dentry_put(dentry_ptr dentry);
 void dentry_get(dentry_ptr dentry);
 void delete_dentry(dentry_t* node);
+
+void
+print_dentry_tree(dentry_t* node, int depth);
+
+
 #ifdef __cplusplus
 }
 #endif

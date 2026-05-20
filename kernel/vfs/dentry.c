@@ -7,7 +7,6 @@
 #include <vfs/dentry.h>
 
 #include "libk/serial.h"
-#include <type.h>
 #include "llist.h"
 #include "memory/kalloc.h"
 #include "memory/slab.h"
@@ -17,6 +16,7 @@
 #include "vfs/rcu.h"
 #include "vfs/vnode.h"
 #include <spinlock.h>
+#include <type.h>
 
 static struct slab_cache* dentry_cache = 0;
 static dentry_t* root_dentry = 0;
@@ -40,8 +40,8 @@ dentry_ptr KERNEL_API create_dentry(kstring name, vnode_t* vnode,
 		                  sizeof(struct dentry), 0, 0);
 
 	spin_acquire(&lock);
-	// dentry_t* dentry = (dentry_t*) vxSlabAlloc(dentry_cache);
-	dentry_t* dentry = (dentry_t*)kalloc(sizeof(struct dentry));
+	dentry_t* dentry = (dentry_t*)vxSlabAlloc(dentry_cache);
+	// dentry_t* dentry = (dentry_t*)kalloc(sizeof(struct dentry));
 	memset(dentry, 0, sizeof(dentry_t));
 
 	__atomic_fetch_add(&dentry->refcount.counter, 1, __ATOMIC_RELAXED);
@@ -83,7 +83,7 @@ void KERNEL_API vxAttachDentryToVnode(dentry_ptr dentry, vnode_t* vnode) {
 
 void vxSetDentryAsRoot(dentry_ptr dentry) { root_dentry = dentry; }
 
-dentry_ptr KERNEL_API vxGetRootDirectory() { return root_dentry; }
+dentry_ptr KERNEL_API get_root_dentry() { return root_dentry; }
 
 int KERNEL_API vxResolveDentry(char* path, dentry_ptr parent, dentry_ptr* out,
                                uint8_t flag) {
@@ -91,20 +91,18 @@ int KERNEL_API vxResolveDentry(char* path, dentry_ptr parent, dentry_ptr* out,
 		return -1;
 
 	auto root_cache = get_root_cache();
+	auto path_copy = str(path);
+	if (!path_copy)
+		return -1;
 
 	dentry_t* curr = parent ? parent : root_dentry;
-	cdev_ptr_t curr_dev = 0;
 	dentry_get(curr);
 
-	char* path_ = path;
+	char* path_ = path_copy->c_str;
 	while (path_ != NULL && *path_ != '\0') {
-		if (curr->vnode) {
-			curr_dev = curr->vnode->mountedhere;
-		}
-
 		char* component = strsep2(&path_, "/");
 
-		if (!component || strlen(component) == 0)
+		if (!component || *component == '\0')
 			continue;
 
 		// strip trailing slash dan whitespace
@@ -116,14 +114,12 @@ int KERNEL_API vxResolveDentry(char* path, dentry_ptr parent, dentry_ptr* out,
 		if (len == 0)
 			continue;
 
-		component[len] = '\0'; // pastikan null-terminated
-
 		if (strcmp(component, ".") == 0)
 			continue;
 
 		if (strcmp(component, "..") == 0) {
-			if (curr->parent) {
-				dentry_t* up = curr->parent;
+			dentry_t* up = curr->parent; // baca sekali
+			if (up) {
 				dentry_get(up);
 				dentry_put(curr);
 				curr = up;
@@ -133,31 +129,47 @@ int KERNEL_API vxResolveDentry(char* path, dentry_ptr parent, dentry_ptr* out,
 
 		dentry_t* next = cache_lookup(root_cache, curr, component);
 
-		// LOG_DEBUG("VFS",
-		// 	  "resolving '%s': current '%s', next 0x%lx (%s)",
-		// 	  component, curr->name->c_str, next,
-		// 	  next ? next->name->c_str : "NULL");
-
 		if (!next) {
 			if (flag & CREATE_MISSING_ENTRY) {
 				dentry_t* new_entry =
 				    create_dentry(str(component), 0, curr);
+				if (!new_entry)
+					goto fail;
+
 				vfs_cache_insert(root_cache, new_entry);
 				dentry_get(new_entry);
 				dentry_put(curr);
 				curr = new_entry;
 				continue;
+
 			} else {
-				LOG2_DEBUG("Dentry", "missing entry '%s'",
-				           component);
-				if (curr_dev) {
-					LOG2_DEBUG(
-					    "Dentry", "current dev %d:%d",
-					    curr_dev->major, curr_dev->minor);
-				}
+				auto curr_vnode = curr->vnode;
+				if (!curr_vnode)
+					goto fail;
+
+				auto fs_instance = curr_vnode->fs_instance;
+				if (!fs_instance)
+					goto fail;
+
+				if (!fs_instance->fs || !fs_instance->cdev)
+					goto fail;
+
+				auto ops = fs_instance->fs->data.ops;
+				if (!ops || !ops->lookup)
+					goto fail;
+
+				if (ops->lookup(fs_instance, component, curr,
+				                &next) < 0)
+					goto fail;
+
+				LOG2_INFO("Dentry", "found %s at fs %s",
+				          component, fs_instance->fs->name);
+
+				vfs_cache_insert(root_cache, next);
+				dentry_get(next);
 				dentry_put(curr);
-				*out = NULL;
-				return -1;
+				curr = next;
+				continue;
 			}
 		}
 
@@ -166,83 +178,19 @@ int KERNEL_API vxResolveDentry(char* path, dentry_ptr parent, dentry_ptr* out,
 	}
 
 	*out = curr;
+	str_release(path_copy);
 	return VFS_OK;
+
+fail:
+	LOG2_DEBUG("Dentry", "missing '%s'", path);
+	dentry_put(curr);
+	*out = NULL;
+	str_release(path_copy);
+	return -1;
 }
 
 // TODO: check path its not comming from BSS
 #define PATH_MAX 4096
-
-//
-
-int KERNEL_API vxnamei2(const char* path, dentry_ptr* out) {
-	if (!path || !out)
-		return -1;
-	*out = NULL;
-
-	size_t len = strlen(path);
-	if (len == 0 || len >= PATH_MAX)
-		return -1;
-
-	char* temp = (char*)kalloc(len + 1);
-	// serial2_printf("temp alloc: %p to %p\n", temp, temp + len + 1);
-
-	if (!temp)
-		return -1;
-
-	memset(temp, 0, len + 1);
-	memcopy(temp, (void*)path, len);
-	char* path_iter = temp;
-
-	auto root_cache = get_root_cache();
-	dentry_t* curr = root_dentry;
-	if (!curr) {
-		kfree(temp, len + 1);
-		return -1;
-	}
-
-	dentry_get(curr);
-
-	while (path_iter && *path_iter != '\0') {
-		char* component = strsep2(&path_iter, "/");
-		if (!component || component[0] == '\0')
-			continue;
-
-		dentry_t* next = cache_lookup(root_cache, curr, component);
-
-		if (!next) {
-			auto name_copy = str(component);
-
-			dentry_t* new_entry = create_dentry(name_copy, 0, curr);
-			// ↑ str_from_owned: buat kstring dari pointer yang
-			// sudah di-alloc
-			//   sehingga lifetime-nya tidak tergantung temp
-
-			if (!new_entry) {
-				// kfree(name_copy, name_copy->len + 1);
-				str_release(name_copy);
-				dentry_put(curr);
-				kfree(temp, len + 1);
-				return -1;
-			}
-
-			// vfs_cache_insert(root_cache, new_entry);
-			dentry_get(new_entry);
-			dentry_put(curr);
-			curr = new_entry;
-			continue;
-		}
-
-		dentry_put(curr);
-		curr = next;
-	}
-
-	// ✓ Aman: kfree temp SETELAH semua component sudah di-copy
-	// serial2_printf("temp free: %p\n", temp);
-	kfree(temp, len + 1);
-
-	*out = curr;
-	return VFS_OK;
-}
 
 int KERNEL_API vxnamei(const char* path, dentry_ptr* out) {
 	if (!path || !out)
@@ -250,14 +198,12 @@ int KERNEL_API vxnamei(const char* path, dentry_ptr* out) {
 
 	*out = NULL;
 
-	// pastikan ada terminator dalam PATH_MAX
 	size_t len = strlen(path);
 
 	if (len == 0 || len >= PATH_MAX) {
 		return -1;
 	}
 
-	// jangan stack terlalu besar kalau kernel stack kecil
 	char* temp = (char*)kalloc(len + 1);
 
 	if (!temp) {
@@ -326,18 +272,18 @@ int KERNEL_API vxnamei(const char* path, dentry_ptr* out) {
 		curr = next;
 	}
 
-	// kfree(temp, len + 1);
+	kfree2(temp);
 
 	*out = curr;
 
 	return VFS_OK;
 }
 
+// TODO: need to recheck, maybe can merged with umount
 void delete_dentry(dentry_t* node) {
 	if (!node)
 		return;
 
-	// hitung jumlah children dulu
 	size_t n = 0;
 	struct llist_head* pos = node->child_list.next;
 	while (pos != &node->child_list) {
@@ -345,7 +291,6 @@ void delete_dentry(dentry_t* node) {
 		pos = pos->next;
 	}
 
-	// alokasi dynamic
 	dentry_t** children = NULL;
 	if (n > 0) {
 		children = (dentry_t**)kalloc(sizeof(dentry_t*) * n);
@@ -357,14 +302,50 @@ void delete_dentry(dentry_t* node) {
 		}
 	}
 
-	// hapus node ini
 	cache_remove(get_root_cache(), node);
 	dentry_put(node);
 
-	// rekursi ke children
 	for (size_t i = 0; i < n; i++)
 		delete_dentry(children[i]);
 
 	if (children)
 		kfree(children, sizeof(dentry_t*) * n);
+}
+
+void print_dentry_tree(dentry_t* dentry, int depth) {
+	if (!dentry)
+		return;
+
+	// indent
+	char indent[128] = {0};
+	for (int i = 0; i < depth; i++) {
+		indent[i * 2] = ' ';
+		indent[i * 2 + 1] = ' ';
+	}
+
+	serial2_printf("%s└── %s (0x%x) (%x) (reff %d) ", indent, dentry->name->c_str, dentry,
+	               dentry->hash, dentry->refcount.counter);
+
+	auto vnode = dentry->vnode;
+	if (vnode) {
+		if (vnode->type == VNODE_TYPE_BLK) {
+			serial2_printf("BLOCK DEVICE %d:%d", vnode->device.major,
+			               vnode->device.minor);
+		} else {
+			serial2_printf("[%s]",
+			               vnode->fs_instance
+			                   ? vnode->fs_instance->fs->name
+			                   : "NO Filesystem");
+		}
+	}
+	serial2_printf("\n");
+
+	// rekursi ke semua child
+	struct llist_head* pos = dentry->child_list.next;
+	while (pos != &dentry->child_list) {
+		dentry_t* child = container_of(pos, dentry_t, siblings);
+
+		print_dentry_tree(child, depth + 1);
+		pos = pos->next;
+	}
 }

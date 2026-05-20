@@ -18,16 +18,16 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include <vfs/cache.h>
 #include "autoconf.h"
 #include "init/init.h"
 #include "libk/serial.h"
-#include <type.h>
 #include "llist.h"
 #include "type.h"
-#include <str.h>
-#include <vfs/dentry.h>
 #include <hash.h>
+#include <str.h>
+#include <type.h>
+#include <vfs/cache.h>
+#include <vfs/dentry.h>
 
 static struct vfs_cache* cache_ = 0;
 
@@ -38,7 +38,7 @@ INIT(VfsCache) {
 
 struct vfs_cache* create_vfs_cache() {
 	struct vfs_cache* cache =
-		(struct vfs_cache*) kalloc(sizeof(struct vfs_cache));
+	    (struct vfs_cache*)kalloc(sizeof(struct vfs_cache));
 	memset(cache, 0, sizeof(struct vfs_cache));
 	cache->count = 0;
 	__atomic_clear(&cache->lock, __ATOMIC_RELAXED);
@@ -55,8 +55,22 @@ void hlist_add_head(struct hlist_node* n, struct hlist_head* h) {
 	h->first = n;
 }
 
-__attribute__((always_inline)) void
-vfs_cache_insert(struct vfs_cache* cache, struct dentry* dentry) {
+static void hlist_del(struct hlist_node* n, struct hlist_head* h) {
+	if (n->prev) {
+		n->prev->next = n->next;
+	} else {
+		h->first = n->next;
+	}
+
+	if (n->next) {
+		n->next->prev = n->prev;
+	}
+
+	n->next = n->prev = NULL;
+}
+
+__attribute__((always_inline)) void vfs_cache_insert(struct vfs_cache* cache,
+                                                     struct dentry* dentry) {
 	while (__atomic_test_and_set(&cache->lock, __ATOMIC_ACQUIRE))
 		;
 
@@ -65,17 +79,18 @@ vfs_cache_insert(struct vfs_cache* cache, struct dentry* dentry) {
 	hlist_add_head(&dentry->hash_node, &cache->buckets[idx]);
 	__atomic_fetch_add(&cache->count, 1, __ATOMIC_RELAXED);
 
-	if (dentry->parent) {
+	bool has_parent = dentry->parent != NULL;
+	if (has_parent)
 		llist_add_tail(&dentry->siblings, &dentry->parent->child_list);
-	} else {
-		LOG_DEBUG("VFS", "'%s' has no parent", dentry->name->c_str);
-	}
 
-	__atomic_clear(&cache->lock, __ATOMIC_RELEASE);
+	__atomic_clear(&cache->lock, __ATOMIC_RELEASE); // release dulu
+
+	if (!has_parent)
+		LOG_DEBUG("VFS", "'%s' has no parent", dentry->name->c_str);
 }
 
-struct dentry*
-cache_lookup(struct vfs_cache* cache, struct dentry* parent, const char* name) {
+struct dentry* cache_lookup(struct vfs_cache* cache, struct dentry* parent,
+                            const char* name) {
 	uint32_t h = hash_dentry(name, parent);
 	auto idx = h & (VFS_CACHE_SIZE - 1);
 
@@ -98,35 +113,17 @@ cache_lookup(struct vfs_cache* cache, struct dentry* parent, const char* name) {
 	return 0;
 }
 
-// static void hlist_del(struct hlist_node* n) {
-// 	UNUSED(n);
-// 	// struct hlist_node* next = n->next;
-// 	// struct hlist_node** pprev = n->pprev;
-
-// 	// if (next)
-// 	// 	next->pprev = pprev;
-// 	// *pprev = next;
-
-// 	// n->next = NULL;
-// 	// n->pprev = NULL;
-// }
-
 void cache_remove(struct vfs_cache* cache, struct dentry* dentry) {
 	while (__atomic_test_and_set(&cache->lock, __ATOMIC_ACQUIRE))
 		;
 
-	// hapus dari hash table
-	// hlist_del(&dentry->hash_node);
+	uint32_t idx = dentry->hash & (VFS_CACHE_SIZE - 1);
+	hlist_del(&dentry->hash_node, &cache->buckets[idx]);
 	__atomic_fetch_sub(&cache->count, 1, __ATOMIC_RELAXED);
 
-	// hapus dari child_list parent — ini yang kurang
-	if (dentry->parent && dentry->siblings.next != NULL) {
-		// llist_del(&dentry->siblings);
-	}
+	serial2_printf("dentry removed from hlist table %s\n", dentry->name->c_str);
 
 	__atomic_clear(&cache->lock, __ATOMIC_RELEASE);
 }
 
-KERNEL_API struct vfs_cache* get_root_cache() {
-	return cache_;
-}
+KERNEL_API struct vfs_cache* get_root_cache() { return cache_; }

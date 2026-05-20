@@ -66,16 +66,16 @@ struct device_id {
 	uint32_t major;
 	uint32_t minor;
 };
+
 struct vnode {
 	atomic_t refcount;
 	vnode_id_t id;
 	uint8_t type;
 	size_t size;
 	void* ops;
-	uint32_t uuid;
 	uint16_t permission;
 
-	filesystem_t* fs;
+	struct fs_instance* fs_instance;
 	cdev_ptr_t mountedhere;
 	cdev_ptr_t mount;
 

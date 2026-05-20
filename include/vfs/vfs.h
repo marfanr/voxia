@@ -19,10 +19,9 @@ extern "C" {
 
 vnode_t* create_and_attach_vnode();
 
-int vxMakeDirectory(dentry_ptr dir, dentry_ptr dentry, uint16_t permission);
-int vfs_mount(char* dev, char* fs, dentry_ptr dentry, int flags);
 int vfs_mount_dev(vnode_ptr_t dev_vnode, char* fs, dentry_ptr dentry,
                   int flags);
+int vfs_umount(dentry_ptr dentry);
 
 #ifdef __cplusplus
 }

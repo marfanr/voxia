@@ -4,6 +4,7 @@
 #include "libk/debug/debug.h"
 #include "libk/fs/iso9660.h"
 #include "libk/serial.h"
+#include "llist.h"
 #include "memory/slab.h"
 #include "notify.h"
 #include "str.h"
@@ -71,13 +72,12 @@ INIT(Vfs) {
 	// register fs
 	{
 		auto iso_fs = (struct fs_data){
-		    .private_data = 0,
 		    .magic =
 		        {
 		            .magic = {'C', 'D', '0', '0', '1'},
 		            .count = 5,
 		        },
-		    .ops = 0,
+		    .ops = iso9660_file_operations(),
 		};
 		create_filesystem("ISO9660", &iso_fs);
 	}
@@ -98,63 +98,22 @@ INIT(Vfs) {
 	LOG_INFO("vfs", "vfs has been installed");
 }
 
-KERNEL_API int vxMakeDirectory(dentry_ptr dir, dentry_ptr dentry,
-                               uint16_t permission) {
-	UNUSED(dir);
-	dentry->vnode->permission = permission;
-	dentry->vnode->type = VNODE_TYPE_DIR;
-	return VFS_OK;
-}
-
-// KERNEL_API int vfs_mount(char* dev, char* fs, dentry_ptr dentry, int flags) {
-// 	if (!fs || !dentry)
-// 		return VFS_ERR;
-
-// 	dentry_ptr dev_entry;
-// 	if (vxResolveDentry(dev, 0, &dev_entry, 0) == VFS_ENOENT) {
-// 		serial2_printf("dentry not found..");
-// 		return VFS_DEV_NOT_FOUND;
-// 	}
-
-// 	UNUSED(fs);
-// 	UNUSED(flags);
-
-// 	if (!dev_entry) {
-// 		LOG_WARN("VFS", "vfs_mount: dev %s not found", dev);
-// 		return VFS_ENOENT;
-// 	}
-
-// 	auto dev_vnode = dev_entry->vnode;
-// 	if (dev_vnode) {
-// 		LOG_DEBUG("VFS", "cdev minor %d major %d",
-// 			  dev_vnode->device.dev.minor,
-// 			  dev_vnode->device.dev.major);
-// 		// auto cdev = vxRetrieveDev(dev_vnode->major ? dev_vnode->major
-// : 0,
-// 		//                           dev_vnode->minor ? dev_vnode->minor
-// : 0);
-// 	}
-
-// 	return VFS_OK;
-// }
-
 // TODO: auto detect filesystem
 KERNEL_API int vfs_mount_dev(vnode_ptr_t dev_vnode, char* fs, dentry_ptr dentry,
                              int flags) {
 	if (!fs || !dentry || !dev_vnode)
 		return VFS_ERR;
 
-	UNUSED(fs);
 	UNUSED(flags);
 
 	if (dev_vnode->type != VNODE_TYPE_BLK) {
-		LOG_WARN("VFS", "vfs_mount: dev not a block device");
+		LOG2_WARN("VFS", "vfs_mount: dev not a block device");
 		return VFS_ERR;
 	}
 
 	auto fs_ = retrieve_filesystem(fs);
 	if (!fs_) {
-		LOG_WARN("VFS", "vfs_mount: fs %s not found", fs);
+		LOG2_WARN("VFS", "vfs_mount: fs %s not found", fs);
 		return VFS_ERR;
 	}
 
@@ -162,7 +121,7 @@ KERNEL_API int vfs_mount_dev(vnode_ptr_t dev_vnode, char* fs, dentry_ptr dentry,
 	    retrieve_dev(dev_vnode->device.major, dev_vnode->device.minor);
 
 	if (!cdev) {
-		LOG_WARN("VFS", "vfs_mount_dev: cdev not found");
+		LOG2_WARN("VFS", "vfs_mount_dev: cdev not found");
 		return VFS_ERR;
 	}
 	LOG_DEBUG("VFS", "vfs_mount_dev: cdev minor %d major %d", cdev->minor,
@@ -170,20 +129,82 @@ KERNEL_API int vfs_mount_dev(vnode_ptr_t dev_vnode, char* fs, dentry_ptr dentry,
 
 	vnode_ptr_t dentry_node = dentry->vnode;
 	if (!dentry_node) {
-		LOG2_INFO("VFS", "vfs_mount: created vnode for mount point dentry");
+		LOG2_INFO("VFS",
+		          "vfs_mount: created vnode for mount point dentry");
 		dentry_node = create_vnode();
 		dentry->vnode = dentry_node;
 	}
 
 	// TODO: validate filesystem magic
-
 	dentry_node->type = VNODE_TYPE_DIR;
 	dentry_node->mountedhere = cdev;
 	dev_vnode->mount = cdev;
-	dentry_node->fs = fs_;
-	dev_vnode->fs = fs_;
 
+	struct fs_instance* fs_ins =
+	    (struct fs_instance*)kalloc(sizeof(struct fs_instance));
+	fs_ins->fs = fs_;
+	fs_ins->cdev = cdev;
+
+	dentry_node->fs_instance = fs_ins;
+
+	// first lookup on filesystem
+	fs_->data.ops->lookup(fs_ins, 0, 0, &dentry);
+
+	KDEBUG(DEBUG_LEVEL_OK, "mounted %d:%d on %s with filesystem %s\n",
+	       cdev->major, cdev->minor, dentry->name->c_str, fs_->name);
 	return VFS_OK;
+}
+
+static int vfs_umount_recursive(dentry_t* dentry) {
+	if (!dentry)
+		return VFS_OK;
+
+	auto ch = dentry->child_list.next;
+	while (ch != &dentry->child_list) {
+		auto next = ch->next; // simpan next sebelum child dilepas
+		dentry_t* child = container_of(ch, dentry_t, siblings);
+		serial2_printf("umounted dentry %s\n", child->name->c_str);
+
+		int ret = vfs_umount_recursive(child);
+		if (ret != VFS_OK)
+			return ret;
+
+		ch = next;
+	}
+
+	if (__atomic_load_n(&dentry->refcount.counter, __ATOMIC_RELAXED) > 1) {
+		LOG2_WARN("VFS", "umount: dentry '%s' (%d) still in use",
+		          dentry->name ? dentry->name->c_str : "?", dentry->refcount.counter);
+		return VFS_ERR_BUSY;
+	}
+
+	// auto vnode = dentry->vnode;
+	// if (vnode) {
+	//     auto fs_instance = vnode->fs_instance;
+	//     if (fs_instance && fs_instance->fs &&
+	//         fs_instance->fs->data.ops->umount) {
+	//         fs_instance->fs->data.ops->umount(fs_instance);
+	//     }
+	// }
+
+	llist_del(&dentry->siblings);
+
+	auto root_cache = get_root_cache();
+	cache_remove(root_cache, dentry);
+
+	dentry_put(dentry);
+	return VFS_OK;
+}
+
+int vfs_umount(dentry_ptr dentry) {
+	if (!dentry)
+		return VFS_ERR;
+
+	auto vnode = dentry->vnode;
+	if (!vnode)
+		return VFS_ERR;
+
+	return vfs_umount_recursive(dentry);
 }
 
 // int KERNEL_API vxVFSOpen(char* path, int flags) {
@@ -218,8 +239,8 @@ static void detect_cd_filesystem(vnode_ptr_t vnode, void* data, void* ctx) {
 		return;
 	}
 
-	// ISO9660 PVD is always at byte 32768 (sector 16 of 2048 bytes)
-	int ret = ops->read(ops->v_data, 32768, d_, request_size);
+	// ISO9660 PVD is always at byte sector 16
+	int ret = ops->read(ops->v_data, 16, d_, request_size);
 
 	if (ret < 0) {
 		serial2_printf("read failed: %d\n", ret);
@@ -238,10 +259,19 @@ static void detect_cd_filesystem(vnode_ptr_t vnode, void* data, void* ctx) {
 			vfs_mount_dev(vnode, "ISO9660", mount_entry, 0);
 
 			dentry_ptr out;
-			if (vxResolveDentry("/kernel.elf", mount_entry, &out, 0) == VFS_OK) {
+			if (vxResolveDentry("/kernel.elf", mount_entry, &out,
+			                    0) == VFS_OK) {
 				LOG2_INFO("VFS NOTIFY", "found kernel.elf");
-
 			}
+
+			// DEBUG
+			print_dentry_tree(get_root_dentry(), 0);
+
+			dentry_put(out);
+
+			vfs_umount(mount_entry);
+
+			print_dentry_tree(get_root_dentry(), 0);
 		}
 	}
 	kfree2(d_);
