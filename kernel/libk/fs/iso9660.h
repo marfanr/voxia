@@ -1,6 +1,7 @@
 #ifndef __FS__ISO9660_H__
 #define __FS__ISO9660_H__
 
+#include "vfs/filesystem.h"
 #include <type.h>
 
 typedef struct {
@@ -63,7 +64,7 @@ struct iso9660_pvd {
 
 	uint8_t application_data[512];
 	uint8_t reserved[653];
-};
+} __attribute__((packed));
 
 // Struktur Path Table Entry
 struct iso9660_path_table_entry {
@@ -87,20 +88,40 @@ struct iso9660_dir_time {
 };
 
 // Struktur Directory Record (Entry direktori / file)
-struct iso9660_dir_record {
-	uint8_t length_dr;	    // panjang record
-	uint8_t ext_attr_length;    // panjang atribut ekstensi
-	both_u32 extent_location;   // LBA dari extent (both-endian)
-	both_u32 data_length;	    // ukuran data (both-endian)
-	struct iso9660_dir_time dt; // date-time record
-	uint8_t file_flags;
-	uint8_t file_unit_size;
-	uint8_t interleave_gap_size;
-	both_u16 volume_sequence_number;
-	uint8_t file_id_len;
-	char file_id[]; // panjang variabel, diakhiri dengan ';' versi
-			// setelah itu mungkin padding agar struktur genap
-	// lalu System Use Area (SUA), panjang bisa sampai max record - fixed fields
+struct iso9660_dir {
+    uint8_t length;
+    uint8_t ext_attr_length;
+
+    uint32_t extent_le;
+    uint32_t extent_be;
+
+    uint32_t size_le;
+    uint32_t size_be;
+
+    uint8_t date[7];
+
+    uint8_t flags;
+
+    uint8_t file_unit_size;
+    uint8_t interleave_gap;
+
+    uint16_t volume_seq_le;
+    uint16_t volume_seq_be;
+
+    uint8_t name_len;
+
+    char name[];
+} __attribute__((packed));
+
+struct iso9660_node {
+	uint32_t extent;
+	uint32_t size;
+    uint8_t  flags; 
 };
+
+#define iOS9660_DIR_FLAG (1 << 1)
+
+int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent, dentry_ptr *out);
+fs_operations_t* iso9660_file_operations(void);
 
 #endif // __FS__ISO9660_H__

@@ -3,6 +3,7 @@
 
 enum {
 	VFS_OK = 0,
+	VFS_ERR_BUSY = -1,
 	VFS_ENOENT = -2,
 	VFS_ERR = -5,
 	VFS_DEV_NOT_FOUND = -7,
