@@ -1,6 +1,6 @@
 #include "console/console.h"
 #include "libk/serial.h"
-#include "libk/type.h"
+#include <type.h>
 #include <type.h>
 
 uintptr_t __stack_chk_guard = 0x595e9fbd94fda766;

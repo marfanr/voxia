@@ -3,7 +3,7 @@
 #include "hal/cpu/interrupt.h"
 #include "init/init.h"
 #include "libk/serial.h"
-#include "libk/type.h"
+#include <type.h>
 #include <hal/acpi/hpet.h>
 #include <hal/timer/timer.h>
 

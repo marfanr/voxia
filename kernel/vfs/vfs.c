@@ -174,6 +174,9 @@ KERNEL_API int vfs_mount_dev(vnode_ptr_t dev_vnode, char* fs, dentry_ptr dentry,
 		dentry_node = create_vnode();
 		dentry->vnode = dentry_node;
 	}
+
+	// TODO: validate filesystem magic
+
 	dentry_node->type = VNODE_TYPE_DIR;
 	dentry_node->mountedhere = cdev;
 	dev_vnode->mount = cdev;
@@ -234,7 +237,11 @@ static void detect_cd_filesystem(vnode_ptr_t vnode, void* data, void* ctx) {
 			vxnamei("/tmp/root", &mount_entry);
 			vfs_mount_dev(vnode, "ISO9660", mount_entry, 0);
 
-			// find 
+			dentry_ptr out;
+			if (vxResolveDentry("/kernel.elf", mount_entry, &out, 0) == VFS_OK) {
+				LOG2_INFO("VFS NOTIFY", "found kernel.elf");
+
+			}
 		}
 	}
 	kfree2(d_);

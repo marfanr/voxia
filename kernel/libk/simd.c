@@ -1,6 +1,6 @@
 #include "hal/cpu/cpuid.h"
 #include "init/init.h"
-#include "libk/type.h"
+#include <type.h>
 #include <libk/serial.h>
 #include <libk/simd.h>
 

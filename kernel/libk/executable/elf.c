@@ -3,7 +3,7 @@
 #include "libk/math.h"
 #include "libk/serial.h"
 #include "libk/symbols.h"
-#include "libk/type.h"
+#include <type.h>
 #include "memory/memory_utils.h"
 #include "memory/phys_base_allocator.h"
 #include <libk/executable/elf.h>

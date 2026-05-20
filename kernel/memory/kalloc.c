@@ -1,6 +1,6 @@
 #include <hal/cpu/core.h>
 #include "libk/serial.h"
-#include "libk/type.h"
+#include <type.h>
 #include "memory/memory_utils.h"
 #include "memory/phys_base_allocator.h"
 #include "memory/vm_manager.h"

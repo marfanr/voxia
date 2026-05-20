@@ -1,7 +1,7 @@
 #include "ioforge/ioforge_nic.h"
 #include "ioforge/ioforge.h"
 #include "libk/serial.h"
-#include "libk/type.h"
+#include <type.h>
 #include "memory/memory_utils.h"
 #include <str.h>
 

@@ -22,7 +22,7 @@
 #include "autoconf.h"
 #include "init/init.h"
 #include "libk/serial.h"
-#include "libk/type.h"
+#include <type.h>
 #include "llist.h"
 #include "type.h"
 #include <str.h>

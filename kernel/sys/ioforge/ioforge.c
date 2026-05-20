@@ -20,7 +20,7 @@
 #include "init/init.h"
 #include "libk/debug/debug.h"
 #include "libk/io.h"
-#include "libk/type.h"
+#include <type.h>
 #include "type.h"
 
 static struct ioforge_device* root = 0;

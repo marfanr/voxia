@@ -1,6 +1,6 @@
 #include "ioforge/ioforge_pci.h"
 #include "libk/serial.h"
-#include "libk/type.h"
+#include <type.h>
 #include "pci.h"
 
 void KERNEL_API pci_enable_msi(struct ioforge_pci_device* pci, uint8_t vector,

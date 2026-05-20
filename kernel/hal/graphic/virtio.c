@@ -3,7 +3,7 @@
 // #include "hal/cpu/paging.h"
 // #include "ioforge/ioforge_pci.h"
 // #include "libk/io.h"
-// #include "libk/type.h"
+// #include <type.h>
 // #include "memory/kalloc.h"
 // #include "memory/memory_utils.h"
 // #include "memory/phys_base_allocator.h"

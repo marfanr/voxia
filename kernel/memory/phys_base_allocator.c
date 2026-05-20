@@ -1,7 +1,7 @@
 #include "phys_base_allocator.h"
 #include "init/init.h"
 #include "libk/stivale2.h"
-#include "libk/type.h"
+#include <type.h>
 #include "memory/entry.h"
 #include <hal/cpu/paging.h>
 #include <spinlock.h>

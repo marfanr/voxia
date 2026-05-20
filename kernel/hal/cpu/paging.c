@@ -1,7 +1,7 @@
 #include "paging.h"
 #include "autoconf.h"
 #include "init/init.h"
-#include "libk/type.h"
+#include <type.h>
 #include <spinlock.h>
 #include <libk/serial.h>
 #include <str.h>

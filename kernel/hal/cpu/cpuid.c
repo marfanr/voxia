@@ -1,4 +1,4 @@
-#include "libk/type.h"
+#include <type.h>
 #include <hal/cpu/cpuid.h>
 
 void cpuid(uint32_t leaf, uint32_t subleaf, uint32_t* eax, uint32_t* ebx,

@@ -1,7 +1,7 @@
 #include "./pci.h"
 #include "./pcie.h"
 #include "hal/cpu/paging.h"
-#include "libk/type.h"
+#include <type.h>
 #include "memory/kalloc.h"
 #include "memory/vm_manager.h"
 #include <hal/graphic/virtio.h>

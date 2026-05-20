@@ -1,6 +1,6 @@
 #include "serial.h"
 #include <spinlock.h>
-#include "libk/type.h"
+#include <type.h>
 #include <init/init.h>
 #include <libk/io.h>
 #include <str.h>

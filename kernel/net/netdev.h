@@ -1,7 +1,7 @@
 #ifndef __NET__NETDEV_H__
 #define __NET__NETDEV_H__
 
-#include "libk/type.h"
+#include <type.h>
 #include "net/netbuff.h"
 #define NETDEV_NAME_MAX_LEN 64
 

@@ -1,6 +1,6 @@
 #include "autoconf.h"
 #include "init/init.h"
-#include "libk/type.h"
+#include <type.h>
 #include <hal/cpu/paging.h>
 #include <spinlock.h>
 #include <libk/serial.h>

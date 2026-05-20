@@ -3,7 +3,7 @@
 #include "hal/apic/apic.h"
 #include <spinlock.h>
 #include "init/init.h"
-#include "libk/type.h"
+#include <type.h>
 #include <hal/cpu/core.h>
 #include <hal/ethernet/e1000/e1000.h>
 #include <libk/debug/debug.h>

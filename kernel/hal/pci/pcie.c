@@ -2,7 +2,7 @@
 #include "hal/cpu/paging.h"
 #include "hal/pci/pci.h"
 #include "libk/serial.h"
-#include "libk/type.h"
+#include <type.h>
 #include "memory/vm_manager.h"
 #include <hal/pci/pcie.h>
 

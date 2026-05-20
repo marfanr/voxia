@@ -9,7 +9,7 @@
 #include "hal/timer/timer.h"
 #include "init/init.h"
 #include "libk/serial.h"
-#include "libk/type.h"
+#include <type.h>
 #include "memory/phys_base_allocator.h"
 #include "memory/vm_manager.h"
 #include "procc/scheduler.h"

@@ -1,7 +1,7 @@
 #ifndef __HAL__CPU__MSR_H__
 #define __HAL__CPU__MSR_H__
 
-#include "libk/type.h"
+#include <type.h>
 
 void      vxWRSR(uint32_t msr, uint64_t value);
 uint64_t  vxRDMSR(uint32_t msr);

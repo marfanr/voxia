@@ -2,7 +2,7 @@
 #include "hal/cpu/cpuid.h"
 #include "libk/io.h"
 #include "libk/serial.h"
-#include "libk/type.h"
+#include <type.h>
 #include "type.h"
 #include <hal/acpi/hpet.h>
 #include <str.h>

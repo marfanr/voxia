@@ -1,7 +1,7 @@
 #ifndef __LIBK__ATOMIC_H__
 #define __LIBK__ATOMIC_H__
 
-#include "libk/type.h"
+#include <type.h>
 
 static inline uint64_t
 atomic_fetch_add_u64(volatile uint64_t *addr, uint64_t val)
