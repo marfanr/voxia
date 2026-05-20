@@ -22,6 +22,8 @@
 #define __VFS__VNODE_H__
 
 #include "vfs/dentry.h"
+#include "vfs/dev.h"
+#include "vfs/filesystem.h"
 #include <llist.h>
 #include <type.h>
 #include <vector.h>
@@ -73,13 +75,16 @@ struct vnode {
 	uint32_t uuid;
 	uint16_t permission;
 
-	void* fs;
+	filesystem_t* fs;
+	cdev_ptr_t mountedhere;
+	cdev_ptr_t mount;
 
 	union {
 		void* vnode_private;
 		struct device_id device;
 	};
-};
+} __attribute__((aligned(64)));
+
 typedef struct vnode* vnode_ptr_t;
 
 vnode_ptr_t KERNEL_API create_vnode();

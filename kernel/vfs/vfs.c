@@ -4,20 +4,20 @@
 #include "libk/debug/debug.h"
 #include "libk/fs/iso9660.h"
 #include "libk/serial.h"
-#include <string.h>
-#include <vector.h>
 #include "memory/slab.h"
 #include "notify.h"
 #include "str.h"
 #include "vfs/vnode.h"
+#include <string.h>
+#include <type.h>
+#include <vector.h>
 #include <vfs/dentry.h>
 #include <vfs/dev.h>
 #include <vfs/enum.h>
 #include <vfs/filesystem.h>
 #include <vfs/mount.h>
-#include <vfs/vnode.h>
-#include <type.h>
 #include <vfs/vfs.h>
+#include <vfs/vnode.h>
 
 #define RBT_TYPE vnode_t
 #define RBT_ID_NAME id
@@ -41,7 +41,7 @@ static void vfs_event_handler(uint32_t event, void* data, void* ctx);
 KERNEL_API vnode_t* create_and_attach_vnode() {
 	vnode_t* vnode = create_vnode();
 
-	rbt_node* node = (rbt_node*) vxSlabAlloc(rbt_node_cache);
+	rbt_node* node = (rbt_node*)vxSlabAlloc(rbt_node_cache);
 	memset(node, 0, sizeof(rbt_node)); // ← tambah ini
 	rbt_insert_node(&vfs_tree, node, vnode, NIL);
 
@@ -51,7 +51,7 @@ KERNEL_API vnode_t* create_and_attach_vnode() {
 INIT(Vfs) {
 	vxCreateSlabCache(&rbt_node_cache, "rbt_node", sizeof(rbt_node), 64, 0);
 
-	NIL = (struct rbt_node*) vxSlabAlloc(rbt_node_cache);
+	NIL = (struct rbt_node*)vxSlabAlloc(rbt_node_cache);
 	memset(NIL, 0, sizeof(rbt_node)); // ← tambah ini
 	NIL->data = create_vnode();
 	NIL->left = NIL->right = NIL->parent = NIL;
@@ -68,11 +68,24 @@ INIT(Vfs) {
 		vxSetDentryAsRoot(entry);
 	}
 
-	// create notify
-	notify_dev_create(str("/vfs/block"));
-
+	// register fs
 	{
-		auto n = (struct notifier*) kalloc(sizeof(struct notifier));
+		auto iso_fs = (struct fs_data){
+		    .private_data = 0,
+		    .magic =
+		        {
+		            .magic = {'C', 'D', '0', '0', '1'},
+		            .count = 5,
+		        },
+		    .ops = 0,
+		};
+		create_filesystem("ISO9660", &iso_fs);
+	}
+
+	// create notifier
+	notify_dev_create(str("/vfs/block"));
+	{
+		auto n = (struct notifier*)kalloc(sizeof(struct notifier));
 		memset(n, 0, sizeof(struct notifier));
 		n->callback = vfs_event_handler;
 		n->context = 0;
@@ -85,8 +98,8 @@ INIT(Vfs) {
 	LOG_INFO("vfs", "vfs has been installed");
 }
 
-KERNEL_API int
-vxMakeDirectory(dentry_ptr dir, dentry_ptr dentry, uint16_t permission) {
+KERNEL_API int vxMakeDirectory(dentry_ptr dir, dentry_ptr dentry,
+                               uint16_t permission) {
 	UNUSED(dir);
 	dentry->vnode->permission = permission;
 	dentry->vnode->type = VNODE_TYPE_DIR;
@@ -116,35 +129,59 @@ vxMakeDirectory(dentry_ptr dir, dentry_ptr dentry, uint16_t permission) {
 // 		LOG_DEBUG("VFS", "cdev minor %d major %d",
 // 			  dev_vnode->device.dev.minor,
 // 			  dev_vnode->device.dev.major);
-// 		// auto cdev = vxRetrieveDev(dev_vnode->major ? dev_vnode->major : 0,
-// 		//                           dev_vnode->minor ? dev_vnode->minor : 0);
+// 		// auto cdev = vxRetrieveDev(dev_vnode->major ? dev_vnode->major
+// : 0,
+// 		//                           dev_vnode->minor ? dev_vnode->minor
+// : 0);
 // 	}
 
 // 	return VFS_OK;
 // }
 
-// KERNEL_API int
-// vfs_mount_dev(vnode_ptr_t dev_vnode, char* fs, dentry_ptr dentry, int flags) {
-// 	if (!fs || !dentry || dev_vnode)
-// 		return VFS_ERR;
+// TODO: auto detect filesystem
+KERNEL_API int vfs_mount_dev(vnode_ptr_t dev_vnode, char* fs, dentry_ptr dentry,
+                             int flags) {
+	if (!fs || !dentry || !dev_vnode)
+		return VFS_ERR;
 
-// 	UNUSED(fs);
-// 	UNUSED(flags);
+	UNUSED(fs);
+	UNUSED(flags);
 
-// 	if (dev_vnode->type != VNODE_TYPE_DEV)
-// 		LOG_WARN("VFS", "vfs_mount: dev not a device");
-// 	return VFS_ERR;
+	if (dev_vnode->type != VNODE_TYPE_BLK) {
+		LOG_WARN("VFS", "vfs_mount: dev not a block device");
+		return VFS_ERR;
+	}
 
-// 	if (dev_vnode) {
-// 		LOG_DEBUG("VFS", "vfs_mount_dev: cdev minor %d major %d",
-// 			  dev_vnode->device.dev.minor,
-// 			  dev_vnode->device.dev.major);
-// 		// auto cdev = vxRetrieveDev(dev_vnode->major ? dev_vnode->major : 0,
-// 		//                           dev_vnode->minor ? dev_vnode->minor : 0);
-// 	}
+	auto fs_ = retrieve_filesystem(fs);
+	if (!fs_) {
+		LOG_WARN("VFS", "vfs_mount: fs %s not found", fs);
+		return VFS_ERR;
+	}
 
-// 	return VFS_OK;
-// }
+	auto cdev =
+	    retrieve_dev(dev_vnode->device.major, dev_vnode->device.minor);
+
+	if (!cdev) {
+		LOG_WARN("VFS", "vfs_mount_dev: cdev not found");
+		return VFS_ERR;
+	}
+	LOG_DEBUG("VFS", "vfs_mount_dev: cdev minor %d major %d", cdev->minor,
+	          cdev->major);
+
+	vnode_ptr_t dentry_node = dentry->vnode;
+	if (!dentry_node) {
+		LOG2_INFO("VFS", "vfs_mount: created vnode for mount point dentry");
+		dentry_node = create_vnode();
+		dentry->vnode = dentry_node;
+	}
+	dentry_node->type = VNODE_TYPE_DIR;
+	dentry_node->mountedhere = cdev;
+	dev_vnode->mount = cdev;
+	dentry_node->fs = fs_;
+	dev_vnode->fs = fs_;
+
+	return VFS_OK;
+}
 
 // int KERNEL_API vxVFSOpen(char* path, int flags) {
 // 	UNUSED(flags);
@@ -159,19 +196,18 @@ static void detect_cd_filesystem(vnode_ptr_t vnode, void* data, void* ctx) {
 	UNUSED(data);
 	UNUSED(ctx);
 
-	auto ops = (vops_blk_t*) vnode->ops;
+	auto ops = (vops_blk_t*)vnode->ops;
 	if (!ops || !ops->read)
 		return;
 
 	auto request_size = sizeof(struct iso9660_pvd);
-	uint8_t* d_ = (uint8_t*) kalloc(request_size);
+	uint8_t* d_ = (uint8_t*)kalloc(request_size);
 	if (!d_)
 		return;
 
 	memset(d_, 0, request_size);
 
-	auto cdev =
-		retrieve_dev(vnode->device.major, vnode->device.minor);
+	auto cdev = retrieve_dev(vnode->device.major, vnode->device.minor);
 
 	if (!cdev) {
 		serial2_printf("cdev not found\n");
@@ -188,17 +224,18 @@ static void detect_cd_filesystem(vnode_ptr_t vnode, void* data, void* ctx) {
 		return;
 	}
 
-	struct iso9660_pvd* pvd = (struct iso9660_pvd*) (void*) d_;
+	struct iso9660_pvd* pvd = (struct iso9660_pvd*)(void*)d_;
 	if (strncmp(pvd->id, "CD001", 5) == 0) {
-		LOG2_INFO("VFS NOTIFY", "terdeteksi ISO9660 CD-ROM") ;
+		LOG2_INFO("VFS NOTIFY", "terdeteksi ISO9660 CD-ROM");
 
-		// 	// trying to mount
-		// 	// {
-		// 	// 	dentry_ptr mount_entry;
-		// 	// 	vxnamei("/tmp/root", &mount_entry);
-		// 	// 	vfs_mount_dev(vnode, "ISO9660", mount_entry, 0);
+		// trying to mount
+		{
+			dentry_ptr mount_entry;
+			vxnamei("/tmp/root", &mount_entry);
+			vfs_mount_dev(vnode, "ISO9660", mount_entry, 0);
 
-		// 	// 	// TODO: check is a signature file indicated boot artition is existed
+			// find 
+		}
 	}
 	kfree2(d_);
 }
@@ -210,9 +247,9 @@ static void vfs_notify_probe_handler(void* data, void* ctx) {
 	if (!data)
 		return;
 
-	vnode_ptr_t vnode = (vnode_ptr_t) data;
+	vnode_ptr_t vnode = (vnode_ptr_t)data;
 
-	auto ops = (vops_blk_t*) vnode->ops;
+	auto ops = (vops_blk_t*)vnode->ops;
 
 	if (ops == 0)
 		return;
@@ -220,7 +257,7 @@ static void vfs_notify_probe_handler(void* data, void* ctx) {
 	auto dev_major = vnode->device.major;
 
 	serial2_printf("vnode major %d %x vdata %x\n", dev_major, ops,
-		       ops->v_data);
+	               ops->v_data);
 
 	if (dev_major == DEV_MAJOR_CDROM) {
 		detect_cd_filesystem(vnode, data, ctx);

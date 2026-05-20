@@ -20,6 +20,7 @@ typedef struct  __attribute__((aligned(64))) {
 	thread_t* active_thread;
 
 	uint8_t _pad[24];
+	// 1 cache line end
 
 	workqueue_t workqueue[VOXIA_MAX_WORKQUEUE_EACH_CORE];
 } each_core_data;

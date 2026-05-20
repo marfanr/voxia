@@ -245,11 +245,11 @@ KERNEL_API void LoadIntoVfs(dentry_ptr dentry) {
 	print_dentry_tree(dentry, 0);
 }
 
-filesystem_t* initrd_fs_impl() {
-	filesystem_t* fs = (filesystem_t*) kalloc(sizeof(filesystem_t));
-	fs->ops = (fs_operations_t*) kalloc(sizeof(fs_operations_t));
-	return fs;
-}
+// filesystem_t* initrd_fs_impl() {
+// 	// filesystem_t* fs = (filesystem_t*) kalloc(sizeof(filesystem_t));
+// 	// fs->ops = (fs_operations_t*) kalloc(sizeof(fs_operations_t));
+// 	// return fs;
+// }
 
 // JANGAN dihapus dulu buat contoh saat implement real fs nanti
 // int initrdOpenImpl(void* vdata, int op_mode, thread_t* thread) {

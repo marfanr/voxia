@@ -70,8 +70,6 @@ SECTIONS
         KEEP(*(.init_early.VfsCache))
         KEEP(*(.init_early.Vnode))
         KEEP(*(.init_early.Vfs))
-        KEEP(*(.init_early.Dev))
-        KEEP(*(.init_early.Mount))
         KEEP(*(.init_early.initrd))
         KEEP(*(.init_early.graphic))     
         KEEP(*(.init_early.ioforge))
