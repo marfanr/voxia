@@ -12,6 +12,8 @@ extern "C" {
 void memcopy(void* dest, void* src, size_t size);
 void* memmove(void* dest, const void* src, size_t n);
 void memset(void* ptr, int value, size_t num);
+int memcmp(const void* s1, const void* s2, size_t n);
+void to_lowercase(char* str);
 
 /**
  * @brief Menghitung panjang string.

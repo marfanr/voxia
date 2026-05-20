@@ -1,6 +1,5 @@
 #include <str.h>
 #include <vector.h>
-#include "memory/kalloc.h"
 #include "type.h"
 #include "libk/simd.h"
 
@@ -31,6 +30,28 @@ KERNEL_API int strncmp(const char* s1, const char* s2, size_t n) {
 	}
 
 	return __fast__strncmp__(s1, s2, n);
+}
+
+KERNEL_API int memcmp(const void* s1, const void* s2, size_t n) {
+	const unsigned char* a = (const unsigned char*)s1;
+	const unsigned char* b = (const unsigned char*)s2;
+
+	for (size_t i = 0; i < n; i++) {
+		if (a[i] != b[i]) {
+			return (int)a[i] - (int)b[i];
+		}
+	}
+
+	return 0;
+}
+
+void to_lowercase(char* str) {
+    while (*str) {
+        if (*str >= 'A' && *str <= 'Z') {
+            *str += ('a' - 'A');
+        }
+        str++;
+    }
 }
 
 // warn: modifies the input string
