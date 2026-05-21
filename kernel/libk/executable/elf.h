@@ -2,8 +2,8 @@
 #define __LIBK_EXECUTABLE_ELF_H__
 
 #include "libk/symbols.h"
-#include <vector.h>
 #include <type.h>
+#include <vector.h>
 
 typedef struct Elf64_Ehdr {
 	uint8_t e_ident[16];  /* ELF identification */
@@ -79,22 +79,21 @@ enum Elf_Ptype : uint32_t {
 };
 
 enum Elf_Shdr_Flags {
-	SHF_WRITE = 0x1,     // Section dapat ditulis
-	SHF_ALLOC = 0x2,     // Harus dimuat ke memori saat eksekusi
-	SHF_EXECINSTR = 0x4, // Berisi instruksi yang dapat dieksekusi
-	SHF_MERGE = 0x10, // Dapat digabungkan (biasanya untuk konstanta string)
-	SHF_STRINGS = 0x20,    // Berisi string null-terminated
-	SHF_INFO_LINK = 0x40,  // sh_info berisi index ke section lain
-	SHF_LINK_ORDER = 0x80, // Urutan section harus mengikuti section lain
-	SHF_OS_NONCONFORMING = 0x100, // Butuh penanganan khusus oleh OS
-	SHF_GROUP = 0x200,	      // Bagian dari group section
-	SHF_TLS = 0x400,	      // Berisi data Thread-Local Storage
-	SHF_COMPRESSED = 0x800,	      // Data section dikompresi (ELF modern)
-	SHF_MASKOS = 0x0FF00000,      // Flag khusus OS
-	SHF_MASKPROC = 0xF0000000,    // Flag khusus arsitektur prosesor
-	SHF_ORDERED =
-		0x4000000, // Section memiliki urutan eksplisit (non-standard)
-	SHF_EXCLUDE = 0x8000000, // Jangan dimuat (biasanya untuk debug info)
+	SHF_WRITE = 0x1,
+	SHF_ALLOC = 0x2,
+	SHF_EXECINSTR = 0x4,
+	SHF_MERGE = 0x10,
+	SHF_STRINGS = 0x20,
+	SHF_INFO_LINK = 0x40,
+	SHF_LINK_ORDER = 0x80,
+	SHF_OS_NONCONFORMING = 0x100,
+	SHF_GROUP = 0x200,
+	SHF_TLS = 0x400,
+	SHF_COMPRESSED = 0x800,
+	SHF_MASKOS = 0x0FF00000,
+	SHF_MASKPROC = 0xF0000000,
+	SHF_ORDERED = 0x4000000,
+	SHF_EXCLUDE = 0x8000000,
 };
 
 enum Elf_Dtag {
@@ -160,24 +159,21 @@ enum Elf_Shtag {
 	SHT_SYMTAB_SHNDX = 18,
 	SHT_RELR = 19,
 
-	// GNU / OS-specific range: 0x60000000 - 0x6fffffff
-	SHT_GNU_ATTRIBUTES = 0x6ffffff5, // GNU object attributes
-	SHT_GNU_HASH = 0x6ffffff6,	 // GNU hash table untuk dynamic symbol
-	SHT_GNU_LIBLIST = 0x6ffffff7,	 // Daftar library GNU
-	SHT_CHECKSUM = 0x6ffffff8,	 // Checksum section
+	SHT_GNU_ATTRIBUTES = 0x6ffffff5,
+	SHT_GNU_HASH = 0x6ffffff6,
+	SHT_GNU_LIBLIST = 0x6ffffff7,
+	SHT_CHECKSUM = 0x6ffffff8,
 	SHT_LOSUNW = 0x6ffffffa,
-	SHT_SUNW_move = 0x6ffffffa, // Sun-specific (relocation)
+	SHT_SUNW_move = 0x6ffffffa,
 	SHT_SUNW_COMDAT = 0x6ffffffb,
 	SHT_SUNW_syminfo = 0x6ffffffc,
-	SHT_GNU_verdef = 0x6ffffffd,  // Version definition section
-	SHT_GNU_verneed = 0x6ffffffe, // Version dependency section
-	SHT_GNU_versym = 0x6fffffff,  // Symbol version table
+	SHT_GNU_verdef = 0x6ffffffd,
+	SHT_GNU_verneed = 0x6ffffffe,
+	SHT_GNU_versym = 0x6fffffff,
 
-	// Processor-specific range: 0x70000000 - 0x7fffffff
 	SHT_LOPROC = 0x70000000,
 	SHT_HIPROC = 0x7fffffff,
 
-	// Application-specific range: 0x80000000 - 0x8fffffff
 	SHT_LOUSER = 0x80000000,
 	SHT_HIUSER = 0x8fffffff
 };
@@ -190,9 +186,14 @@ typedef struct Elf64_Dyn {
 	} d_un;
 } Elf64_Dyn;
 
-#define ET_DYN 3
-#define ET_EXEC 2
-#define ET_NONE 0
+enum Elf4_E_Type {
+	ET_NONE = 0,
+	ET_REL = 1,
+	ET_EXEC = 2,
+	ET_DYN = 3,
+	ET_CORE = 4
+};
+
 enum Elf64_RelType {
 	R_X86_64_NONE = 0,
 	R_X86_64_64 = 1,
@@ -211,17 +212,15 @@ enum Elf64_RelType {
 	R_X86_64_8 = 14,
 	R_X86_64_PC8 = 15,
 
-	// TLS Relocations
-	R_X86_64_DTPMOD64 = 16, // Thread-Local Storage Module index
-	R_X86_64_DTPOFF64 = 17, // TLS offset in module
-	R_X86_64_TPOFF64 = 18,	// TLS offset in thread
-	R_X86_64_TLSGD = 19,	// TLS GD (global dynamic)
-	R_X86_64_TLSLD = 20,	// TLS LD (local dynamic)
-	R_X86_64_DTPOFF32 = 21, // TLS 32-bit
-	R_X86_64_GOTTPOFF = 22, // TLS GOT offset
-	R_X86_64_TPOFF32 = 23,	// TLS 32-bit
+	R_X86_64_DTPMOD64 = 16,
+	R_X86_64_DTPOFF64 = 17,
+	R_X86_64_TPOFF64 = 18,
+	R_X86_64_TLSGD = 19,
+	R_X86_64_TLSLD = 20,
+	R_X86_64_DTPOFF32 = 21,
+	R_X86_64_GOTTPOFF = 22,
+	R_X86_64_TPOFF32 = 23,
 
-	// More general
 	R_X86_64_PC64 = 24,
 	R_X86_64_GOTOFF64 = 25,
 	R_X86_64_GOTPC32 = 26,
@@ -236,13 +235,11 @@ enum Elf64_RelType {
 	R_X86_64_TLSDESC_CALL = 35,
 	R_X86_64_TLSDESC = 36,
 
-	// IFUNC
 	R_X86_64_IRELATIVE = 37,
 
 	R_X86_64_RELATIVE64 = 38
 };
 
-// dynamic
 Elf64_Dyn* elf_get_phdr_dynamic(uint8_t* data);
 define_vector(uint64_t);
 
@@ -251,7 +248,7 @@ typedef struct {
 	vector(uint64_t) needed;
 	Elf64_Sym* symbols;
 	uint64_t symcount;
-	uint64_t pltgot; // virt addr, need to be mapping
+	uint64_t pltgot;
 	Elf64_Rela* jmprel;
 	uint64_t pltrelsz;
 	Elf64_Rela* rel;
@@ -278,33 +275,32 @@ size_t elf_load(uint8_t* data, uintptr_t base);
 uintptr_t elf_get_entry(uint8_t* data, uintptr_t base);
 
 typedef struct {
-	uint32_t nbuckets;    // jumlah bucket
-	uint32_t symoffset;   // index simbol pertama di .dynsym
-	uint32_t bloom_size;  // jumlah elemen di bloom filter
-	uint32_t bloom_shift; // shift hash
+	uint32_t nbuckets;
+	uint32_t symoffset;
+	uint32_t bloom_size;
+	uint32_t bloom_shift;
 
-	// pointer dinamis (semua dialokasikan berdasarkan offset)
-	uintptr_t* bloom;  // bloom filter array
-	uint32_t* buckets; // tabel bucket
-	uint32_t* chains;  // tabel chain
+	uintptr_t* bloom;
+	uint32_t* buckets;
+	uint32_t* chains;
 } GnuHashHeader;
 
 Elf64_Sym* elf_gnu_lookup(const char* name, GnuHashHeader* gh,
-			  Elf64_Sym* symtab, const char* strtab);
+                          Elf64_Sym* symtab, const char* strtab);
 void elf_gnu_hash_parse(GnuHashHeader* gnu_hash, Elf64_Shdr* gnu_hash_sym,
-			uint8_t* data);
+                        uint8_t* data);
 
 void elf_relocate_dyn(elf_dynamic_map* map, uintptr_t base,
-		      GnuHashHeader* gnu_hash,
-		      symbols_ptr_vector_t* external_syms);
+                      GnuHashHeader* gnu_hash,
+                      symbols_ptr_vector_t* external_syms);
 void elf_get_symbol(const char* sym_name, uintptr_t base, elf_section_map* map,
-		    uint8_t* data, symbols_ptr_vector_t* syms,
-		    boolean_t skip_empty_val);
+                    uint8_t* data, symbols_ptr_vector_t* syms,
+                    boolean_t skip_empty_val);
 
 typedef void (*ctor_t)(void);
 void elf_call_init_array(elf_section_map* map, uintptr_t base);
 uintptr_t elf_find_symbol(const char* name, GnuHashHeader* gnuhash,
-			  uintptr_t base, elf_section_map* map, uint8_t* data);
+                          uintptr_t base, elf_section_map* map, uint8_t* data);
 uintptr_t elf_count_load_size(uint8_t* data);
 
-#endif // __LIBK_EXECUTABLE_ELF_H__
+#endif
