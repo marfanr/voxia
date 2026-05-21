@@ -22,14 +22,6 @@ int atexit(void (*function)(void));
 KERNEL_API void __cxa_finalize(void* dso_handle);
 
 static init_context_t ctx = {};
-void render_bmp32_with_alpha(uint8_t* pixels, int width, int height, int new_w,
-                             int new_h, int posx, int posy);
-
-// static void kernel_init() {
-// 	execve("/dev/initrd/sbin/runner.elf", 0, 0);
-// 	LOG_INFO("KNIT", "kernel init...");
-// 	vxThreadExit();
-// }
 
 // entry point of kernel
 __attribute__((unused, noreturn)) extern void
@@ -44,7 +36,6 @@ _start(struct stivale2_struct* stivale2_struct) {
 	             INTERRUPT_ATTR_KERNEL);
 	vxAPICCreateTimer(APIC_TIMER_PERIOD, 100, irq);
 
-	pmm_log_usage();
 	KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...\n");
 
 	wait_until_receive_notify("/vfs/root", 10000);
@@ -86,6 +77,9 @@ _start(struct stivale2_struct* stivale2_struct) {
 	// jump into userspace
 	execve("/sbin/term.elf", 0, 0);
 	print_dentry_tree(get_root_dentry(), 0);
+
+	// pmm_log_usage();
+
 
 	INFLOOP;
 }
