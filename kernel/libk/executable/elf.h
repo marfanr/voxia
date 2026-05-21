@@ -270,8 +270,9 @@ uintptr_t elf_find_base_addr(uint8_t* data);
 uint8_t* elf_dyn_find(Elf64_Dyn* dyn, uint8_t* data, uint64_t tag);
 void elf_dyn_map_all(Elf64_Dyn* dyn, uint8_t* data, elf_dynamic_map* map);
 void elf_section_map_all(uint8_t* data, elf_section_map* map);
-void elf_mmap_got(elf_section_map* map, uintptr_t base);
-size_t elf_load(uint8_t* data, uintptr_t base);
+void elf_mmap_got(volatile uintptr_t* page, elf_section_map* map,
+                  uintptr_t base);
+
 uintptr_t elf_get_entry(uint8_t* data, uintptr_t base);
 
 typedef struct {
@@ -284,6 +285,18 @@ typedef struct {
 	uint32_t* buckets;
 	uint32_t* chains;
 } GnuHashHeader;
+
+struct elf_load_mmap_table {
+	uintptr_t vaddr;
+	uintptr_t alligned;
+	uintptr_t paddr;
+	size_t size;
+	boolean_t mapped;
+};
+
+size_t elf_load(volatile uintptr_t* page, uint8_t* data,
+                uintptr_t temporary_base, uintptr_t base,
+                struct elf_load_mmap_table* table);
 
 Elf64_Sym* elf_gnu_lookup(const char* name, GnuHashHeader* gh,
                           Elf64_Sym* symtab, const char* strtab);
@@ -302,5 +315,11 @@ void elf_call_init_array(elf_section_map* map, uintptr_t base);
 uintptr_t elf_find_symbol(const char* name, GnuHashHeader* gnuhash,
                           uintptr_t base, elf_section_map* map, uint8_t* data);
 uintptr_t elf_count_load_size(uint8_t* data);
+
+#define ELF64_R_SYM(i) ((i) >> 32)
+#define ELF64_R_TYPE(i) ((i) & 0xffffffffL)
+#define ELF64_R_INFO(s, t) (((Elf64_Xword)(s) << 32) + (Elf64_Xword)(t))
+#define ELF_PTR(type, base, off)                                               \
+	((type*)ASSUME_ALIGNED(PTR_ADD((base), (off)), alignof(type)))
 
 #endif

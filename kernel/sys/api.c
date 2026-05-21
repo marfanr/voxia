@@ -17,7 +17,7 @@ static void draw_rect(int x, int y, int w, int h, uint64_t color) {
 }
 
 void api_setup() {
-	g__graphic_api__ = (graphic_api_t*) vxPhysBaseAlloc(
+	g__graphic_api__ = (graphic_api_t*) phys_base_alloc(
 		1 + sizeof(graphic_api_t) / 4096);
 	g__graphic_api__->draw_rect = draw_rect;
 }

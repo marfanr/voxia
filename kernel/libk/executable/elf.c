@@ -4,16 +4,11 @@
 #include "libk/symbols.h"
 #include "memory/memory_utils.h"
 #include "memory/phys_base_allocator.h"
+#include "memory/vm_manager.h"
 #include <libk/executable/elf.h>
 #include <str.h>
 #include <type.h>
 #include <vector.h>
-
-#define ELF64_R_SYM(i) ((i) >> 32)
-#define ELF64_R_TYPE(i) ((i) & 0xffffffffL)
-#define ELF64_R_INFO(s, t) (((Elf64_Xword)(s) << 32) + (Elf64_Xword)(t))
-#define ELF_PTR(type, base, off)                                               \
-	((type*)ASSUME_ALIGNED(PTR_ADD((base), (off)), alignof(type)))
 
 extern void module_loader(uintptr_t addr, uintptr_t stack);
 boolean_t elf_has_running = false;
@@ -189,7 +184,8 @@ void elf_section_map_all(uint8_t* data, elf_section_map* map) {
 	}
 }
 
-void elf_mmap_got(elf_section_map* map, uintptr_t base) {
+void elf_mmap_got(volatile uintptr_t* page, elf_section_map* map,
+                  uintptr_t base) {
 	if (!map->gotplt)
 		return;
 
@@ -205,10 +201,9 @@ void elf_mmap_got(elf_section_map* map, uintptr_t base) {
 	LOG2_INFO("VOXMO", "gotplt found at 0x%x (0x%x), size %d",
 	          base + aligned_start, offset_aligned, total_aligned);
 
-	uintptr_t phys_addr = (uintptr_t)vxPhysBaseAlloc(total_aligned);
-	vxMultipleMmap(paging_get_highest_page_map(), base + aligned_start,
-	               phys_addr, total_aligned, 0b111);
-	paging_reload(paging_get_highest_page_map());
+	uintptr_t phys_addr = (uintptr_t)phys_base_alloc(total_aligned);
+	vxMultipleMmap(page, base + aligned_start, phys_addr, total_aligned,
+	               0b111);
 }
 
 uintptr_t elf_get_entry(uint8_t* data, uintptr_t base) {
@@ -217,7 +212,11 @@ uintptr_t elf_get_entry(uint8_t* data, uintptr_t base) {
 	return base + ehdr->e_entry;
 }
 
-size_t elf_load(uint8_t* data, uintptr_t base) {
+size_t elf_load(volatile uintptr_t* page, uint8_t* data,
+                uintptr_t temporary_base, uintptr_t base,
+                struct elf_load_mmap_table* table) {
+	(void)temporary_base;
+
 	Elf64_Ehdr* ehdr =
 	    (Elf64_Ehdr*)ASSUME_ALIGNED(data, alignof(Elf64_Ehdr));
 	LOG2_INFO("ELF", "version : %d, ph num : %d", ehdr->e_version,
@@ -242,18 +241,46 @@ size_t elf_load(uint8_t* data, uintptr_t base) {
 		if (p->p_type != PT_LOAD)
 			continue;
 
-		LOG2_INFO("ELF", "vaddr 0x%x, type %d", p->p_vaddr, p->p_type);
+		uintptr_t phys_alloc = (uintptr_t)phys_base_alloc(sz);
+		auto kernel_page = paging_get_highest_page_map();
 
-		uintptr_t a = (uintptr_t)vxPhysBaseAlloc(sz);
-		vxMultipleMmap(paging_get_highest_page_map(),
-		               base + aligned_vaddr, a, sz, 0b111);
-		paging_reload(paging_get_highest_page_map());
+		// TODO alloc current vaddr on kernel
 
-		memset((void*)(base + p->p_vaddr), 0, p->p_memsz);
+		auto temporary_addr = base;
+		if (kernel_page != page) {
+			temporary_addr =
+			    vma_lookup_free_vaddr(VMA_REGION_B, sz);
+
+			vxMultipleMmap(kernel_page,
+			               temporary_addr + aligned_vaddr,
+			               phys_alloc, sz, 0b111);
+		}
+		vxMultipleMmap(page, base + aligned_vaddr, phys_alloc, sz,
+		               0b111);
+
+		LOG2_INFO("ELF", "vaddr 0x%x, type %d  %x %x", p->p_vaddr,
+		          p->p_type, temporary_addr, base + aligned_vaddr);
+		// save temporary mapping data
+		if (table) {
+			auto t = &table[i];
+			t->paddr = phys_alloc;
+			t->vaddr = temporary_addr;
+			t->alligned = aligned_vaddr;
+			t->size = sz;
+			t->mapped = kernel_page != page;
+		}
+
+		memset((void*)(temporary_addr + p->p_vaddr), 0, p->p_memsz);
 		if (p->p_filesz > 0)
-			memcopy((void*)(base + p->p_vaddr),
+			memcopy((void*)(temporary_addr + p->p_vaddr),
 			        (void*)((uint8_t*)data + p->p_offset),
 			        p->p_filesz);
+
+		// if (page != kernel_page) {
+		// 	vma_unregister(temporary_addr);
+		// 	paging_unmap_fill(kernel_page,
+		// 	                  temporary_addr + aligned_vaddr, sz);
+		// }
 	}
 
 	LOG2_INFO("ELF", "module loaded");
@@ -340,8 +367,11 @@ static void elf_relocate_rel(Elf64_Rela* rel, uintptr_t base,
 				LOG2_DEBUG("ELF",
 				           "resolving external symbol %s",
 				           name);
-				value = elf_resolve_external_symbol(
-				    external_syms, name);
+
+				if (external_syms)
+					value = elf_resolve_external_symbol(
+					    external_syms, name);
+
 				if (!value)
 					LOG2_WARN("ELF", "symbol %s not found",
 					          name);

@@ -17,7 +17,7 @@ A Simple modular x86_64 kernel designed with simplicity and elegance in mind.
 
 Before building Voxia, ensure you have the following tools installed on your system:
 
-- **Compiler:** `gcc`, `g++` (x86_64-elf cross-compiler recommended)
+- **Compiler:** `clang`, `nasm`
 - **Build Tools:** `make`, `curl`, `7z` (p7zip)
 - **ISO Tools:** `xorriso`
 - **Emulator:** `qemu-system-x86_64`

@@ -78,7 +78,7 @@ INIT(Vfs) {
 		            .magic = {'C', 'D', '0', '0', '1'},
 		            .count = 5,
 		        },
-		    .ops = iso9660_file_operations(),
+		    .ops = iso9660_fs_operations(),
 		};
 		create_filesystem("ISO9660", &iso_fs);
 	}
@@ -238,6 +238,9 @@ int vfs_umount(dentry_ptr dentry) {
 		LOG2_WARN("Umount", "%s is unknown", dentry->name->c_str);
 		return VFS_ERR;
 	}
+
+	KDEBUG(DEBUG_LEVEL_OK, "mounted %s\n",
+	       dentry->name->c_str);
 
 	dentry_put(dentry);
 	auto ok = vfs_umount_recursive(dentry);

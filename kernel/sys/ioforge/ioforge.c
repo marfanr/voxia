@@ -214,7 +214,7 @@ KERNEL_API void ioforge_memcpy(void* dst, void* src, size_t num) {
 KERNEL_API void* ioforge_dma_alloc(size_t size, uintptr_t* paddr) {
 	size_t aligned_size = ALIGN_UP(size, BLOCK_SIZE) / BLOCK_SIZE;
 	// LOG_DEBUG("IOFORGE DMA", "alloc size %d", aligned_size);
-	uintptr_t paddr_ = (uintptr_t) vxPhysBaseAlloc(aligned_size);
+	uintptr_t paddr_ = (uintptr_t) phys_base_alloc(aligned_size);
 	uintptr_t vaddr = vma_lookup_free_vaddr(VMA_REGION_A, aligned_size);
 	vxMultipleMmap(paging_get_highest_page_map(), vaddr, paddr_,
 		       aligned_size, 0b111);

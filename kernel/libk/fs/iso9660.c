@@ -94,8 +94,8 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 		(*out)->vnode->type = VNODE_TYPE_DIR;
 		(*out)->vnode->fs_instance = instance;
 
-		LOG_DEBUG("ISO9660", "root dir extent=0x%x size=%d flags=%b",
-		          iso_node->extent, iso_node->size, iso_node->flags);
+		LOG_DEBUG("ISO9660", "root dir extent=0x%x size=%d",
+		          iso_node->extent, iso_node->size);
 
 		kfree2(pvd);
 		return VFS_OK;
@@ -211,6 +211,8 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 }
 
 int iso9660_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
+	UNUSED(offset);
+	
 	if (!vnode || !buf || !len)
 		return -1;
 
@@ -226,16 +228,12 @@ int iso9660_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 	if (!cdev_ops)
 		return -3;
 
-
 	if (cdev_ops->read(cdev_ops->v_data, iso_node->extent, buf,
 	                   iso_node->size) < 0) {
 		LOG2_ERROR("ISO9660", "failed to read dir extent");
 		return -3;
 	}
 
-	serial2_printf("read size %d %b\n", iso_node->size, (uint8_t)iso_node->flags);
-
-	UNUSED(offset);
 	return 0;
 }
 
