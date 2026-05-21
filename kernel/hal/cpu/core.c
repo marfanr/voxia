@@ -84,7 +84,7 @@ cpuTrampolinePhase2(uint64_t core_id) {
 	init_simd();
 	vxInitializeAPICTimer();
 
-	vxTimerRegisterInterrupt();
+	setup_timer_interrupt();
 	serial2_printf("core %d %d successfully running\n", core_id,
 	               get_current_core_cpuid());
 	vxGetCpuInfo((uint8_t)core_id)->status = Active;

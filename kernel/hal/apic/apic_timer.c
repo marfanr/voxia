@@ -51,19 +51,19 @@ static void vxAPICTimerCalibrationUsingHPET() {
 		hpet_enable();
 
 		time_counter_t counter = {0};
-		vxTimerCounterInit(&counter);
+		init_timer_counter(&counter);
 		// LOG2_INFO("APIC TIMER", "ok");
 
 		apic_write(LVT_TIMER, 0x20 | APIC_TIMER_ONE_SHOT);
 		apic_write(TIMER_INITIAL_COUNT, 0xFFFFFFFF);
 
 		// Tunggu 1000 us (1ms) — pakai integer, bukan 1e3
-		while (vxTimerCounterCount(&counter) < 1000)
+		while (get_timer_counter_count(&counter) < 1000)
 			;
 
 		// us → ns: bagi 1000, bukan kali 1e-3
 		uint64_t elapsed_time_us =
-			vxTimerCounterCountInNs(&counter) / 1000;
+			get_timer_counter_count_ns(&counter) / 1000;
 
 		uint64_t elapsed_test =
 			0xFFFFFFFF - apic_read(TIMER_CURRENT_COUNT);
