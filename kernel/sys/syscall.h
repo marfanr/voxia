@@ -11,13 +11,6 @@
 #define SYSCALL_EXIT 0x9
 #define SYSCALL_API 0X9F
 
-#define SYS_API_GRAPHIC 0XAA73CCFF
+void syscall_init(void);
 
-uint64_t sys_write(uint64_t descriptor, const char* buffer, uint64_t length);
-int sys_read(int descriptor, char* buffer, uint64_t length);
-uintptr_t sys_alloc(uint64_t size);
-uint64_t sys_api(uint64_t identifier, int version);
-uint64_t sys_open(const char* path, uint64_t flags);
-void sys_exit(int exit_code);
-int fstat(int fd, uint8_t* buf);
 #endif // __SYS__SYSCALL_H__
