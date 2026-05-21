@@ -146,7 +146,7 @@ static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 		if (thread->flags & THREAD_USER) {
 			reg->rip    = thread->entry_addr;
 			reg->rsp    = ((thread->stack + 0x1000) & ~(uint64_t)0xF) - 8;
-			reg->cs     = 0x38 | 3; /* user code segment  (ring 3) */
+			reg->cs     = 0x48 | 3; /* user code segment  (ring 3) */
 			reg->ss     = 0x40 | 3; /* user stack segment (ring 3) */
 			reg->rflags = 0x202;
 			reg->rbp    = 0;

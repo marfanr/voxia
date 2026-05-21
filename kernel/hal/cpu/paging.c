@@ -1,14 +1,14 @@
 #include "paging.h"
 #include "autoconf.h"
 #include "init/init.h"
-#include <type.h>
-#include <spinlock.h>
 #include <libk/serial.h>
-#include <str.h>
 #include <memory/memory_utils.h>
 #include <memory/phys_base_allocator.h>
 #include <memory/phys_window.h>
 #include <memory/vm_manager.h>
+#include <spinlock.h>
+#include <str.h>
+#include <type.h>
 
 static uintptr_t PHYS_BASE_METADATA_ADDR = 0xffffffe000000000;
 
@@ -23,7 +23,7 @@ extern uint64_t metadata_size;
 extern size_t dma_bitmap_size;
 
 void paging_physwindow_mmap(page_t page_dir, uint64_t virt, uint64_t phys,
-			    uint64_t flags);
+                            uint64_t flags);
 
 typedef struct paging_page paging_page;
 struct paging_page {
@@ -35,15 +35,15 @@ static spinlock_t paging_lock = {0};
 
 page_t paging_create_page_directory() {
 	spin_acquire(&paging_lock);
-	page_t page = (page_t) phys_base_alloc(1);
-	uintptr_t virtual_physwindow_addr = (uintptr_t) page;
+	page_t page = (page_t)phys_base_alloc(1);
+	uintptr_t virtual_physwindow_addr = (uintptr_t)page;
 
 	if (paging_has_been_set) {
-		mem_create_physwindow((uintptr_t) page,
-				      &virtual_physwindow_addr, 0);
+		mem_create_physwindow((uintptr_t)page, &virtual_physwindow_addr,
+		                      0);
 	}
 
-	memset((void*) virtual_physwindow_addr, 0, PAGE_SIZE);
+	memset((void*)virtual_physwindow_addr, 0, PAGE_SIZE);
 	spin_release(&paging_lock);
 	return page;
 }
@@ -63,7 +63,7 @@ paging_add_dma_mapping(uintptr_t phys, uintptr_t virt, uint64_t size) {
 }
 
 void paging_physwindow_mmap(page_t page_dir, uint64_t virt, uint64_t phys,
-			    uint64_t flags) {
+                            uint64_t flags) {
 	uint64_t index1 = (virt >> 12) & 0x1ff;
 	if (!physwindow_pt) {
 		uint64_t index4 = (virt >> 39) & 0x1ff;
@@ -71,14 +71,14 @@ void paging_physwindow_mmap(page_t page_dir, uint64_t virt, uint64_t phys,
 		uint64_t index2 = (virt >> 21) & 0x1ff;
 
 		page_t p4 = page_dir;
-		page_t pdpt = (page_t) VMM_PAGE;
-		p4[index4] = (uint64_t) pdpt | flags;
+		page_t pdpt = (page_t)VMM_PAGE;
+		p4[index4] = (uint64_t)pdpt | flags;
 
-		page_t pdp = (page_t) VMM_PAGE;
-		pdpt[index3] = (uint64_t) pdp | flags;
+		page_t pdp = (page_t)VMM_PAGE;
+		pdpt[index3] = (uint64_t)pdp | flags;
 
-		physwindow_pt = (page_t) VMM_PAGE;
-		pdp[index2] = (uint64_t) physwindow_pt | flags;
+		physwindow_pt = (page_t)VMM_PAGE;
+		pdp[index2] = (uint64_t)physwindow_pt | flags;
 	}
 
 	physwindow_pt[index1] = (phys & PAGE_PHYS_MASK) | flags;
@@ -89,22 +89,21 @@ void paging_physwindow_mmap(page_t page_dir, uint64_t virt, uint64_t phys,
 static void initialize_physical_paging_window() {
 	for (uint64_t i = 0; i < VOXIA_PHYS_MAX_WINDOW_COUNT; i++) {
 		paging_physwindow_mmap(
-			pml4,
-			(uint64_t) (mem_vma_phys_window_start + i * 0x1000), 0,
-			PAGE_PRESENT);
+		    pml4, (uint64_t)(mem_vma_phys_window_start + i * 0x1000), 0,
+		    PAGE_PRESENT);
 	}
 
-	vxMultipleMmap(pml4, mem_vma_phys_window_pt, (uint64_t) physwindow_pt,
-		       511, PAGE_PRESENT | PAGE_WRITABLE);
+	vxMultipleMmap(pml4, mem_vma_phys_window_pt, (uint64_t)physwindow_pt,
+	               511, PAGE_PRESENT | PAGE_WRITABLE);
 
 	LOG_INFO("PAGING", "mapping physwindow_pt 0x%lx to 0x%lx",
-		 (uint64_t) physwindow_pt, (uint64_t) mem_vma_phys_window_pt);
-	physwindow_pt = (page_t) mem_vma_phys_window_pt;
+	         (uint64_t)physwindow_pt, (uint64_t)mem_vma_phys_window_pt);
+	physwindow_pt = (page_t)mem_vma_phys_window_pt;
 }
 
 INIT(paging) {
 	pml4 = VMM_PAGE;
-	LOG_INFO("PAGING", "PML4: 0x%lx", (uint64_t) pml4);
+	LOG_INFO("PAGING", "PML4: 0x%lx", (uint64_t)pml4);
 
 	paging_setup(pml4);
 
@@ -112,9 +111,9 @@ INIT(paging) {
 
 	initialize_physical_paging_window();
 
-	vxMultipleMmap(pml4, PHYS_BASE_METADATA_ADDR, (uint64_t) bitmap_base_,
-		       metadata_size / PAGE_SIZE, PAGE_PRESENT | PAGE_WRITABLE);
-	bitmap_base_ = (uint8_t*) PHYS_BASE_METADATA_ADDR;
+	vxMultipleMmap(pml4, PHYS_BASE_METADATA_ADDR, (uint64_t)bitmap_base_,
+	               metadata_size / PAGE_SIZE, PAGE_PRESENT | PAGE_WRITABLE);
+	bitmap_base_ = (uint8_t*)PHYS_BASE_METADATA_ADDR;
 	PHYS_BASE_METADATA_ADDR += metadata_size;
 
 	paging_reload(pml4);
@@ -142,83 +141,92 @@ void paging_debug(page_t pml4_phys, uint64_t virt) {
 	uint64_t index2 = (virt >> 21) & 0x1ff;
 	uint64_t index1 = (virt >> 12) & 0x1ff;
 
-	uintptr_t pml4_virt = (uintptr_t) pml4_phys;
-	mem_create_physwindow((uintptr_t) pml4_phys, &pml4_virt,
-			      PHYS_WINDOW_FLAG_READ | PHYS_WINDOW_FLAG_LOCK);
-	page_t p4 = (page_t) pml4_virt;
+	uintptr_t pml4_virt = (uintptr_t)pml4_phys;
+	mem_create_physwindow((uintptr_t)pml4_phys, &pml4_virt,
+	                      PHYS_WINDOW_FLAG_READ | PHYS_WINDOW_FLAG_LOCK);
+	page_t p4 = (page_t)pml4_virt;
 
 	serial_trace("PML4[%lu] = 0x%lx flags 0b%b\n", index4, p4[index4],
-		     p4[index4] & 0xFFF);
+	             p4[index4] & 0xFFF);
 
 	if (!(p4[index4] & 1)) {
 		serial_trace("PML4 entry not present\n");
-		mem_release_physwindow((uintptr_t) p4);
+		mem_release_physwindow((uintptr_t)p4);
 		return;
 	}
 
 	uintptr_t pdpt_phys = p4[index4] & PAGE_PHYS_MASK;
 	uintptr_t pdpt_virt = pdpt_phys;
 	mem_create_physwindow(pdpt_phys, &pdpt_virt,
-			      PHYS_WINDOW_FLAG_READ | PHYS_WINDOW_FLAG_LOCK);
-	page_t pdpt = (page_t) pdpt_virt;
+	                      PHYS_WINDOW_FLAG_READ | PHYS_WINDOW_FLAG_LOCK);
+	page_t pdpt = (page_t)pdpt_virt;
 
 	serial_trace("PDPT[%lu] = 0x%lx flags 0b%b\n", index3, pdpt[index3],
-		     pdpt[index3] & 0xFFF);
+	             pdpt[index3] & 0xFFF);
 
 	if (!(pdpt[index3] & 1)) {
 		serial_trace("PDPT entry not present\n");
-		mem_release_physwindow((uintptr_t) p4);
-		mem_release_physwindow((uintptr_t) pdpt);
+		mem_release_physwindow((uintptr_t)p4);
+		mem_release_physwindow((uintptr_t)pdpt);
 		return;
 	}
 
 	uintptr_t pdp_phys = pdpt[index3] & PAGE_PHYS_MASK;
 	uintptr_t pdp_virt = pdp_phys;
 	mem_create_physwindow(pdp_phys, &pdp_virt,
-			      PHYS_WINDOW_FLAG_READ | PHYS_WINDOW_FLAG_LOCK);
-	page_t pdp = (page_t) pdp_virt;
+	                      PHYS_WINDOW_FLAG_READ | PHYS_WINDOW_FLAG_LOCK);
+	page_t pdp = (page_t)pdp_virt;
 
 	serial_trace("PDP[%lu] = 0x%lx flags 0b%b\n", index2, pdp[index2],
-		     pdp[index2] & 0xFFF);
+	             pdp[index2] & 0xFFF);
 
 	if (!(pdp[index2] & 1)) {
 		serial_trace("PDP entry not present\n");
-		mem_release_physwindow((uintptr_t) p4);
-		mem_release_physwindow((uintptr_t) pdpt);
-		mem_release_physwindow((uintptr_t) pdp);
+		mem_release_physwindow((uintptr_t)p4);
+		mem_release_physwindow((uintptr_t)pdpt);
+		mem_release_physwindow((uintptr_t)pdp);
 		return;
 	}
 
 	uintptr_t pt_phys = pdp[index2] & PAGE_PHYS_MASK;
 	uintptr_t pt_virt = pt_phys;
 	mem_create_physwindow(pt_phys, &pt_virt,
-			      PHYS_WINDOW_FLAG_READ | PHYS_WINDOW_FLAG_LOCK);
-	page_t pt = (page_t) pt_virt;
+	                      PHYS_WINDOW_FLAG_READ | PHYS_WINDOW_FLAG_LOCK);
+	page_t pt = (page_t)pt_virt;
 
 	serial_trace("PT[%lu] = 0x%lx flags 0b%b\n", index1, pt[index1],
-		     pt[index1] & 0xFFF);
+	             pt[index1] & 0xFFF);
 
 	if (!(pt[index1] & 1))
 		serial_trace("PT entry not present\n");
 	else
 		serial_trace("phys = 0x%lx\n", pt[index1] & PAGE_PHYS_MASK);
 
-	mem_release_physwindow((uintptr_t) p4);
-	mem_release_physwindow((uintptr_t) pdpt);
-	mem_release_physwindow((uintptr_t) pdp);
-	mem_release_physwindow((uintptr_t) pt);
+	mem_release_physwindow((uintptr_t)p4);
+	mem_release_physwindow((uintptr_t)pdpt);
+	mem_release_physwindow((uintptr_t)pdp);
+	mem_release_physwindow((uintptr_t)pt);
 }
+
+// __attribute__((noreturn)) static void iddle() {
+// 	for (;;)
+// 		;
+// }
 
 void paging_setup(page_t p) {
 	for (uint64_t i = 0; i < 0x80000000; i += 0x1000) {
-		vxMmap(p, (uint64_t) i + 0xffffffff80000000, i,
+		vxMmap(p, (uint64_t)i + 0xffffffff80000000, i,
 		       PAGE_PRESENT | PAGE_WRITABLE);
 	}
 
+	// auto phy = phys_base_alloc(1);
+	// vxMmap(p, 0x200, (uint64_t)phy, PAGE_PRESENT | PAGE_WRITABLE);
+	// memcopy(phy, (void*)iddle, 0x1000);
+
 	for (int i = 0; i < mapping_data_count; i++) {
 		vxMultipleMmap(p, mapping_data[i].virt, mapping_data[i].phys,
-			       mapping_data[i].size,
-			       PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+		               mapping_data[i].size,
+		               PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
 	}
 }
 
@@ -231,7 +239,7 @@ void vxMmap(page_t page_dir, uint64_t virt, uint64_t phys, uint64_t flags) {
 	uint64_t index1 = (virt >> 12) & 0x1ff;
 
 	uint64_t inter_flags =
-		(flags & ~PAGE_INTER_STRIP) | PAGE_PRESENT | PAGE_WRITABLE;
+	    (flags & ~PAGE_INTER_STRIP) | PAGE_PRESENT | PAGE_WRITABLE;
 
 	uint64_t phys_clean = phys & PAGE_PHYS_MASK;
 
@@ -240,37 +248,37 @@ void vxMmap(page_t page_dir, uint64_t virt, uint64_t phys, uint64_t flags) {
 	page_t pdp = 0;
 	page_t pt = 0;
 
-	uintptr_t pml4_virt_addr = (uintptr_t) p4;
+	uintptr_t pml4_virt_addr = (uintptr_t)p4;
 	if (paging_has_been_set) {
-		mem_create_physwindow((uintptr_t) p4, &pml4_virt_addr,
-				      PHYS_WINDOW_FLAG_READ
-					      | PHYS_WINDOW_FLAG_WRITE
-					      | PHYS_WINDOW_FLAG_LOCK);
+		mem_create_physwindow((uintptr_t)p4, &pml4_virt_addr,
+		                      PHYS_WINDOW_FLAG_READ |
+		                          PHYS_WINDOW_FLAG_WRITE |
+		                          PHYS_WINDOW_FLAG_LOCK);
 	}
-	p4 = (page_t) pml4_virt_addr;
+	p4 = (page_t)pml4_virt_addr;
 
 	if (p4[index4] & 1) {
 		uintptr_t pdpt_phys_addr = p4[index4] & PAGE_PHYS_MASK;
 		uintptr_t pdpt_virt_addr = pdpt_phys_addr;
 		if (paging_has_been_set) {
 			mem_create_physwindow(pdpt_phys_addr, &pdpt_virt_addr,
-					      PHYS_WINDOW_FLAG_READ
-						      | PHYS_WINDOW_FLAG_WRITE
-						      | PHYS_WINDOW_FLAG_LOCK);
+			                      PHYS_WINDOW_FLAG_READ |
+			                          PHYS_WINDOW_FLAG_WRITE |
+			                          PHYS_WINDOW_FLAG_LOCK);
 		}
-		pdpt = (page_t) pdpt_virt_addr;
+		pdpt = (page_t)pdpt_virt_addr;
 		p4[index4] = pdpt_phys_addr | inter_flags;
 	} else {
-		uintptr_t pdpt_phys_addr = (uintptr_t) phys_base_alloc(1);
+		uintptr_t pdpt_phys_addr = (uintptr_t)phys_base_alloc(1);
 		uintptr_t pdpt_virt_addr = pdpt_phys_addr;
 		if (paging_has_been_set) {
 			mem_create_physwindow(pdpt_phys_addr, &pdpt_virt_addr,
-					      PHYS_WINDOW_FLAG_READ
-						      | PHYS_WINDOW_FLAG_WRITE
-						      | PHYS_WINDOW_FLAG_LOCK);
+			                      PHYS_WINDOW_FLAG_READ |
+			                          PHYS_WINDOW_FLAG_WRITE |
+			                          PHYS_WINDOW_FLAG_LOCK);
 		}
-		memset((void*) pdpt_virt_addr, 0, PAGE_SIZE);
-		pdpt = (page_t) pdpt_virt_addr;
+		memset((void*)pdpt_virt_addr, 0, PAGE_SIZE);
+		pdpt = (page_t)pdpt_virt_addr;
 		p4[index4] = pdpt_phys_addr | inter_flags;
 	}
 
@@ -279,23 +287,23 @@ void vxMmap(page_t page_dir, uint64_t virt, uint64_t phys, uint64_t flags) {
 		uintptr_t pdp_virt_addr = pdp_phys_addr;
 		if (paging_has_been_set) {
 			mem_create_physwindow(pdp_phys_addr, &pdp_virt_addr,
-					      PHYS_WINDOW_FLAG_READ
-						      | PHYS_WINDOW_FLAG_WRITE
-						      | PHYS_WINDOW_FLAG_LOCK);
+			                      PHYS_WINDOW_FLAG_READ |
+			                          PHYS_WINDOW_FLAG_WRITE |
+			                          PHYS_WINDOW_FLAG_LOCK);
 		}
-		pdp = (page_t) pdp_virt_addr;
+		pdp = (page_t)pdp_virt_addr;
 		pdpt[index3] = pdp_phys_addr | inter_flags;
 	} else {
-		uintptr_t pdp_phys_addr = (uintptr_t) phys_base_alloc(1);
+		uintptr_t pdp_phys_addr = (uintptr_t)phys_base_alloc(1);
 		uintptr_t pdp_virt_addr = pdp_phys_addr;
 		if (paging_has_been_set) {
 			mem_create_physwindow(pdp_phys_addr, &pdp_virt_addr,
-					      PHYS_WINDOW_FLAG_READ
-						      | PHYS_WINDOW_FLAG_WRITE
-						      | PHYS_WINDOW_FLAG_LOCK);
+			                      PHYS_WINDOW_FLAG_READ |
+			                          PHYS_WINDOW_FLAG_WRITE |
+			                          PHYS_WINDOW_FLAG_LOCK);
 		}
-		memset((void*) pdp_virt_addr, 0, PAGE_SIZE);
-		pdp = (page_t) pdp_virt_addr;
+		memset((void*)pdp_virt_addr, 0, PAGE_SIZE);
+		pdp = (page_t)pdp_virt_addr;
 		pdpt[index3] = pdp_phys_addr | inter_flags;
 	}
 
@@ -304,23 +312,23 @@ void vxMmap(page_t page_dir, uint64_t virt, uint64_t phys, uint64_t flags) {
 		uintptr_t pt_virt_addr = pt_phys_addr;
 		if (paging_has_been_set) {
 			mem_create_physwindow(pt_phys_addr, &pt_virt_addr,
-					      PHYS_WINDOW_FLAG_READ
-						      | PHYS_WINDOW_FLAG_WRITE
-						      | PHYS_WINDOW_FLAG_LOCK);
+			                      PHYS_WINDOW_FLAG_READ |
+			                          PHYS_WINDOW_FLAG_WRITE |
+			                          PHYS_WINDOW_FLAG_LOCK);
 		}
-		pt = (page_t) pt_virt_addr;
+		pt = (page_t)pt_virt_addr;
 		pdp[index2] = pt_phys_addr | inter_flags;
 	} else {
-		uintptr_t pt_phys_addr = (uintptr_t) phys_base_alloc(1);
+		uintptr_t pt_phys_addr = (uintptr_t)phys_base_alloc(1);
 		uintptr_t pt_virt_addr = pt_phys_addr;
 		if (paging_has_been_set) {
 			mem_create_physwindow(pt_phys_addr, &pt_virt_addr,
-					      PHYS_WINDOW_FLAG_READ
-						      | PHYS_WINDOW_FLAG_WRITE
-						      | PHYS_WINDOW_FLAG_LOCK);
+			                      PHYS_WINDOW_FLAG_READ |
+			                          PHYS_WINDOW_FLAG_WRITE |
+			                          PHYS_WINDOW_FLAG_LOCK);
 		}
-		memset((void*) pt_virt_addr, 0, PAGE_SIZE);
-		pt = (page_t) pt_virt_addr;
+		memset((void*)pt_virt_addr, 0, PAGE_SIZE);
+		pt = (page_t)pt_virt_addr;
 		pdp[index2] = pt_phys_addr | inter_flags;
 	}
 
@@ -329,10 +337,10 @@ void vxMmap(page_t page_dir, uint64_t virt, uint64_t phys, uint64_t flags) {
 	asm volatile("" ::: "memory");
 
 	if (paging_has_been_set) {
-		mem_release_physwindow((uintptr_t) p4);
-		mem_release_physwindow((uintptr_t) pdpt);
-		mem_release_physwindow((uintptr_t) pdp);
-		mem_release_physwindow((uintptr_t) pt);
+		mem_release_physwindow((uintptr_t)p4);
+		mem_release_physwindow((uintptr_t)pdpt);
+		mem_release_physwindow((uintptr_t)pdp);
+		mem_release_physwindow((uintptr_t)pt);
 	}
 
 	asm volatile("invlpg (%0)" ::"r"(virt) : "memory");
@@ -340,7 +348,7 @@ void vxMmap(page_t page_dir, uint64_t virt, uint64_t phys, uint64_t flags) {
 }
 
 void vxMultipleMmap(page_t page_dir, uint64_t virt, uint64_t phys,
-		    uint64_t size, uint64_t flags) {
+                    uint64_t size, uint64_t flags) {
 	uint64_t i = 0;
 
 	for (; i + 3 < size; i += 4) {
@@ -372,28 +380,28 @@ void paging_unmap_page(page_t page_dir, uint64_t virt) {
 	page_t pdp = 0;
 	page_t pt = 0;
 
-	uintptr_t pml4_virt_addr = (uintptr_t) p4;
+	uintptr_t pml4_virt_addr = (uintptr_t)p4;
 	if (paging_has_been_set) {
-		mem_create_physwindow((uintptr_t) p4, &pml4_virt_addr,
-				      PHYS_WINDOW_FLAG_READ
-					      | PHYS_WINDOW_FLAG_WRITE
-					      | PHYS_WINDOW_FLAG_LOCK);
+		mem_create_physwindow((uintptr_t)p4, &pml4_virt_addr,
+		                      PHYS_WINDOW_FLAG_READ |
+		                          PHYS_WINDOW_FLAG_WRITE |
+		                          PHYS_WINDOW_FLAG_LOCK);
 	}
-	p4 = (page_t) pml4_virt_addr;
+	p4 = (page_t)pml4_virt_addr;
 
 	if (p4[index4] & 1) {
 		uintptr_t pdpt_phys_addr = p4[index4] & PAGE_PHYS_MASK;
 		uintptr_t pdpt_virt_addr = pdpt_phys_addr;
 		if (paging_has_been_set) {
 			mem_create_physwindow(pdpt_phys_addr, &pdpt_virt_addr,
-					      PHYS_WINDOW_FLAG_READ
-						      | PHYS_WINDOW_FLAG_WRITE
-						      | PHYS_WINDOW_FLAG_LOCK);
+			                      PHYS_WINDOW_FLAG_READ |
+			                          PHYS_WINDOW_FLAG_WRITE |
+			                          PHYS_WINDOW_FLAG_LOCK);
 		}
-		pdpt = (page_t) pdpt_virt_addr;
+		pdpt = (page_t)pdpt_virt_addr;
 	} else {
 		if (paging_has_been_set)
-			mem_release_physwindow((uintptr_t) p4);
+			mem_release_physwindow((uintptr_t)p4);
 		spin_release(&paging_lock);
 		return;
 	}
@@ -403,15 +411,15 @@ void paging_unmap_page(page_t page_dir, uint64_t virt) {
 		uintptr_t pdp_virt_addr = pdp_phys_addr;
 		if (paging_has_been_set) {
 			mem_create_physwindow(pdp_phys_addr, &pdp_virt_addr,
-					      PHYS_WINDOW_FLAG_READ
-						      | PHYS_WINDOW_FLAG_WRITE
-						      | PHYS_WINDOW_FLAG_LOCK);
+			                      PHYS_WINDOW_FLAG_READ |
+			                          PHYS_WINDOW_FLAG_WRITE |
+			                          PHYS_WINDOW_FLAG_LOCK);
 		}
-		pdp = (page_t) pdp_virt_addr;
+		pdp = (page_t)pdp_virt_addr;
 	} else {
 		if (paging_has_been_set) {
-			mem_release_physwindow((uintptr_t) p4);
-			mem_release_physwindow((uintptr_t) pdpt);
+			mem_release_physwindow((uintptr_t)p4);
+			mem_release_physwindow((uintptr_t)pdpt);
 		}
 		spin_release(&paging_lock);
 		return;
@@ -422,16 +430,16 @@ void paging_unmap_page(page_t page_dir, uint64_t virt) {
 		uintptr_t pt_virt_addr = pt_phys_addr;
 		if (paging_has_been_set) {
 			mem_create_physwindow(pt_phys_addr, &pt_virt_addr,
-					      PHYS_WINDOW_FLAG_READ
-						      | PHYS_WINDOW_FLAG_WRITE
-						      | PHYS_WINDOW_FLAG_LOCK);
+			                      PHYS_WINDOW_FLAG_READ |
+			                          PHYS_WINDOW_FLAG_WRITE |
+			                          PHYS_WINDOW_FLAG_LOCK);
 		}
-		pt = (page_t) pt_virt_addr;
+		pt = (page_t)pt_virt_addr;
 	} else {
 		if (paging_has_been_set) {
-			mem_release_physwindow((uintptr_t) p4);
-			mem_release_physwindow((uintptr_t) pdpt);
-			mem_release_physwindow((uintptr_t) pdp);
+			mem_release_physwindow((uintptr_t)p4);
+			mem_release_physwindow((uintptr_t)pdpt);
+			mem_release_physwindow((uintptr_t)pdp);
 		}
 		spin_release(&paging_lock);
 		return;
@@ -440,10 +448,10 @@ void paging_unmap_page(page_t page_dir, uint64_t virt) {
 	pt[index1] = 0;
 
 	if (paging_has_been_set) {
-		mem_release_physwindow((uintptr_t) p4);
-		mem_release_physwindow((uintptr_t) pdpt);
-		mem_release_physwindow((uintptr_t) pdp);
-		mem_release_physwindow((uintptr_t) pt);
+		mem_release_physwindow((uintptr_t)p4);
+		mem_release_physwindow((uintptr_t)pdpt);
+		mem_release_physwindow((uintptr_t)pdp);
+		mem_release_physwindow((uintptr_t)pt);
 	}
 
 	asm volatile("invlpg (%0)" ::"r"(virt) : "memory");
@@ -458,13 +466,11 @@ void paging_unmap_fill(page_t page_dir, uint64_t virt, size_t size) {
 
 void paging_reload(page_t p) {
 	asm volatile("mfence\n\t"
-		     "mov %0, %%cr3" ::"r"((uint64_t) p)
-		     : "memory");
+	             "mov %0, %%cr3" ::"r"((uint64_t)p)
+	             : "memory");
 }
 
-page_t paging_get_highest_page_map(void) {
-	return pml4;
-}
+page_t paging_get_highest_page_map(void) { return pml4; }
 
 uint64_t vaddr_to_paddr(page_t p, uint64_t vaddr) {
 	uint64_t index4 = (vaddr >> 39) & 0x1ff;
@@ -477,17 +483,17 @@ uint64_t vaddr_to_paddr(page_t p, uint64_t vaddr) {
 	page_t pt = 0;
 
 	if (p[index4] & 1)
-		pdpt = (page_t) PHYS2VIRT(p[index4] & PAGE_PHYS_MASK);
+		pdpt = (page_t)PHYS2VIRT(p[index4] & PAGE_PHYS_MASK);
 	else
 		return 0;
 
 	if (pdpt[index3] & 1)
-		pdp = (page_t) PHYS2VIRT(pdpt[index3] & PAGE_PHYS_MASK);
+		pdp = (page_t)PHYS2VIRT(pdpt[index3] & PAGE_PHYS_MASK);
 	else
 		return 0;
 
 	if (pdp[index2] & 1)
-		pt = (page_t) PHYS2VIRT(pdp[index2] & PAGE_PHYS_MASK);
+		pt = (page_t)PHYS2VIRT(pdp[index2] & PAGE_PHYS_MASK);
 	else
 		return 0;
 
