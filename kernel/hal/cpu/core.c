@@ -213,7 +213,7 @@ INIT(Core) {
 		auto core_info = vxGetCpuInfo(i);
 		auto cpu_id = core_info->apicid;
 
-		uint64_t pstack = (uint64_t)vxPhysBaseAlloc(5);
+		uint64_t pstack = (uint64_t)phys_base_alloc(5);
 		uint64_t stack = (uint64_t)vma_lookup_free_vaddr(VMA_REGION_A,
 		                                                 5); // 8kb
 		vxMultipleMmap(paging_get_highest_page_map(), stack, pstack, 5,
@@ -224,7 +224,7 @@ INIT(Core) {
 		auto stack_top = stack + 5 * BLOCK_SIZE;
 
 		// Allocate separate data page for each core to avoid collisions
-		uintptr_t per_core_data_paddr = (uintptr_t)vxPhysBaseAlloc(1);
+		uintptr_t per_core_data_paddr = (uintptr_t)phys_base_alloc(1);
 		uintptr_t per_core_data_vaddr =
 		    vma_lookup_free_vaddr(VMA_REGION_A, 1);
 		vxMultipleMmap(paging_get_highest_page_map(),

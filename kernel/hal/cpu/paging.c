@@ -35,7 +35,7 @@ static spinlock_t paging_lock = {0};
 
 page_t paging_create_page_directory() {
 	spin_acquire(&paging_lock);
-	page_t page = (page_t) vxPhysBaseAlloc(1);
+	page_t page = (page_t) phys_base_alloc(1);
 	uintptr_t virtual_physwindow_addr = (uintptr_t) page;
 
 	if (paging_has_been_set) {
@@ -261,7 +261,7 @@ void vxMmap(page_t page_dir, uint64_t virt, uint64_t phys, uint64_t flags) {
 		pdpt = (page_t) pdpt_virt_addr;
 		p4[index4] = pdpt_phys_addr | inter_flags;
 	} else {
-		uintptr_t pdpt_phys_addr = (uintptr_t) vxPhysBaseAlloc(1);
+		uintptr_t pdpt_phys_addr = (uintptr_t) phys_base_alloc(1);
 		uintptr_t pdpt_virt_addr = pdpt_phys_addr;
 		if (paging_has_been_set) {
 			mem_create_physwindow(pdpt_phys_addr, &pdpt_virt_addr,
@@ -286,7 +286,7 @@ void vxMmap(page_t page_dir, uint64_t virt, uint64_t phys, uint64_t flags) {
 		pdp = (page_t) pdp_virt_addr;
 		pdpt[index3] = pdp_phys_addr | inter_flags;
 	} else {
-		uintptr_t pdp_phys_addr = (uintptr_t) vxPhysBaseAlloc(1);
+		uintptr_t pdp_phys_addr = (uintptr_t) phys_base_alloc(1);
 		uintptr_t pdp_virt_addr = pdp_phys_addr;
 		if (paging_has_been_set) {
 			mem_create_physwindow(pdp_phys_addr, &pdp_virt_addr,
@@ -311,7 +311,7 @@ void vxMmap(page_t page_dir, uint64_t virt, uint64_t phys, uint64_t flags) {
 		pt = (page_t) pt_virt_addr;
 		pdp[index2] = pt_phys_addr | inter_flags;
 	} else {
-		uintptr_t pt_phys_addr = (uintptr_t) vxPhysBaseAlloc(1);
+		uintptr_t pt_phys_addr = (uintptr_t) phys_base_alloc(1);
 		uintptr_t pt_virt_addr = pt_phys_addr;
 		if (paging_has_been_set) {
 			mem_create_physwindow(pt_phys_addr, &pt_virt_addr,

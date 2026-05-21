@@ -184,7 +184,7 @@ INIT(phys_base_allocator) {
 
 static spinlock_t pmm_lock = {0};
 
-void* vxPhysBaseAlloc(uint64_t block) {
+void* phys_base_alloc(uint64_t block) {
 	spin_acquire(&pmm_lock);
 	uint64_t total_blocks = higher_base_length_ / BLOCK_SIZE;
 	uint64_t consecutive = 0;

@@ -9,7 +9,7 @@
 enum MEMORY_ENTRY_TYPE {
 	RESERVED,
 	USABLE,
-} __attribute__((__enum_extensibility__(closed)));
+};
 
 typedef struct {
 
@@ -17,7 +17,7 @@ typedef struct {
 
 void phys_base_allocator_install(
 	struct stivale2_struct_tag_memmap* stivale_memmap);
-void* vxPhysBaseAlloc(uint64_t size);
+void* phys_base_alloc(uint64_t size);
 void* phys_base_alloc_aligned(uint64_t block, uint64_t align);
 void vxPhysBaseFree(void* page, uint64_t length);
 void pmm_log_usage();

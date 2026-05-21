@@ -8,7 +8,7 @@
 #define GB 0x40000000UL
 #define MB 0x100000ULL // fix: MB harusnya 1MB = 0x100000, bukan 0x1000
 
-typedef volatile uint64_t* page_t;
+typedef volatile uintptr_t* page_t;
 
 typedef struct {
 	uintptr_t phys;
@@ -57,9 +57,11 @@ void paging_unmap_fill(page_t page_dir, uint64_t virt, size_t size);
 void paging_setup(page_t pml4);
 void paging_fork(page_t parent_pml4, page_t child_pml4);
 void vxMultipleMmap(page_t page_dir, uint64_t virt, uint64_t phys,
-		    uint64_t size, uint64_t flags);
+                    uint64_t size, uint64_t flags);
 uint64_t vaddr_to_paddr(page_t pml4, uint64_t vaddr);
 void paging_add_dma_mapping(uintptr_t phys, uintptr_t virt, uint64_t size);
 void paging_debug(page_t pml4, uint64_t virt);
+
+page_t paging_create_page_directory();
 
 #endif // __HAL__CPU__PAGING_H__

@@ -44,7 +44,7 @@ static void push_freed_vaddr(uintptr_t vaddr) {
 void vxCreateSlabCache(struct slab_cache** cache, const char* name,
 		       const size_t obj_size, size_t alignment,
 		       const uintptr_t virt_addr) {
-	uintptr_t phys_addr = (uintptr_t) vxPhysBaseAlloc(1);
+	uintptr_t phys_addr = (uintptr_t) phys_base_alloc(1);
 	LOG_INFO("SLAB", "created new slab cache '%s' at phys 0x%x", name,
 		 phys_addr);
 	uintptr_t vaddr = virt_addr;
@@ -105,7 +105,7 @@ void* vxSlabAlloc(struct slab_cache* cache) {
 		slab = cache->slabs_free;
 		if (slab == NULL) {
 			// No free slab, create a new one
-			uintptr_t phys_addr = (uintptr_t) vxPhysBaseAlloc(1);
+			uintptr_t phys_addr = (uintptr_t) phys_base_alloc(1);
 			uintptr_t vaddr = cache->current_virt_addr;
 
 			if (cache->default_virt_addr) {
