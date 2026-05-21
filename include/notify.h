@@ -54,7 +54,7 @@ struct notify_dev {
 	kstring name;
 	struct notify_chain chain;
 	struct notify_dev* next; /* collision chain dalam bucket */
-	volatile int event_received;
+	volatile uint64_t event_received;
 };
 
 /* Lifecycle */

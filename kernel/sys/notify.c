@@ -108,13 +108,15 @@ int wait_until_receive_notify(char* name, uint64_t timeout) {
 	if (!current_dev)
 		return 0;
 
-	__atomic_store_n(&current_dev->event_received, 0, __ATOMIC_RELAXED);
+	uint64_t initial =
+	    __atomic_load_n(&current_dev->event_received, __ATOMIC_ACQUIRE);
 
 	uint64_t timeout_count = 0;
 	while (timeout_count < timeout) {
 		if (__atomic_load_n(&current_dev->event_received,
-		                    __ATOMIC_ACQUIRE))
+		                    __ATOMIC_ACQUIRE) != initial) {
 			return 1;
+		}
 
 		usleep(100 * 1000);
 		timeout_count += 100;
