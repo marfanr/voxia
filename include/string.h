@@ -19,6 +19,7 @@ kstring str(const char* str);
 void str_release(kstring str);
 boolean_t stringcmp(kstring s1, kstring s2);
 kstring str_concat(kstring s, const char* suffix);
+kstring str_concat_prefix(kstring s, const char* prefix);
 void str_trim(kstring str);
 
 #ifdef __cplusplus

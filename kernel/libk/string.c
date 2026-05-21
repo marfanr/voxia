@@ -1,7 +1,7 @@
-#include <type.h>
+#include <memory/kalloc.h>
 #include <str.h>
 #include <string.h>
-#include <memory/kalloc.h>
+#include <type.h>
 
 KERNEL_API kstring str(const char* src) {
 	if (!src)
@@ -13,11 +13,11 @@ KERNEL_API kstring str(const char* src) {
 	if (len > 4096)
 		return NULL;
 
-	kstring s = (kstring) kalloc(sizeof(*s));
+	kstring s = (kstring)kalloc(sizeof(*s));
 	if (!s)
 		return NULL;
 
-	char* buf = (char*) kalloc(len + 1);
+	char* buf = (char*)kalloc(len + 1);
 	if (!buf) {
 		kfree(s, sizeof(*s));
 		return NULL;
@@ -27,8 +27,8 @@ KERNEL_API kstring str(const char* src) {
 	s->len = len;
 	s->cap = len + 1;
 
-	memcopy(buf, (void*) src, len); /* Use memcopy instead of strcpy */
-	buf[len] = '\0';		/* Manually null-terminate */
+	memcopy(buf, (void*)src, len); /* Use memcopy instead of strcpy */
+	buf[len] = '\0';               /* Manually null-terminate */
 	return s;
 }
 
@@ -55,11 +55,11 @@ KERNEL_API kstring str_concat(kstring s, const char* suffix) {
 	size_t suffix_len = strlen(suffix);
 	size_t new_len = s->len + suffix_len;
 
-	kstring s_new = (kstring) kalloc(sizeof(*s_new));
+	kstring s_new = (kstring)kalloc(sizeof(*s_new));
 	if (!s_new)
 		return NULL;
 
-	char* buf = (char*) kalloc(new_len + 1);
+	char* buf = (char*)kalloc(new_len + 1);
 	if (!buf) {
 		kfree(s_new, sizeof(*s_new));
 		return NULL;
@@ -75,12 +75,39 @@ KERNEL_API kstring str_concat(kstring s, const char* suffix) {
 	return s_new;
 }
 
+KERNEL_API kstring str_concat_prefix(kstring s, const char* prefix) {
+	if (!s || !prefix)
+		return NULL;
+
+	size_t prefix_len = strlen(prefix);
+	size_t new_len = s->len + prefix_len;
+
+	kstring s_new = (kstring)kalloc(sizeof(*s_new));
+	if (!s_new)
+		return NULL;
+
+	char* buf = (char*)kalloc(new_len + 1);
+	if (!buf) {
+		kfree(s_new, sizeof(*s_new));
+		return NULL;
+	}
+
+	s_new->c_str = buf;
+	s_new->len = new_len;
+	s_new->cap = new_len + 1;
+
+	strcpy(buf, prefix);
+	strcpy(buf + prefix_len, s->c_str);
+
+	return s_new;
+}
+
 KERNEL_API void str_trim(kstring str) {
 	if (!str || !str->c_str || str->len == 0)
 		return;
 
 	/* pakai int bukan size_t supaya i >= 0 bisa dievaluasi dengan benar */
-	int i = (int) str->len - 1;
+	int i = (int)str->len - 1;
 	while (i >= 0) {
 		char c = str->c_str[i];
 		if (c == ' ' || c == '\n' || c == '\t' || c == '\r') {

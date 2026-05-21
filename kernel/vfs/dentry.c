@@ -233,7 +233,6 @@ int KERNEL_API vxnamei(const char* path, dentry_ptr* out) {
 		if (!component || component[0] == '\0')
 			continue;
 
-		
 		// if (strlen(component) >= 128) {
 		// 	dentry_put(curr);
 		// 	return -1;
@@ -319,13 +318,15 @@ void print_dentry_tree(dentry_t* dentry, int depth) {
 		indent[i * 2 + 1] = ' ';
 	}
 
-	serial2_printf("%s└── %s (0x%x) (%x) (reff %d) ", indent, dentry->name->c_str, dentry,
-	               dentry->hash, dentry->refcount.counter);
+	serial2_printf("%s└── %s (0x%x) (%x) (reff %d) ", indent,
+	               dentry->name->c_str, dentry, dentry->hash,
+	               dentry->refcount.counter);
 
 	auto vnode = dentry->vnode;
 	if (vnode) {
 		if (vnode->type == VNODE_TYPE_BLK) {
-			serial2_printf("BLOCK DEVICE %d:%d", vnode->device.major,
+			serial2_printf("BLOCK DEVICE %d:%d",
+			               vnode->device.major,
 			               vnode->device.minor);
 		} else {
 			serial2_printf("[%s]",
@@ -348,4 +349,46 @@ void print_dentry_tree(dentry_t* dentry, int depth) {
 
 int get_reffcount(dentry_ptr dentry) {
 	return __atomic_load_n(&dentry->refcount.counter, __ATOMIC_RELAXED);
+}
+
+kstring get_full_path_from_dentry(dentry_ptr dentry) {
+	if (!dentry)
+		return 0;
+
+	if (!dentry->parent)
+		return str(dentry->name->c_str);
+
+	if (!dentry->name)
+		return 0;
+
+	kstring curr_name = str(dentry->name->c_str);
+	if (!curr_name)
+		return 0;
+
+	auto curr = dentry->parent;
+	while (curr) {
+		if (!curr->parent || !curr->name) {
+            kstring rooted = str_concat_prefix(curr_name, "/");
+            str_release(curr_name);
+            return rooted;
+        }
+
+		kstring with_slash = str_concat(curr->name, "/");
+        if (!with_slash) {
+            str_release(curr_name);
+            return NULL;
+        }
+
+        kstring merged = str_concat(with_slash, curr_name->c_str);
+        str_release(with_slash);
+        str_release(curr_name);
+
+        if (!merged)
+            return NULL;
+
+        curr_name = merged;
+        curr = curr->parent;
+	}
+
+	return curr_name;
 }

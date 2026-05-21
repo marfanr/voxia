@@ -126,6 +126,7 @@ int get_reffcount(dentry_ptr dentry);
 void
 print_dentry_tree(dentry_t* node, int depth);
 
+kstring get_full_path_from_dentry(dentry_ptr dentry);
 
 #ifdef __cplusplus
 }

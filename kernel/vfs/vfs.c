@@ -271,7 +271,13 @@ static void detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 			dentry_ptr out;
 			if (vxResolveDentry("/kernel.elf", mount_entry, &out,
 			                    0) == VFS_OK) {
-				LOG2_INFO("VFS NOTIFY", "found kernel.elf");
+
+				auto full_path =
+				    get_full_path_from_dentry(dentry);
+				LOG2_INFO("VFS NOTIFY",
+				          "found root filesystem at %s",
+				          full_path->c_str);
+				str_release(full_path);
 			}
 
 			// DEBUG
