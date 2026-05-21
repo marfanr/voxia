@@ -82,8 +82,11 @@ INIT(Vfs) {
 		create_filesystem("ISO9660", &iso_fs);
 	}
 
-	// create notifier
+	// create notify
 	notify_dev_create(str("/vfs/block"));
+	notify_dev_create(str("/vfs/root"));
+
+	// handle block notify
 	{
 		auto n = (struct notifier*)kalloc(sizeof(struct notifier));
 		memset(n, 0, sizeof(struct notifier));
@@ -283,6 +286,7 @@ static void detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 		LOG2_INFO("VFS NOTIFY", "terdeteksi ISO9660 CD-ROM");
 
 		// trying to mount
+		boolean_t is_contain_root = false;
 		{
 			dentry_ptr mount_entry;
 			vxnamei("/tmp/root", &mount_entry);
@@ -298,17 +302,25 @@ static void detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 				          "found root filesystem at %s",
 				          full_path->c_str);
 				str_release(full_path);
+
+				is_contain_root = true;
 			}
 
-			// DEBUG
-			print_dentry_tree(get_root_dentry(), 0);
-
 			dentry_put(out);
-
 			vfs_umount(mount_entry);
 
-			print_dentry_tree(get_root_dentry(), 0);
+			// TODO: delete temp directory
 		}
+
+		// remount again on /root
+		if (is_contain_root) {
+			dentry_ptr mount_entry;
+			vxnamei("/", &mount_entry);
+			vfs_mount(dentry, "ISO9660", mount_entry, 0);
+			notify_call("/vfs/root", VFS_NOTIFY_ROOT_FOUND, dentry);
+		}
+
+		print_dentry_tree(get_root_dentry(), 0);
 	}
 	kfree2(d_);
 }

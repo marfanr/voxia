@@ -11,6 +11,7 @@
 #include "memory/phys_base_allocator.h"
 #include "net/netdev.h"
 #include "net/socket.h"
+#include "notify.h"
 #include "procc/proccess.h"
 #include "procc/thread.h"
 #include "vfs/dentry.h"
@@ -54,6 +55,8 @@ _start(struct stivale2_struct* stivale2_struct) {
 	
 	pmm_log_usage();
 	KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...\n");
+
+	wait_until_receive_notify("/vfs/root", 5000);
 
 	void* test_ptr = kalloc(256);
 	if (test_ptr) {

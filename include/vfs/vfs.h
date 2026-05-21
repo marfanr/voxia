@@ -9,8 +9,12 @@
 
 #define ROOT_UUID 0
 
-enum {
+enum vfs_notify_block {
 	VFS_NOTIFY_PROBE = 1,
+};
+
+enum vfs_notify_root {
+    VFS_NOTIFY_ROOT_FOUND = 1,
 };
 
 #ifdef __cplusplus

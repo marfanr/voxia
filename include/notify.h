@@ -54,6 +54,7 @@ struct notify_dev {
 	kstring name;
 	struct notify_chain chain;
 	struct notify_dev* next; /* collision chain dalam bucket */
+	volatile int event_received;
 };
 
 /* Lifecycle */
@@ -64,17 +65,10 @@ int notify_dev_destroy(kstring name);
 int notify_register(char* name, struct notifier* n);
 int notify_unregister(kstring name, struct notifier* n);
 
-void wait_until_receive_notify(char* name, uint64_t timeout);
+int wait_until_receive_notify(char* name, uint64_t timeout);
 
 /* Dispatch */
 int notify_call(char* name, uint32_t event, void* data);
-
-/* Init macros */
-#define NOTIFIER_INIT(cb, ctx, prio)                                           \
-	{                                                                      \
-		.callback = (cb), .context = (ctx), .priority = (prio),        \
-		.flags = 0, .next = NULL                                       \
-	}
 
 #ifdef __cplusplus
 }
