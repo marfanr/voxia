@@ -44,7 +44,7 @@ static void vxUpdateThreadSlot(const thread_id id, thread_t* thr) {
 	bucket.slot[idx].thread = thr;
 }
 
-thread_id vxCreateThread(const uintptr_t entry, uint16_t core_affinity,
+thread_id create_thread(const uintptr_t entry, uint16_t core_affinity,
 			 uint8_t priority, uint16_t flags) {
 	thread_t* thr = thrCreateInstance();
 	serial2_printf("created thread at 0x%x \n", thr);

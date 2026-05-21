@@ -101,7 +101,7 @@ static uintptr_t vaddr_alloc_locked(size_t page_count) {
 }
 
 static void* alloc_page_locked(void) {
-	uintptr_t phys = (uintptr_t) vxPhysBaseAlloc(1);
+	uintptr_t phys = (uintptr_t) phys_base_alloc(1);
 	uintptr_t virt = vaddr_alloc_locked(1);
 	vxMmap(paging_get_highest_page_map(), virt, phys,
 	       PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
@@ -190,7 +190,7 @@ KERNEL_API void* kalloc(size_t size) {
 
 	uintptr_t gflags = lock_irqsave(&kalloc_global_lock);
 
-	uintptr_t phys = (uintptr_t) vxPhysBaseAlloc(page_count);
+	uintptr_t phys = (uintptr_t) phys_base_alloc(page_count);
 	uintptr_t virt = vaddr_alloc_locked(page_count);
 
 	vxMultipleMmap(paging_get_highest_page_map(), virt, phys, page_count,

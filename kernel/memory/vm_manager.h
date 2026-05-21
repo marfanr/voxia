@@ -7,7 +7,7 @@
 enum mem_vma_base {
 	mem_vma_phys_window_start = 0xFFFFD00000000000,
 	mem_vma_phys_window_pt = 0xFFFFB0000F000000,
-} __attribute__((enum_extensibility(closed)));
+};
 
 typedef enum : uintptr_t {
 	VMA_REGION_A = 0xFFFFA00000000000U,
