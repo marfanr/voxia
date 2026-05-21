@@ -1,9 +1,5 @@
 #include "hal/cpu/msr.h"
-#include "libk/serial.h"
 
-#define MSR_FS_BASE 0xC0000100
-#define MSR_GS_BASE 0xC0000101
-#define MSR_KERNEL_GS_BASE 0xC0000102
 
 void vxWRSR(uint32_t msr, uint64_t value) {
 	// serial_printf("value : 0x%lx\n", value);
