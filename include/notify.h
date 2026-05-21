@@ -53,7 +53,7 @@ struct notify_dev {
 	uint64_t hash;
 	kstring name;
 	struct notify_chain chain;
-	struct notify_dev* next; /* collision chain dalam bucket */
+	struct notify_dev* next;
 	volatile uint64_t event_received;
 };
 
