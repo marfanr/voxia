@@ -173,6 +173,7 @@ int KERNEL_API vxResolveDentry(char* path, dentry_ptr parent, dentry_ptr* out,
 			}
 		}
 
+		dentry_get(next);
 		dentry_put(curr);
 		curr = next;
 	}
@@ -254,15 +255,14 @@ int KERNEL_API vxnamei(const char* path, dentry_ptr* out) {
 
 			vfs_cache_insert(root_cache, new_entry);
 
-			// dentry_get(new_entry);
-
-			// dentry_put(curr);
-
+			dentry_get(new_entry);
+			dentry_put(curr);
 			curr = new_entry;
 			continue;
 		}
 
-		// dentry_put(curr);
+		dentry_get(next);
+		dentry_put(curr);
 
 		curr = next;
 	}
