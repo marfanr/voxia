@@ -1,7 +1,9 @@
+extern "C" int main() {
+	// (void)argc;
+	// (void)argv;
 
-int main(int argc, char const* argv[]) {
-	(void)argc;
-	(void)argv;
-	/* code */
-	return 0;
+	// asm ("int $20");
+	// asm volatile("cli");
+	for (;;)
+		;
 }

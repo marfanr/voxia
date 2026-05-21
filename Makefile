@@ -1,6 +1,6 @@
 # Variabel umum
 QEMU=qemu-system-x86_64
-QEMU_FLAGS=-m 3G -cpu host -M q35 -smp 8  -enable-kvm -rtc base=localtime -no-reboot
+QEMU_FLAGS=-m 3G -cpu host -M q35 -smp 3  -enable-kvm -rtc base=localtime -no-reboot
 QEMU_USB=-device usb-ehci,id=ehci -device usb-kbd,bus=ehci.0,port=1,id=kbd
 # 	-device usb-mouse,bus=ehci.0,port=2,id=mouse
 # QEMU_NETWORK= -netdev user,id=net0,hostfwd=tcp::1234-:1234\
@@ -15,9 +15,9 @@ BIOS_OVMF=ovmf-x64/OVMF.fd
 ROOT:=$(realpath .)
 export ROOT
 
-.PHONY: all modules all-hdd rust kernel lib iso
+.PHONY: all modules all-hdd rust kernel lib iso sbin
 
-all: lib kernel lib modules iso 
+all: lib kernel lib modules iso sbin
 
 modules:
 	@mkdir -p ./initrd/modules
@@ -30,7 +30,7 @@ modules:
 # 	$(MAKE) -C ./modules/runtimeinit all
 
 sbin:
-	@mkdir -p /root/sbin
+	@mkdir -p ./root/sbin
 	$(MAKE) -C ./sbin/term
 
 sbin-clean: sbin
