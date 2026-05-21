@@ -1,6 +1,7 @@
 #include "hal/acpi/hpet.h"
 #include "hal/timer/timer.h"
 #include "hash.h"
+#include "libk/serial.h"
 #include <notify.h>
 #include <spinlock.h>
 #include <str.h>
@@ -101,8 +102,7 @@ int notify_call(char* name, uint32_t event, void* data) {
 	return 1;
 }
 
-/* timeout in ms. Returns 1 if an event was received before timeout, 0
- * otherwise. */
+/* timeout in ms */
 int wait_until_receive_notify(char* name, uint64_t timeout) {
 	auto current_dev = find_dev(name);
 	if (!current_dev)
@@ -111,15 +111,15 @@ int wait_until_receive_notify(char* name, uint64_t timeout) {
 	uint64_t initial =
 	    __atomic_load_n(&current_dev->event_received, __ATOMIC_ACQUIRE);
 
+	// (void)timeout;
 	uint64_t timeout_count = 0;
 	while (timeout_count < timeout) {
 		if (__atomic_load_n(&current_dev->event_received,
-		                    __ATOMIC_ACQUIRE) != initial) {
+		                    __ATOMIC_ACQUIRE) != initial)
 			return 1;
-		}
 
-		usleep(100 * 1000);
-		timeout_count += 100;
+		usleep(ms2ns(1));
+		timeout_count += 1;
 	}
 
 	return 0;

@@ -321,8 +321,6 @@ static void detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 			notify_call("/vfs/root", VFS_NOTIFY_ROOT_FOUND, dentry);
 		}
 
-		execve("/sbin/term.elf", 0, 0);
-		print_dentry_tree(get_root_dentry(), 0);
 	}
 	kfree2(d_);
 }

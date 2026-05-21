@@ -29,6 +29,13 @@ modules:
 	$(MAKE) -C ./modules/atapi
 # 	$(MAKE) -C ./modules/runtimeinit all
 
+sbin:
+	@mkdir -p /root/sbin
+	$(MAKE) -C ./sbin/term
+
+sbin-clean: sbin
+	@rm -rf /root/sbin
+	$(MAKE) -C ./sbin/term clean
 
 all-hdd: $(HDD)
 
@@ -137,7 +144,7 @@ iso: limine
 	mkdir -p iso_root
 # 	cp -r build/modules ./initrd
 	cd initrd; tar -F ustar -cvf ../iso_root/initrd.tar *; cd ..
-# 	cp -r root/* ./iso_root/
+	cp -r root/* ./iso_root/
 	cp build/kernel.elf limine.cfg limine/limine.sys limine/limine-cd.bin limine/limine-eltorito-efi.bin iso_root/
 	xorriso -as mkisofs -b limine-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
@@ -191,7 +198,7 @@ run-flashdisk:
 	$(QEMU) $(QEMU_FLAGS) -hda /dev/sdb $(QEMU_USB) -vga std -device virtio-serial-pci
 
 # Cleanup
-.PHONY: clean distclean
+.PHONY: clean distclean sbin-clean
 clean:
 	rm -rf iso_root $(ISO) build
 	$(MAKE) -C kernel clean	
