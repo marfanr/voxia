@@ -1,9 +1,7 @@
 #include "./interrupt.h"
 #include "autoconf.h"
 #include "hal/apic/apic.h"
-#include <spinlock.h>
 #include "init/init.h"
-#include <type.h>
 #include <hal/cpu/core.h>
 #include <hal/ethernet/e1000/e1000.h>
 #include <libk/debug/debug.h>
@@ -13,7 +11,9 @@
 #include <memory/vm_manager.h>
 #include <procc/scheduler.h>
 #include <procc/task.h>
+#include <spinlock.h>
 #include <str.h>
+#include <type.h>
 
 static interrupt_per_core_data_t interrupt_per_core_data[VOXIA_MAX_CORE] = {0};
 
@@ -108,13 +108,13 @@ void irq_register(uint8_t core, int n, void* handler, boolean_t use_default_isr,
 uint16_t irq_alloc_entry(uint8_t core) {
 	for (uint16_t i = 32; i < MAX_INTERRUPTS; i++) {
 		irq_entry_t* entry =
-			&interrupt_per_core_data[core].irq_entries[i];
- 
+		    &interrupt_per_core_data[core].irq_entries[i];
+
 		/* Coba klaim slot: configured harus masih false */
 		boolean_t expected = false;
 		if (__atomic_compare_exchange_n(&entry->allocated, &expected,
-						true, false, __ATOMIC_ACQ_REL,
-						__ATOMIC_RELAXED)) {
+		                                true, false, __ATOMIC_ACQ_REL,
+		                                __ATOMIC_RELAXED)) {
 			return i;
 		}
 	}
@@ -217,11 +217,6 @@ extern void virtio_irq();
 extern boolean_t elf_has_running;
 extern uintptr_t rip_before_run_elf;
 
-static void iddle() {
-	for (;;)
-		;
-}
-
 spinlock_t int_lock;
 
 __attribute__((no_stack_protector)) extern void
@@ -234,7 +229,7 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 
 	if (int_number < 32) {
 		uintptr_t cr2 = 0;
-		
+
 		if (int_number == PAGE_FAULT) {
 			asm volatile("mov %%cr2, %0" : "=r"(cr2));
 		}
@@ -250,9 +245,10 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 		// serial_printf("\n\n[EXCEPTION] %s (vector %d)\n",
 		// 	      exception_messages[int_number], int_number);
 		// serial_printf("  rip=0x%lx  rsp=0x%lx  err=0x%lx
-		// cr2=0x%lx\n", 	      rsp->rip, rsp->rsp, rsp->err_code, cr2);
-		// serial_printf("  rax=0x%lx  rbx=0x%lx  rcx=0x%lx
-		// rdx=0x%lx\n", 	      rsp->rax, rsp->rbx, rsp->rcx, rsp->rdx);
+		// cr2=0x%lx\n", 	      rsp->rip, rsp->rsp, rsp->err_code,
+		// cr2); serial_printf("  rax=0x%lx  rbx=0x%lx  rcx=0x%lx
+		// rdx=0x%lx\n", 	      rsp->rax, rsp->rbx, rsp->rcx,
+		// rsp->rdx);
 
 		const scheduler_queue_t* queue =
 		    vxSchedulerGetCurrentQueue(cpu_id);
@@ -265,11 +261,14 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 			           exception_messages[int_number],
 			           queue->thread->id, rsp->rip, cr2);
 			queue->thread->state = THREAD_STATE_TERMINATED;
-			rsp->rip = (uintptr_t)iddle;
+			// rsp->rip =
+			// (uintptr_t)queue->next_queue->thread->reg.rip;
+			INFLOOP;
 		} else {
+			INFLOOP;
+
 			/* Tidak ada thread — terjadi di konteks kernel awal,
 			 * tidak bisa di-recover, halt. */
-			INFLOOP;
 		}
 
 		goto end;
@@ -278,26 +277,26 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 	{
 
 		irq_entry_t* irq =
-		&interrupt_per_core_data[cpu_id].irq_entries[int_number];
-		
+		    &interrupt_per_core_data[cpu_id].irq_entries[int_number];
+
 		if (__atomic_load_n(&irq->configured, __ATOMIC_ACQUIRE)) {
 			if (irq->use_default_isr) {
 				uint8_t m = __atomic_load_n(&irq->mask,
-					__ATOMIC_ACQUIRE);
-					while (m) {
-						int i = __builtin_ctz(m);
-						void* h = __atomic_load_n(
-							&irq->handler[i],
-							__ATOMIC_ACQUIRE);
-							if (h)
-							((void (*)(interrupt_stack_frame_t*))
-						h)(rsp);
-						m &= (m - 1);
-					}
+				                            __ATOMIC_ACQUIRE);
+				while (m) {
+					int i = __builtin_ctz(m);
+					void* h = __atomic_load_n(
+					    &irq->handler[i], __ATOMIC_ACQUIRE);
+					if (h)
+						((void (*)(
+						    interrupt_stack_frame_t*))
+						     h)(rsp);
+					m &= (m - 1);
 				}
 			}
 		}
-		
-		end:
+	}
+
+end:
 	apic_eoi();
 }

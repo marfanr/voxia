@@ -9,12 +9,13 @@
 #include "hal/timer/timer.h"
 #include "init/init.h"
 #include "libk/serial.h"
-#include <type.h>
 #include "memory/phys_base_allocator.h"
 #include "memory/vm_manager.h"
 #include "procc/scheduler.h"
+#include "sys/syscall.h"
 #include <ioforge/ioforge.h>
 #include <str.h>
+#include <type.h>
 
 #define INIT_CORE_MAGIC 0x00EEDDAB
 #define INIT_CORE_ENTRYPOINT 0x8000
@@ -33,12 +34,17 @@ extern uint8_t x2_apic_supported;
 
 static each_core_data core_data[VOXIA_MAX_CORE] = {0};
 
+extern uint8_t ap_stack_top[VOXIA_MAX_CORE][65536];
+
 void update_core_gs(uint8_t id) {
 	core_data[id].canary = (id + 0x56) ^ 0x595e9fbd94fda766;
 	core_data[id].core_id = id;
 	core_data[id].usleep_trigerred = false;
 	core_data[id].scheduler = vxGetSchedulerCore(id);
 	core_data[id].workqueue_count = 0;
+	core_data[id].kernel_rsp =
+	    (uintptr_t)ap_stack_top[id] + sizeof(ap_stack_top[id]);
+	core_data[id].user_rsp = 0;
 
 	const uintptr_t core_data_addr = (uintptr_t)&core_data[id];
 	msrSetGSBase(core_data_addr);
@@ -73,7 +79,7 @@ __attribute__((no_stack_protector, noreturn))
 __attribute__((section(".cpu_trampoline"))) void
 cpuTrampolinePhase2(uint64_t core_id) {
 	__atomic_fetch_add(&active_core_count, 1, __ATOMIC_SEQ_CST);
-	
+
 	serial_setup();
 	setup_gdt((uint8_t)core_id);
 	update_core_gs((uint8_t)core_id);
@@ -85,13 +91,12 @@ cpuTrampolinePhase2(uint64_t core_id) {
 	vxInitializeAPICTimer();
 
 	setup_timer_interrupt();
+	syscall_init();
 	serial2_printf("core %d %d successfully running\n", core_id,
 	               get_current_core_cpuid());
 	vxGetCpuInfo((uint8_t)core_id)->status = Active;
 
-
 	vxStartScheduler();
-	
 
 	for (;;)
 		__asm__ volatile("hlt");
@@ -104,7 +109,7 @@ static uint32_t get_bsp_apic_id(void) {
 	__asm__ volatile("cpuid"
 	                 : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
 	                 : "a"(1));
-	return (ebx >> 24) & 0xFF; 
+	return (ebx >> 24) & 0xFF;
 }
 
 static void sipi_sequential(uint32_t apic_id, uint64_t entrypoint_addr) {
@@ -247,7 +252,8 @@ INIT(Core) {
 
 		sipi_sequential(cpu_id, entrypoint_addr);
 
-		while (__atomic_load_n(&core_handshake[2], __ATOMIC_SEQ_CST) == 0) {
+		while (__atomic_load_n(&core_handshake[2], __ATOMIC_SEQ_CST) ==
+		       0) {
 			vxHPETSleep(us2ns(100));
 		}
 	}

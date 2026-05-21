@@ -82,4 +82,6 @@ uint16_t irq_alloc_entry(uint8_t core);
 
 extern __attribute__((no_stack_protector)) void
 vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu);
+
+
 #endif // __HAL__CPU__INTERRUPT_H__

@@ -80,6 +80,8 @@ SECTIONS
         KEEP(*(.init_early.Core))
         KEEP(*(.init_early.Workqueue))
         KEEP(*(.init_early.ModuleRegister))
+
+        KEEP(*(.init_early.Syscall))
         /*
 
 

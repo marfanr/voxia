@@ -30,7 +30,7 @@ typedef struct lm_tss {
 } __attribute__((packed)) lm_tss_t;
 
 typedef struct {
-	gdt_entry_t entries[12];
+	gdt_entry_t entries[14];
 	gdt_ptr_t pointer;
 	lm_tss_t tss;
 } gdt_each_core_t;

@@ -11,16 +11,21 @@
 extern "C" {
 #endif
 
-typedef struct  __attribute__((aligned(64))) {
+typedef struct __attribute__((aligned(64))) {
 	uint64_t canary;
 	uint8_t core_id;
+	
+	uint64_t kernel_rsp;
+	uint64_t user_rsp;
+	
 	boolean_t usleep_trigerred;
 	scheduler_core_t* scheduler;
 	uint32_t workqueue_count;
 	thread_t* active_thread;
+	
 
-	uint8_t _pad[24];
-	// 1 cache line end
+	uint8_t _pad[6];
+	// cache line end
 
 	workqueue_t workqueue[VOXIA_MAX_WORKQUEUE_EACH_CORE];
 } each_core_data;
