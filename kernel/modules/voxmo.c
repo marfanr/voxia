@@ -208,6 +208,8 @@ void vxVoxmoInstall(const char* path) {
 		return;
 	}
 
+	dentry_put(dentry);
+
 	voxmo_loaded_module_t_ptr module = (voxmo_loaded_module_t_ptr) kalloc(
 		sizeof(voxmo_loaded_module_t));
 	memset(module, 0, sizeof(*module));

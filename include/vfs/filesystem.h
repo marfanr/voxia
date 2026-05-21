@@ -37,6 +37,7 @@ struct filesystem {
 typedef filesystem_t* filesystem_ptr_t;
 
 struct fs_instance {
+	dentry_ptr block_dentry;
 	cdev_ptr_t cdev;
 	filesystem_ptr_t fs;
 };

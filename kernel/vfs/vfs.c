@@ -149,6 +149,7 @@ KERNEL_API int vfs_mount(dentry_ptr dev_dentry, char* fs, dentry_ptr dentry,
 	struct fs_instance* fs_ins =
 	    (struct fs_instance*)kalloc(sizeof(struct fs_instance));
 	fs_ins->fs = fs_;
+	fs_ins->block_dentry = dev_dentry;
 	fs_ins->cdev = cdev;
 
 	dentry_node->fs_instance = fs_ins;
@@ -156,7 +157,6 @@ KERNEL_API int vfs_mount(dentry_ptr dev_dentry, char* fs, dentry_ptr dentry,
 	// first lookup on filesystem
 	fs_->data.ops->lookup(fs_ins, 0, 0, &dentry);
 
-	dentry_get(dentry);
 	dentry_get(dev_dentry);
 
 	KDEBUG(DEBUG_LEVEL_OK, "mounted %d:%d on %s with filesystem %s\n",
@@ -214,6 +214,27 @@ int vfs_umount(dentry_ptr dentry) {
 	auto vnode = dentry->vnode;
 	if (!vnode)
 		return VFS_ERR;
+
+	if (vnode->type == VNODE_TYPE_DIR) {
+		LOG2_DEBUG("Umount", "%s is directory", dentry->name->c_str);
+		auto cdev = vnode->mountedhere;
+		if (!cdev) {
+			LOG2_WARN("Unmount", "no mounted here");
+			return VFS_ERR;
+		}
+		LOG2_DEBUG("Umount", "mounted here %d:%d", cdev->major,
+		           cdev->minor);
+		dentry_put(vnode->fs_instance->block_dentry);
+		dentry->vnode->mountedhere = 0;
+
+	} else if (vnode->type == VNODE_TYPE_BLK) {
+		LOG2_DEBUG("Umount", "%s is block", dentry->name->c_str);
+		vnode->mount = 0;
+
+	} else {
+		LOG2_WARN("Umount", "%s is unknown", dentry->name->c_str);
+		return VFS_ERR;
+	}
 
 	dentry_put(dentry);
 	auto ok = vfs_umount_recursive(dentry);
