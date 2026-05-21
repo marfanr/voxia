@@ -147,6 +147,7 @@ void ATAPIModule::identify(struct ioforge_block_device* block) {
 		serial2_printf("dentry namei done\n");
 
 		vops_blk_t* vops = (vops_blk_t*)kalloc(sizeof(vops_blk_t));
+		vops->open = 0;
 		vops->read = ATAPIModule::read;
 		vops->write = ATAPIModule::write;
 		vops->v_data = block;
@@ -157,7 +158,6 @@ void ATAPIModule::identify(struct ioforge_block_device* block) {
 			return;
 		vnode->device.major = cdev->major;
 		vnode->device.minor = cdev->minor;
-		// vops->v_data = vnode;
 
 		notify_call((char*)"/vfs/block", VFS_NOTIFY_PROBE,
 		            (void*)dentry);

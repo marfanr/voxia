@@ -474,8 +474,7 @@ void AHCIModule::probe() {
 			{
 				boolean_t present = false;
 				int spin = 0;
-				// Wait up to 500ms (50 * 10ms)
-				while (spin++ < 50) {
+				while (spin++ < 50 && !present) {
 					if (is_device_present(port)) {
 						present = true;
 						break;
@@ -513,8 +512,6 @@ void AHCIModule::probe() {
 
 			if (!type)
 				continue;
-
-			// port->vendor
 
 			// registering block
 			{
