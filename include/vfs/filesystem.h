@@ -25,7 +25,6 @@ struct fs_magic {
 
 struct fs_data {
 	struct fs_magic magic;
-	uint32_t offset;
 	fs_operations_t* ops;
 };
 

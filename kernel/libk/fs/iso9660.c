@@ -11,6 +11,13 @@
 #include <vfs/vnode.h>
 
 static fs_operations_t _fs_ops = {0};
+static vops_file_t _file_ops = {0};
+
+struct iso9660_internal_data {
+	uint32_t extent;
+	uint32_t size;
+	uint8_t flags;
+};
 
 int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
                    dentry_ptr* out) {
@@ -56,8 +63,9 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 
 		auto root_dir = (struct iso9660_dir*)pvd->root_dir_record;
 
-		struct iso9660_node* iso_node =
-		    (struct iso9660_node*)kalloc(sizeof(struct iso9660_node));
+		struct iso9660_internal_data* iso_node =
+		    (struct iso9660_internal_data*)kalloc(
+		        sizeof(struct iso9660_internal_data));
 		if (!iso_node) {
 			kfree2(pvd);
 			return -2;
@@ -103,7 +111,8 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 		return -2;
 	}
 
-	auto iso_node = (struct iso9660_node*)parent->vnode->vnode_private;
+	auto iso_node =
+	    (struct iso9660_internal_data*)parent->vnode->vnode_private;
 	LOG2_INFO("ISO9660", "parent %s size %d", parent->name->c_str,
 	          iso_node->size);
 
@@ -154,21 +163,21 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 			memcopy(name, entry->name, name_len);
 			name[name_len] = '\0';
 
-			for (int i = 0; i < name_len; i++) {
+			for (int i = 0; i < name_len; i++)
 				if (name[i] == ';') {
 					name[i] = '\0';
 					name_len = (uint8_t)i;
 					break;
 				}
-			}
 
 			to_lowercase(name);
 
 			if (strlen(name) == strlen(path) &&
 			    strncmp(name, path, strlen(path)) == 0) {
 
-				auto priv_data = (struct iso9660_node*)kalloc(
-				    sizeof(struct iso9660_node));
+				auto priv_data =
+				    (struct iso9660_internal_data*)kalloc(
+				        sizeof(struct iso9660_internal_data));
 				if (!priv_data) {
 					kfree2(dir_buf);
 					return -2;
@@ -176,19 +185,16 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 
 				priv_data->extent = entry->extent_le;
 				priv_data->size = entry->size_le;
-
 				priv_data->flags = entry->flags;
 
 				if (entry->flags & iOS9660_DIR_FLAG) {
 					(*out)->vnode->type = VNODE_TYPE_DIR;
 				} else {
 					(*out)->vnode->type = VNODE_TYPE_FILE;
+					(*out)->vnode->ops =
+					    iso9660_file_operations();
 					(*out)->vnode->size = entry->size_le;
 				}
-
-				serial2_printf(
-				    "iso found %s extent=%u size=%u\n", name,
-				    priv_data->extent, priv_data->size);
 
 				(*out)->vnode->vnode_private = priv_data;
 				(*out)->vnode->fs_instance = instance;
@@ -204,7 +210,41 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 	return -1;
 }
 
-fs_operations_t* iso9660_file_operations(void) {
+int iso9660_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
+	if (!vnode || !buf || !len)
+		return -1;
+
+	auto iso_node = (struct iso9660_internal_data*)vnode->vnode_private;
+	if (!iso_node)
+		return -2;
+
+	auto cdev = vnode->fs_instance->cdev;
+	if (!cdev)
+		return -2;
+
+	auto cdev_ops = cdev->ops;
+	if (!cdev_ops)
+		return -3;
+
+
+	if (cdev_ops->read(cdev_ops->v_data, iso_node->extent, buf,
+	                   iso_node->size) < 0) {
+		LOG2_ERROR("ISO9660", "failed to read dir extent");
+		return -3;
+	}
+
+	serial2_printf("read size %d %b\n", iso_node->size, (uint8_t)iso_node->flags);
+
+	UNUSED(offset);
+	return 0;
+}
+
+vops_file_t* iso9660_file_operations(void) {
+	_file_ops.read = iso9660_read;
+	return &_file_ops;
+}
+
+fs_operations_t* iso9660_fs_operations(void) {
 	_fs_ops.lookup = iso9660_lookup;
 	return &_fs_ops;
 }

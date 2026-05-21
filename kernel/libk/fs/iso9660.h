@@ -2,6 +2,7 @@
 #define __FS__ISO9660_H__
 
 #include "vfs/filesystem.h"
+#include "vfs/vnode.h"
 #include <type.h>
 
 typedef struct {
@@ -16,8 +17,8 @@ typedef struct {
 
 // Struktur Primary Volume Descriptor (PVD)
 struct iso9660_pvd {
-	uint8_t type;	 // harus = 1 untuk PVD
-	char id[5];	 // "CD001"
+	uint8_t type;    // harus = 1 untuk PVD
+	char id[5];      // "CD001"
 	uint8_t version; // harus = 1
 	uint8_t unused1;
 
@@ -42,7 +43,8 @@ struct iso9660_pvd {
 	uint32_t opt_m_path_table_loc;
 
 	// Root directory record
-	// Struktur ini sebenarnya “Directory Record” dengan panjang tetap 34 byte pada PVD
+	// Struktur ini sebenarnya “Directory Record” dengan panjang tetap 34
+	// byte pada PVD
 	uint8_t root_dir_record[34];
 
 	char volume_set_id[128];
@@ -72,7 +74,7 @@ struct iso9660_path_table_entry {
 	uint8_t ext_attr_rec_len;
 	uint32_t extent_location;   // LBA, little-endian di L-Table
 	uint16_t parent_dir_number; // indeks parent directory dalam path table
-				    // lalu: char dir_identifier[dir_id_len];
+	                            // lalu: char dir_identifier[dir_id_len];
 	// lalu padding byte jika diperlukan agar entry genap
 };
 
@@ -89,39 +91,36 @@ struct iso9660_dir_time {
 
 // Struktur Directory Record (Entry direktori / file)
 struct iso9660_dir {
-    uint8_t length;
-    uint8_t ext_attr_length;
+	uint8_t length;
+	uint8_t ext_attr_length;
 
-    uint32_t extent_le;
-    uint32_t extent_be;
+	uint32_t extent_le;
+	uint32_t extent_be;
 
-    uint32_t size_le;
-    uint32_t size_be;
+	uint32_t size_le;
+	uint32_t size_be;
 
-    uint8_t date[7];
+	uint8_t date[7];
 
-    uint8_t flags;
+	uint8_t flags;
 
-    uint8_t file_unit_size;
-    uint8_t interleave_gap;
+	uint8_t file_unit_size;
+	uint8_t interleave_gap;
 
-    uint16_t volume_seq_le;
-    uint16_t volume_seq_be;
+	uint16_t volume_seq_le;
+	uint16_t volume_seq_be;
 
-    uint8_t name_len;
+	uint8_t name_len;
 
-    char name[];
+	char name[];
 } __attribute__((packed));
-
-struct iso9660_node {
-	uint32_t extent;
-	uint32_t size;
-    uint8_t  flags; 
-};
 
 #define iOS9660_DIR_FLAG (1 << 1)
 
-int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent, dentry_ptr *out);
-fs_operations_t* iso9660_file_operations(void);
+int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
+                   dentry_ptr* out);
+fs_operations_t* iso9660_fs_operations(void);
+vops_file_t* iso9660_file_operations(void);
+int iso9660_read(vnode_t* vnode, void* buf, size_t len, size_t offset);
 
 #endif // __FS__ISO9660_H__
