@@ -14,7 +14,7 @@ static struct Library* libraries = NULL;
 void library_register(const char* path, enum LibraryType type) {
 	// TODO: buka file hanya ketika di load saja
 	dentry_ptr opened_dentry = 0;
-	vxResolveDentry((char*) path, 0, &opened_dentry, 0);
+	resolve_dentry((char*) path, 0, &opened_dentry, 0);
 	if (!opened_dentry) {
 		LOG_ERROR("LIBRARY", "failed to open file %s", path);
 		return;

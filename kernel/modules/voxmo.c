@@ -187,7 +187,7 @@ void vxVoxmoInstall(const char* path) {
 		 full_path_with_ext->c_str);
 
 	dentry_ptr dentry = 0;
-	if (vxResolveDentry(full_path_with_ext->c_str, 0, &dentry, 0)
+	if (resolve_dentry(full_path_with_ext->c_str, 0, &dentry, 0)
 	    != VFS_OK) {
 		LOG2_ERROR("VOXMO", "module %s not found", path);
 		str_release(full_path_with_ext);

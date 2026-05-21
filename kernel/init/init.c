@@ -1,5 +1,4 @@
 #include "init/init.h"
-#include <console/console.h>
 #include "hal/apic/apic.h"
 #include "hal/cpu/interrupt.h"
 #include "init/loader.h"
@@ -7,10 +6,12 @@
 #include "libk/serial.h"
 #include "memory/phys_base_allocator.h"
 #include "notify.h"
+#include "procc/proccess.h"
+#include <console/console.h>
 #include <hal/acpi/hpet.h>
-#include <str.h>
-#include <net/netutils.h>
 #include <memory/kalloc.h>
+#include <net/netutils.h>
+#include <str.h>
 
 // prototypes
 __attribute__((noreturn)) void _start(struct stivale2_struct* stivale2_struct);
@@ -22,7 +23,7 @@ KERNEL_API void __cxa_finalize(void* dso_handle);
 
 static init_context_t ctx = {};
 void render_bmp32_with_alpha(uint8_t* pixels, int width, int height, int new_w,
-			     int new_h, int posx, int posy);
+                             int new_h, int posx, int posy);
 
 // static void kernel_init() {
 // 	execve("/dev/initrd/sbin/runner.elf", 0, 0);
@@ -39,27 +40,26 @@ _start(struct stivale2_struct* stivale2_struct) {
 
 	// for logger
 	auto irq = irq_alloc_entry(0);
-	irq_register(0, irq, (void*) serial2_flush, true, 0x28, 0,
-		     INTERRUPT_ATTR_KERNEL);
+	irq_register(0, irq, (void*)serial2_flush, true, 0x28, 0,
+	             INTERRUPT_ATTR_KERNEL);
 	vxAPICCreateTimer(APIC_TIMER_PERIOD, 100, irq);
 
-	
 	pmm_log_usage();
 	KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...\n");
 
-	wait_until_receive_notify("/vfs/root", 5000);
+	wait_until_receive_notify("/vfs/root", 10000);
 
 	void* test_ptr = kalloc(256);
 	if (test_ptr) {
 		kalloc_metadata_t* meta =
-			(kalloc_metadata_t*) ((uintptr_t) test_ptr
-					      - sizeof(kalloc_metadata_t) - 16);
+		    (kalloc_metadata_t*)((uintptr_t)test_ptr -
+		                         sizeof(kalloc_metadata_t) - 16);
 		LOG2_INFO("KALLOC_TEST",
-			  "Allocated 256 bytes at %x, sizeof(meta)=%d",
-			  test_ptr, sizeof(kalloc_metadata_t));
+		          "Allocated 256 bytes at %x, sizeof(meta)=%d",
+		          test_ptr, sizeof(kalloc_metadata_t));
 		LOG2_INFO("KALLOC_TEST",
-			  "metadata: size=%d, magic=0x%x, pad=0x%x", meta->size,
-			  meta->magic, meta->_pad);
+		          "metadata: size=%d, magic=0x%x, pad=0x%x", meta->size,
+		          meta->magic, meta->_pad);
 		kfree2(test_ptr);
 		LOG2_INFO("KALLOC_TEST", "Freed successfully");
 	}
@@ -68,30 +68,23 @@ _start(struct stivale2_struct* stivale2_struct) {
 	void* large_ptr = kalloc(4096);
 	if (large_ptr) {
 		kalloc_metadata_t* meta =
-			(kalloc_metadata_t*) ((uintptr_t) large_ptr
-					      - sizeof(kalloc_metadata_t) - 16);
+		    (kalloc_metadata_t*)((uintptr_t)large_ptr -
+		                         sizeof(kalloc_metadata_t) - 16);
 		LOG2_INFO("KALLOC_TEST",
-			  "Allocated 4096 bytes at %x, sizeof(meta)=%d",
-			  large_ptr, sizeof(kalloc_metadata_t));
+		          "Allocated 4096 bytes at %x, sizeof(meta)=%d",
+		          large_ptr, sizeof(kalloc_metadata_t));
 		LOG2_INFO("KALLOC_TEST",
-			  "metadata: size=%d, magic=0x%x, pad=0x%x", meta->size,
-			  meta->magic, meta->_pad);
+		          "metadata: size=%d, magic=0x%x, pad=0x%x", meta->size,
+		          meta->magic, meta->_pad);
 		kfree2(large_ptr);
 		LOG2_INFO("KALLOC_TEST", "Large alloc freed successfully");
 	}
 
-	// test block
-	// {
-	// 	dentry_ptr mount_point;
-	// 	vxnamei("/opt/mount", &mount_point);
-	// 	vfs_mount("/dev/cd0", "ISO9660", mount_point, 0);
-	// }
-	// wait until /
+	// TODO: start scheduler on bsp
 
-	// auto nic = IOforgeNICFindByName("E1000");
-	// if (nic) {
-	// 	LOG2_INFO("NIC TEST", "NIC E1000 exit");
-	// }
+	// TODO: spawn /sbin/term
+	// jump into userspace
+	// execve("/sbin/term.elf", 0, 0);
 
 	// // TEST
 	// create_netdev("eth", NETDEV_TYPE_ETHERNET);
@@ -219,10 +212,10 @@ _start(struct stivale2_struct* stivale2_struct) {
 
 // extern framebuffer_t* g__fb;
 
-// void render_bmp32_with_alpha(uint8_t* pixels, int width, int height, int new_w,
-// 			     int new_h, int posx, int posy) {
-// 	int* srcx_table = kalloc(new_w * sizeof(int));
-// 	int* srcy_table = kalloc(new_h * sizeof(int));
+// void render_bmp32_with_alpha(uint8_t* pixels, int width, int height, int
+// new_w, 			     int new_h, int posx, int posy) { 	int*
+// srcx_table = kalloc(new_w * sizeof(int)); 	int* srcy_table = kalloc(new_h *
+// sizeof(int));
 
 // 	for (int x = 0; x < new_w; x++)
 // 		srcx_table[x] = (x * width) / new_w;

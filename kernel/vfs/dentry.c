@@ -85,8 +85,8 @@ void vxSetDentryAsRoot(dentry_ptr dentry) { root_dentry = dentry; }
 
 dentry_ptr KERNEL_API get_root_dentry() { return root_dentry; }
 
-int KERNEL_API vxResolveDentry(char* path, dentry_ptr parent, dentry_ptr* out,
-                               uint8_t flag) {
+int KERNEL_API resolve_dentry(char* path, dentry_ptr parent, dentry_ptr* out,
+                              uint8_t flag) {
 	if (!path || !out)
 		return -1;
 
@@ -159,8 +159,11 @@ int KERNEL_API vxResolveDentry(char* path, dentry_ptr parent, dentry_ptr* out,
 					goto fail;
 
 				if (ops->lookup(fs_instance, component, curr,
-				                &next) < 0)
+				                &next) != VFS_OK)
 					goto fail;
+
+				serial2_printf("success lokup from fs %s\n",
+				               component);
 
 				vfs_cache_insert(root_cache, next);
 				dentry_get(next);

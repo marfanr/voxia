@@ -7,6 +7,7 @@
 #include "llist.h"
 #include "memory/slab.h"
 #include "notify.h"
+#include "procc/proccess.h"
 #include "str.h"
 #include "vfs/vnode.h"
 #include <string.h>
@@ -293,8 +294,8 @@ static void detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 			vfs_mount(dentry, "ISO9660", mount_entry, 0);
 
 			dentry_ptr out;
-			if (vxResolveDentry("/kernel.elf", mount_entry, &out,
-			                    0) == VFS_OK) {
+			if (resolve_dentry("/kernel.elf", mount_entry, &out,
+			                   0) == VFS_OK) {
 
 				auto full_path =
 				    get_full_path_from_dentry(dentry);
@@ -320,6 +321,7 @@ static void detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 			notify_call("/vfs/root", VFS_NOTIFY_ROOT_FOUND, dentry);
 		}
 
+		execve("/sbin/term.elf", 0, 0);
 		print_dentry_tree(get_root_dentry(), 0);
 	}
 	kfree2(d_);

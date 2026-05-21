@@ -163,7 +163,7 @@ KERNEL_API void LoadIntoVfs(dentry_ptr dentry) {
 
 		{
 			dentry_ptr last_dentry = NULL;
-			if (vxResolveDentry(header.filename, dentry,
+			if (resolve_dentry(header.filename, dentry,
 			                    &last_dentry,
 			                    CREATE_MISSING_ENTRY) != VFS_OK) {
 				LOG_ERROR("VFS", "failed create dentry for %s",

@@ -106,7 +106,7 @@ enum {
  * - [Index]: If `RESOLVE_LAST_ENTRY` was set and the target was missing,
  * returns the index of the missing component in the path.
  */
-int vxResolveDentry(char* path, dentry_ptr parent, dentry_ptr* out,
+int resolve_dentry(char* path, dentry_ptr parent, dentry_ptr* out,
 		    uint8_t flag);
 
 void vxFreeDentry(dentry_ptr dentry);

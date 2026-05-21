@@ -95,7 +95,7 @@ INIT(graphic) {
 
 	dentry_ptr font_dentry;
 	uint8_t* font_buff = 0;
-	if (vxResolveDentry("/init/fonts/unifont.sfn", 0, &font_dentry, 0) ==
+	if (resolve_dentry("/init/fonts/unifont.sfn", 0, &font_dentry, 0) ==
 	    VFS_OK) {
 		LOG2_DEBUG("Graphic", "opened %s (%d kb)",
 		           font_dentry->name->c_str,
