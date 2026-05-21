@@ -10,8 +10,6 @@
 #include "type.h"
 #include "vfs/enum.h"
 #include <libk/serial.h>
-// HAPUS baris ini dari atas — sudah ada di bawah sebelum #include ssfn.h
-// #define SSFN_IMPLEMENTATION   ← HAPUS yang ini (duplikat)
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunknown-warning-option"
@@ -19,7 +17,6 @@
 #define _STRING_H_
 
 #define SSFN_memcmp memcmp
-
 
 #define SSFN_memset ssfn_memset
 static void* ssfn_memset(void* __s, int __c, size_t __n) {
@@ -81,7 +78,7 @@ static void ssfn_free_(void* ptr) {
 #undef _STRING_H_
 #pragma GCC diagnostic pop
 
-#define FONT_SIZE 15
+#define FONT_SIZE 16
 
 volatile framebuffer_t* g__fb;
 static ssfn_buf_t dst;
@@ -91,7 +88,7 @@ static boolean_t ssfn_ready = false;
 
 INIT(graphic) {
 	g__fb = &ctx->framebuffer;
-	LOG2_DEBUG("FB", "Fb addr %x", g__fb->framebuffer_addr);
+	LOG2_DEBUG("FB", "Fb addr %lx", g__fb->framebuffer_addr);
 
 	if (g__fb->framebuffer_addr == 0)
 		return;
@@ -124,18 +121,18 @@ INIT(graphic) {
 		}
 	}
 
-	serial2_printf("new framebuffer 0x%x\n", g__fb->framebuffer_addr);
+	serial2_printf("new framebuffer 0x%lx\n", g__fb->framebuffer_addr);
 
 	dst.ptr = (uint8_t*)g__fb->framebuffer_addr;
 	dst.w = g__fb->framebuffer_width;
 	dst.h = g__fb->framebuffer_height;
-	dst.p = g__fb->framebuffer_pitch;
+	dst.p = (uint16_t)g__fb->framebuffer_pitch;
 	dst.x = 0;
 	dst.y = 0;
 	dst.fg = 0xFFFFFFFF;
 	dst.bg = 0xFF000000;
 
-	serial2_printf("dst: ptr=%x w=%d h=%d p=%d\n", dst.ptr, dst.w, dst.h,
+	serial2_printf("dst: ptr=%lx w=%d h=%d p=%d\n", dst.ptr, dst.w, dst.h,
 	               dst.p);
 
 	if (font_buff) {
@@ -145,10 +142,8 @@ INIT(graphic) {
 			return;
 		}
 
-		ssfn_select(&ssfn_ctx, SSFN_FAMILY_ANY, NULL, /* family */
-		            SSFN_STYLE_REGULAR,               /* style */
-		            FONT_SIZE                         /* size */
-		);
+		ssfn_select(&ssfn_ctx, SSFN_FAMILY_ANY, NULL,
+		            SSFN_STYLE_REGULAR, FONT_SIZE);
 		ssfn_ready = true;
 	}
 
@@ -156,10 +151,10 @@ INIT(graphic) {
 }
 
 void vxPutc(char c, int col, int row, uint32_t fg, uint32_t bg) {
-	if (!ssfn_ready)
+	if (!ssfn_ready || !dst.ptr)
 		return;
 
-	dst.fg = fg | 0xFF000000; /* pastikan alpha selalu opak               */
+	dst.fg = fg | 0xFF000000;
 	dst.bg = bg | 0xFF000000;
 	dst.x = col * (FONT_SIZE / 2);
 	dst.y = FONT_SIZE + row * FONT_SIZE;
@@ -300,10 +295,9 @@ uint32_t vxGetWidth(void) { return dst.w; }
 uint32_t vxGetHeight(void) { return dst.h; }
 
 void vxScroll(int px) {
-	/* geser framebuffer ke atas px pixel, isi bawah dengan hitam */
 	uint32_t row_bytes = dst.p;
 	uint32_t total = row_bytes * (dst.h - px);
 	ssfn_memcpy(dst.ptr, dst.ptr + row_bytes * px, total);
-	/* clear baris terakhir */
+
 	ssfn_memset(dst.ptr + total, 0, row_bytes * px);
 }

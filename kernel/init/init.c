@@ -1,4 +1,5 @@
 #include "init/init.h"
+#include <console/console.h>
 #include "hal/apic/apic.h"
 #include "hal/cpu/interrupt.h"
 #include "init/loader.h"

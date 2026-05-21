@@ -1,16 +1,14 @@
 #include <console/console.h>
-#include <spinlock.h>
 #include <hal/graphic/graphic.h>
 #include <libk/serial.h>
-#include <type.h>
-#include <str.h>
 #include <memory/kalloc.h>
+#include <spinlock.h>
+#include <str.h>
+#include <type.h>
 
-#ifndef FONT_SIZE
+#undef FONT_SIZE
 #define FONT_SIZE 16
-#endif
 
-/* Sentinel values for buffering */
 #define SLOT_EMPTY 0x00
 #define SLOT_WRITING 0xFE
 #define SLOT_DROPPED 0xFF
@@ -22,7 +20,7 @@
 typedef struct {
 	char data[128];
 	uint32_t fg;
-	uint8_t len; /* SLOT_EMPTY / SLOT_WRITING / SLOT_DROPPED / 1-128 */
+	uint8_t len;
 } console_entry_t;
 
 typedef struct {
@@ -39,18 +37,23 @@ static int pos_x = 0;
 static int pos_y = 0;
 static uint32_t fgcolor = 0xFFFFFFFF;
 
-/* ── internal helpers (Rendering path - must be called under flush lock) ── */
-
 static int screen_cols(void) {
-	return vxGetWidth() / (FONT_SIZE / 2);
+	uint32_t w = vxGetWidth();
+	if (w == 0)
+		return 80;
+	return (int)(w / (FONT_SIZE / 2));
 }
 static int screen_rows(void) {
-	return vxGetHeight() / FONT_SIZE;
+	uint32_t h = vxGetHeight();
+	if (h == 0)
+		return 25;
+	return (int)(h / FONT_SIZE);
 }
 
 static void do_scroll(void) {
+	int rows = screen_rows();
 	vxScroll(FONT_SIZE);
-	pos_y = screen_rows() - 1;
+	pos_y = rows > 0 ? rows - 1 : 0;
 	pos_x = 0;
 }
 
@@ -86,22 +89,20 @@ static void put_char_raw(char c, uint32_t color) {
 	advance_cursor();
 }
 
-/* ── Buffering internals (Producer path) ── */
-
 static bool reserve_slot(uint32_t* out_idx) {
 	uint32_t head, tail;
 	for (;;) {
-		head = __atomic_load_n(&__console_buffer.head,
-				       __ATOMIC_RELAXED);
-		tail = __atomic_load_n(&__console_buffer.tail,
-				       __ATOMIC_ACQUIRE);
+		head =
+		    __atomic_load_n(&__console_buffer.head, __ATOMIC_RELAXED);
+		tail =
+		    __atomic_load_n(&__console_buffer.tail, __ATOMIC_ACQUIRE);
 
 		if ((head - tail) >= CONSOLE_BUFFER_SIZE)
 			return false;
 
 		if (__atomic_compare_exchange_n(
-			    &__console_buffer.head, &head, head + 1, true,
-			    __ATOMIC_ACQ_REL, __ATOMIC_RELAXED))
+		        &__console_buffer.head, &head, head + 1, true,
+		        __ATOMIC_ACQ_REL, __ATOMIC_RELAXED))
 			break;
 		__asm__ volatile("pause");
 	}
@@ -120,7 +121,7 @@ static void put_into_buffer(const char* str, uint8_t len, uint32_t color) {
 	while (__atomic_load_n(&entry->len, __ATOMIC_ACQUIRE) != SLOT_EMPTY) {
 		if (++spin >= SPIN_LIMIT) {
 			__atomic_store_n(&entry->len, SLOT_DROPPED,
-					 __ATOMIC_RELEASE);
+			                 __ATOMIC_RELEASE);
 			return;
 		}
 		__asm__ volatile("pause");
@@ -137,23 +138,21 @@ static void put_into_buffer(const char* str, uint8_t len, uint32_t color) {
 	__atomic_store_n(&entry->len, len, __ATOMIC_RELEASE);
 }
 
-/* ── Consumer (Flush) ── */
-
 static void console_flush(void) {
 	if (__atomic_test_and_set(&__console_flush_lock, __ATOMIC_ACQUIRE))
 		return;
 
 	for (;;) {
-		uint32_t tail = __atomic_load_n(&__console_buffer.tail,
-						__ATOMIC_RELAXED);
-		uint32_t head = __atomic_load_n(&__console_buffer.head,
-						__ATOMIC_ACQUIRE);
+		uint32_t tail =
+		    __atomic_load_n(&__console_buffer.tail, __ATOMIC_RELAXED);
+		uint32_t head =
+		    __atomic_load_n(&__console_buffer.head, __ATOMIC_ACQUIRE);
 
 		if (tail == head)
 			break;
 
 		console_entry_t* entry =
-			&__console_buffer.buffer[tail & CONSOLE_BUFFER_MASK];
+		    &__console_buffer.buffer[tail & CONSOLE_BUFFER_MASK];
 
 		uint32_t spin = 0;
 		uint8_t len;
@@ -168,8 +167,8 @@ static void console_flush(void) {
 			__asm__ volatile("pause");
 		}
 
-		if (len != SLOT_EMPTY && len != SLOT_WRITING
-		    && len != SLOT_DROPPED) {
+		if (len != SLOT_EMPTY && len != SLOT_WRITING &&
+		    len != SLOT_DROPPED) {
 			for (uint8_t i = 0; i < len; i++) {
 				put_char_raw(entry->data[i], entry->fg);
 			}
@@ -177,31 +176,25 @@ static void console_flush(void) {
 
 		__atomic_store_n(&entry->len, SLOT_EMPTY, __ATOMIC_RELEASE);
 		__atomic_store_n(&__console_buffer.tail, tail + 1,
-				 __ATOMIC_RELEASE);
+		                 __ATOMIC_RELEASE);
 	}
 
 	__atomic_clear(&__console_flush_lock, __ATOMIC_RELEASE);
 }
 
-/* ── Public API (Refactored to use buffer) ── */
-
-int console_get_pos_x(void) {
-	return pos_x;
-}
-int console_get_pos_y(void) {
-	return pos_y;
-}
+int console_get_pos_x(void) { return pos_x; }
+int console_get_pos_y(void) { return pos_y; }
 
 void console_println(const char* str) {
 	size_t len = strlen(str);
-	put_into_buffer(str, (uint8_t) len, fgcolor);
+	put_into_buffer(str, (uint8_t)len, fgcolor);
 	put_into_buffer("\n", 1, fgcolor);
 	console_flush();
 }
 
 void console_print(const char* str, uint64_t len) {
 	while (len > 0) {
-		uint8_t chunk = (len > 128) ? 128 : (uint8_t) len;
+		uint8_t chunk = (len > 128) ? 128 : (uint8_t)len;
 		put_into_buffer(str, chunk, fgcolor);
 		str += chunk;
 		len -= chunk;
@@ -210,7 +203,7 @@ void console_print(const char* str, uint64_t len) {
 }
 
 static char* val_to_str(uint64_t val, uint64_t base) {
-	char* out = (char*) kalloc(65);
+	char* out = (char*)kalloc(65);
 	if (!out)
 		return NULL;
 
@@ -240,7 +233,7 @@ static void vprintf_internal(const char* fmt, __builtin_va_list args) {
 
 #define FLUSH_TEMP()                                                           \
 	if (tidx > 0) {                                                        \
-		put_into_buffer(temp, (uint8_t) tidx, fgcolor);                \
+		put_into_buffer(temp, (uint8_t)tidx, fgcolor);                 \
 		tidx = 0;                                                      \
 	}
 
@@ -258,9 +251,8 @@ static void vprintf_internal(const char* fmt, __builtin_va_list args) {
 					s = "(null)";
 				size_t slen = strlen(s);
 				while (slen > 0) {
-					uint8_t c = (slen > 128)
-							    ? 128
-							    : (uint8_t) slen;
+					uint8_t c =
+					    (slen > 128) ? 128 : (uint8_t)slen;
 					put_into_buffer(s, c, fgcolor);
 					s += c;
 					slen -= c;
@@ -273,46 +265,46 @@ static void vprintf_internal(const char* fmt, __builtin_va_list args) {
 					put_into_buffer("-", 1, fgcolor);
 					n = -n;
 				}
-				char* s = val_to_str((uint64_t) n, 10);
+				char* s = val_to_str((uint64_t)n, 10);
 				if (s) {
-					put_into_buffer(s, (uint8_t) strlen(s),
-							fgcolor);
+					put_into_buffer(s, (uint8_t)strlen(s),
+					                fgcolor);
 					kfree2(s);
 				}
 				break;
 			}
 			case 'u': {
 				char* s = val_to_str(
-					__builtin_va_arg(args, uint64_t), 10);
+				    __builtin_va_arg(args, uint64_t), 10);
 				if (s) {
-					put_into_buffer(s, (uint8_t) strlen(s),
-							fgcolor);
+					put_into_buffer(s, (uint8_t)strlen(s),
+					                fgcolor);
 					kfree2(s);
 				}
 				break;
 			}
 			case 'x': {
 				char* s = val_to_str(
-					__builtin_va_arg(args, uint64_t), 16);
+				    __builtin_va_arg(args, uint64_t), 16);
 				if (s) {
-					put_into_buffer(s, (uint8_t) strlen(s),
-							fgcolor);
+					put_into_buffer(s, (uint8_t)strlen(s),
+					                fgcolor);
 					kfree2(s);
 				}
 				break;
 			}
 			case 'b': {
 				char* s = val_to_str(
-					__builtin_va_arg(args, uint64_t), 2);
+				    __builtin_va_arg(args, uint64_t), 2);
 				if (s) {
-					put_into_buffer(s, (uint8_t) strlen(s),
-							fgcolor);
+					put_into_buffer(s, (uint8_t)strlen(s),
+					                fgcolor);
 					kfree2(s);
 				}
 				break;
 			}
 			case 'c': {
-				char c = (char) __builtin_va_arg(args, int);
+				char c = (char)__builtin_va_arg(args, int);
 				put_into_buffer(&c, 1, fgcolor);
 				break;
 			}
@@ -372,9 +364,7 @@ void console_newline(void) {
 	irq_restore(flags);
 }
 
-void console_chfg(uint32_t color) {
-	fgcolor = color;
-}
+void console_chfg(uint32_t color) { fgcolor = color; }
 
 void console_add_space(int n) {
 	uintptr_t flags = irq_save();
@@ -385,7 +375,7 @@ void console_add_space(int n) {
 		char spaces[128];
 		for (int i = 0; i < c; i++)
 			spaces[i] = ' ';
-		put_into_buffer(spaces, (uint8_t) c, fgcolor);
+		put_into_buffer(spaces, (uint8_t)c, fgcolor);
 		n -= c;
 	}
 	console_flush();
@@ -395,8 +385,6 @@ void console_add_space(int n) {
 }
 
 void console_set_pos(int x, int y) {
-	/* Caution: direct setting of pos might race if called during flush.
-	   Ideally this should also be a buffered command if used frequently. */
 	pos_x = x;
 	pos_y = y;
 }
