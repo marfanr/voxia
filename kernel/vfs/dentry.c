@@ -162,9 +162,6 @@ int KERNEL_API vxResolveDentry(char* path, dentry_ptr parent, dentry_ptr* out,
 				                &next) < 0)
 					goto fail;
 
-				LOG2_INFO("Dentry", "found %s at fs %s",
-				          component, fs_instance->fs->name);
-
 				vfs_cache_insert(root_cache, next);
 				dentry_get(next);
 				dentry_put(curr);
@@ -227,17 +224,11 @@ int KERNEL_API vxnamei(const char* path, dentry_ptr* out) {
 
 	char* path_iter = temp;
 
-	serial2_printf("[DBG] temp=0x%p len=%d\n", temp, len);
 	while (path_iter && *path_iter != '\0') {
 		char* component = strsep2(&path_iter, "/");
 
 		if (!component || component[0] == '\0')
 			continue;
-
-		// if (strlen(component) >= 128) {
-		// 	dentry_put(curr);
-		// 	return -1;
-		// }
 
 		dentry_t* next = cache_lookup(root_cache, curr, component);
 
@@ -333,6 +324,15 @@ void print_dentry_tree(dentry_t* dentry, int depth) {
 			               vnode->fs_instance
 			                   ? vnode->fs_instance->fs->name
 			                   : "NO Filesystem");
+
+			if (vnode->mountedhere) {
+				auto block_dentry =
+				    vnode->fs_instance->block_dentry;
+				auto full_path =
+				    get_full_path_from_dentry(block_dentry);
+				serial2_printf(" <%s>", full_path->c_str);
+				str_release(full_path);
+			}
 		}
 	}
 	serial2_printf("\n");
@@ -368,26 +368,26 @@ kstring get_full_path_from_dentry(dentry_ptr dentry) {
 	auto curr = dentry->parent;
 	while (curr) {
 		if (!curr->parent || !curr->name) {
-            kstring rooted = str_concat_prefix(curr_name, "/");
-            str_release(curr_name);
-            return rooted;
-        }
+			kstring rooted = str_concat_prefix(curr_name, "/");
+			str_release(curr_name);
+			return rooted;
+		}
 
 		kstring with_slash = str_concat(curr->name, "/");
-        if (!with_slash) {
-            str_release(curr_name);
-            return NULL;
-        }
+		if (!with_slash) {
+			str_release(curr_name);
+			return NULL;
+		}
 
-        kstring merged = str_concat(with_slash, curr_name->c_str);
-        str_release(with_slash);
-        str_release(curr_name);
+		kstring merged = str_concat(with_slash, curr_name->c_str);
+		str_release(with_slash);
+		str_release(curr_name);
 
-        if (!merged)
-            return NULL;
+		if (!merged)
+			return NULL;
 
-        curr_name = merged;
-        curr = curr->parent;
+		curr_name = merged;
+		curr = curr->parent;
 	}
 
 	return curr_name;

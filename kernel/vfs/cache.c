@@ -121,8 +121,6 @@ void cache_remove(struct vfs_cache* cache, struct dentry* dentry) {
 	hlist_del(&dentry->hash_node, &cache->buckets[idx]);
 	__atomic_fetch_sub(&cache->count, 1, __ATOMIC_RELAXED);
 
-	serial2_printf("dentry removed from hlist table %s\n", dentry->name->c_str);
-
 	__atomic_clear(&cache->lock, __ATOMIC_RELEASE);
 }
 

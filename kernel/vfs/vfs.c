@@ -168,8 +168,6 @@ static int vfs_umount_recursive(dentry_t* dentry) {
 	if (!dentry)
 		return VFS_OK;
 
-	serial2_printf("umounted dentry %s\n", dentry->name->c_str);
-
 	auto ch = dentry->child_list.next;
 	while (ch != &dentry->child_list) {
 		auto next = ch->next; // simpan next sebelum child dilepas
@@ -189,6 +187,7 @@ static int vfs_umount_recursive(dentry_t* dentry) {
 		return VFS_ERR_BUSY;
 	}
 
+	// TODO: handle later
 	// auto vnode = dentry->vnode;
 	// if (vnode) {
 	//     auto fs_instance = vnode->fs_instance;
