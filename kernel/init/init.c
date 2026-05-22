@@ -71,10 +71,6 @@ _start(struct stivale2_struct* stivale2_struct) {
 		LOG2_INFO("KALLOC_TEST", "Large alloc freed successfully");
 	}
 
-	// TODO: start scheduler on bsp
-
-	// TODO: spawn /sbin/term
-	// jump into userspace
 	execve("/sbin/term.elf", 0, 0);
 	print_dentry_tree(get_root_dentry(), 0);
 

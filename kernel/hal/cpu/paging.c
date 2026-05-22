@@ -86,14 +86,14 @@ void paging_physwindow_mmap(page_t page_dir, uint64_t virt, uint64_t phys,
 	asm volatile("invlpg (%0)" ::"r"(virt) : "memory");
 }
 
-static void initialize_physical_paging_window() {
+static void initialize_physical_paging_window(page_t page) {
 	for (uint64_t i = 0; i < VOXIA_PHYS_MAX_WINDOW_COUNT; i++) {
 		paging_physwindow_mmap(
-		    pml4, (uint64_t)(mem_vma_phys_window_start + i * 0x1000), 0,
+		    page, (uint64_t)(mem_vma_phys_window_start + i * 0x1000), 0,
 		    PAGE_PRESENT);
 	}
 
-	vxMultipleMmap(pml4, mem_vma_phys_window_pt, (uint64_t)physwindow_pt,
+	vxMultipleMmap(page, mem_vma_phys_window_pt, (uint64_t)physwindow_pt,
 	               511, PAGE_PRESENT | PAGE_WRITABLE);
 
 	LOG_INFO("PAGING", "mapping physwindow_pt 0x%lx to 0x%lx",
@@ -109,7 +109,7 @@ INIT(paging) {
 
 	LOG_INFO("PAGING", "dma mapping count %d", mapping_data_count);
 
-	initialize_physical_paging_window();
+	initialize_physical_paging_window(pml4);
 
 	vxMultipleMmap(pml4, PHYS_BASE_METADATA_ADDR, (uint64_t)bitmap_base_,
 	               metadata_size / PAGE_SIZE, PAGE_PRESENT | PAGE_WRITABLE);
@@ -219,14 +219,34 @@ void paging_setup(page_t p) {
 		       PAGE_PRESENT | PAGE_WRITABLE);
 	}
 
-	// auto phy = phys_base_alloc(1);
-	// vxMmap(p, 0x200, (uint64_t)phy, PAGE_PRESENT | PAGE_WRITABLE);
-	// memcopy(phy, (void*)iddle, 0x1000);
-
 	for (int i = 0; i < mapping_data_count; i++) {
 		vxMultipleMmap(p, mapping_data[i].virt, mapping_data[i].phys,
 		               mapping_data[i].size,
 		               PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+	}
+
+	if (paging_has_been_set) {
+		serial2_printf("called after pagging set\n");
+		uintptr_t pml4_virt_addr = (uintptr_t)p;
+		mem_create_physwindow((uintptr_t)p, &pml4_virt_addr,
+		                      PHYS_WINDOW_FLAG_READ |
+		                          PHYS_WINDOW_FLAG_WRITE |
+		                          PHYS_WINDOW_FLAG_LOCK);
+		
+		uintptr_t pml4_kernel_virt_addr = (uintptr_t)pml4;
+		mem_create_physwindow((uintptr_t)pml4, &pml4_kernel_virt_addr,
+		                      PHYS_WINDOW_FLAG_READ |
+		                          PHYS_WINDOW_FLAG_WRITE |
+		                          PHYS_WINDOW_FLAG_LOCK);
+		
+								  page_t dst = (page_t)pml4_virt_addr;
+		page_t src = (page_t)pml4_kernel_virt_addr;
+
+		for (int i = 256; i < 512; i++)
+            dst[i] = src[i];
+
+		mem_release_physwindow(pml4_virt_addr);
+		mem_release_physwindow(pml4_kernel_virt_addr);
 	}
 }
 

@@ -4,6 +4,7 @@
 #include "hal/apic/apic.h"
 #include "hal/cpu/interrupt.h"
 #include "hal/cpu/msr.h"
+#include "hal/cpu/paging.h"
 #include "hal/cpu/register.h"
 #include "init/init.h"
 #include "libk/serial.h"
@@ -151,8 +152,8 @@ static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 
 	case THREAD_STATE_READY: {
 		thread->state = THREAD_STATE_RUNNING;
-
 		// TODO: handle error interrupt on userspace
+		
 		if (thread->flags & THREAD_USER) {
 			reg->rip = thread->entry_addr;
 			reg->rsp =
@@ -179,7 +180,9 @@ static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 
 			thread->current_core_id = core_id;
 		}
+
 		current_core->active_thread = thread;
+		paging_reload(thread->page);
 
 		goto end_scheduler_tick;
 	}
@@ -188,6 +191,8 @@ static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 		vxSaveRegister(reg, &thread->reg);
 		thread->current_core_id = core_id;
 		current_core->active_thread = thread;
+		paging_reload(thread->page);
+
 		break;
 
 	case THREAD_STATE_TERMINATED:
@@ -212,13 +217,16 @@ static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 
 		if (next->thread->state == THREAD_STATE_RUNNING)
 			vxRestoreRegister(reg, &next->thread->reg);
-		
+
 		current_core->active_thread = next->thread;
 
 		next->thread->last_run_time = vxHPETGetMainCount();
 		next->thread->has_update_run_time = true;
 		thread->has_update_run_time = false;
 		scheduler[core_id].current = next;
+		
+		if (next->thread->page) 
+			paging_reload(next->thread->page);
 	}
 
 end_scheduler_tick:

@@ -41,8 +41,9 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	}
 
 	// alloc new page
-	// auto page = paging_create_page_directory();
-	auto page = paging_get_highest_page_map();
+	auto page = paging_create_page_directory();
+	paging_setup(page);
+	serial2_printf("new page pml4 %p\n", (uintptr_t)page);
 
 	// loaded into buffer
 	auto size = loaded_file_dentry->vnode->size;
@@ -125,12 +126,12 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	}
 
 	// TODO: currently bypass
-	serial2_printf("new  addr 0x%x\n", base_addr);
+	serial2_printf("temporary_base 0x%x -> base 0x%x\n", temporary_base, base_addr);
 	if (!temporary_base) {
 		serial2_printf("error temporary addr must be not empty\n");
-		// kfree2(mmap_table);
-		// dentry_put(loaded_file_dentry);
-		// return -2;
+		kfree2(mmap_table);
+		dentry_put(loaded_file_dentry);
+		return -2;
 	}
 
 	GnuHashHeader gnu_hash;
@@ -146,17 +147,17 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 		LOG_INFO("VOXMO", "strtab found at 0x%x", dyn_map.strtab);
 		LOG_INFO("VOXMO", "needed size %d", dyn_map.needed.size);
 
-		elf_relocate_dyn(&dyn_map, base_addr, &gnu_hash, 0);
+		elf_relocate_dyn(&dyn_map, temporary_base, &gnu_hash, 0);
 	}
 
-	elf_call_init_array(&sh_map, base_addr);
+	elf_call_init_array(&sh_map, temporary_base);
 
 	serial2_printf("base vaddr %x %x\n", base_vaddr,
 	               (ehdr.e_entry - base_vaddr));
 
 	auto entry_addr = (ehdr.e_entry ) + base_addr;
+	create_thread(page, entry_addr, 1, 2, THREAD_USER);
 
-	create_thread(entry_addr, 1, 2, THREAD_USER);
 	serial2_printf(
 	    "done setuping executable, now ready to sended to scheduler\n");
 

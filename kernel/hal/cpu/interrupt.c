@@ -1,6 +1,7 @@
 #include "./interrupt.h"
 #include "autoconf.h"
 #include "hal/apic/apic.h"
+#include "hal/cpu/paging.h"
 #include "init/init.h"
 #include <hal/cpu/core.h>
 #include <hal/ethernet/e1000/e1000.h>
@@ -273,6 +274,8 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 
 		goto end;
 	}
+
+	// paging_reload(paging_get_highest_page_map());
 
 	{
 

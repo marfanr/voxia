@@ -23,7 +23,7 @@ typedef struct {
 	uintptr_t phys_addr;
 	_Atomic int lock;
 	mem_physwindow_flag_t flag;
-} __attribute__((aligned(32))) mem_physwindow_t;
+} __attribute__((aligned(64))) mem_physwindow_t;
 
 mem_physwindow_status_t mem_create_physwindow(uintptr_t phys_addr,
                                               uintptr_t* virt_addr,
