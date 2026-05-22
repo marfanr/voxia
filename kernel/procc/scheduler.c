@@ -111,7 +111,8 @@ static void vxRestoreRegister(interrupt_stack_frame_t* stack,
 }
 
 static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
-	const uint16_t core_id = get_current_core_cpuid();
+	auto current_core = get_current_core_data();
+	const uint16_t core_id = current_core->core_id;
 
 	spin_acquire(&scheduler[core_id].lock);
 
@@ -161,7 +162,6 @@ static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 			reg->rflags = 0x202;
 			reg->rbp = 0;
 
-			msrSetKernelGSBase((uintptr_t)thread);
 			LOG2_DEBUG("SCHEDULER",
 			           "core %d ready: user mode rip=0x%x", core_id,
 			           thread->entry_addr);
@@ -178,8 +178,8 @@ static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 			           core_id, thread->entry_addr);
 
 			thread->current_core_id = core_id;
-			msrSetKernelGSBase((uintptr_t)&core_data[core_id]);
 		}
+		current_core->active_thread = thread;
 
 		goto end_scheduler_tick;
 	}
@@ -187,6 +187,7 @@ static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 	case THREAD_STATE_RUNNING:
 		vxSaveRegister(reg, &thread->reg);
 		thread->current_core_id = core_id;
+		current_core->active_thread = thread;
 		break;
 
 	case THREAD_STATE_TERMINATED:
@@ -211,14 +212,8 @@ static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 
 		if (next->thread->state == THREAD_STATE_RUNNING)
 			vxRestoreRegister(reg, &next->thread->reg);
-
-		// TODO: need to be handled if core affinity is 0xFFFF
-		if (next->thread->flags & THREAD_USER) {
-			msrSetKernelGSBase((uint64_t)next->thread);
-		} else {
-			msrSetKernelGSBase(
-			    (uint64_t)&core_data[next->thread->core_affinity]);
-		}
+		
+		current_core->active_thread = next->thread;
 
 		next->thread->last_run_time = vxHPETGetMainCount();
 		next->thread->has_update_run_time = true;

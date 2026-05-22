@@ -16,7 +16,7 @@ static spinlock_t lock;
 #define SLOT_BUSY 0xFF
 
 static void workqueue_process() {
-	each_core_data* core = vxGetCoreData();
+	each_core_data* core = get_current_core_data();
 	LOG2_INFO("workqueue", "worker thread running on core %d",
 	          core->core_id);
 
