@@ -1,4 +1,5 @@
 #include "libk/io.h"
+#include "type.h"
 #include <hal/apic/ioapic.h>
 
 static struct irq_gsi_map irq_gsi_table[32] = {0};
@@ -25,6 +26,11 @@ read_ioapic_register(const uintptr_t apic_base, const uint8_t offset) {
 uint32_t ioapic_isr_get_vector(uint8_t irq) {
 	auto reg = read_ioapic_register(ioapic_base_addr, IOAPICREDTBL(irq));
 	return reg & 0xFF;
+}
+
+KERNEL_API uint8_t ioapic_isr_get_apic_id(uint8_t irq) {
+	auto reg = read_ioapic_register(ioapic_base_addr, IOAPICREDTBL(irq) + 1);
+	return (reg >> 24) & 0xFF;
 }
 
 void vxIOAPICMapISR(uint8_t irq, uint8_t vector, uint8_t apic_id) {

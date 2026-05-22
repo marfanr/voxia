@@ -78,7 +78,7 @@ static void ssfn_free_(void* ptr) {
 #undef _STRING_H_
 #pragma GCC diagnostic pop
 
-#define FONT_SIZE 16
+#define FONT_SIZE 14
 
 volatile framebuffer_t* g__fb;
 static ssfn_buf_t dst;
