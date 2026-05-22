@@ -24,7 +24,7 @@ typedef struct thread thread_t;
 struct thread {
 	thread_id id;
 	uint16_t core_affinity;
-	volatile uintptr_t page;
+	volatile uintptr_t* page;
 	uint8_t state;
 	uint8_t priority;
 	uint16_t flags;
@@ -34,7 +34,7 @@ struct thread {
 	uintptr_t entry_addr;
 	uint16_t current_core_id;
 	// 1 cache line
-	
+
 	cpu_register_t reg;
 	uint32_t uuid;
 } __attribute__((aligned(64)));
@@ -55,8 +55,9 @@ typedef struct thread_bucket {
 #define THREAD_GET_ID(tid) ((uint32_t)((tid) & 0xFFFFFFFFULL) - 1)
 #define THREAD_GET_GEN(tid) ((uint32_t)((tid) >> 32))
 
-thread_id create_thread(uintptr_t entry, uint16_t core_affinity,
-                         uint8_t priority, uint16_t flags);
+thread_id create_thread(volatile uintptr_t* page, uintptr_t entry,
+                        uint16_t core_affinity, uint8_t priority,
+                        uint16_t flags);
 void vxThreadExit(void);
 
 #endif /* __PROCC__THREAD_H__ */

@@ -44,7 +44,7 @@ static void vxUpdateThreadSlot(const thread_id id, thread_t* thr) {
 	bucket.slot[idx].thread = thr;
 }
 
-thread_id create_thread(const uintptr_t entry, uint16_t core_affinity,
+thread_id create_thread(volatile uintptr_t* page, const uintptr_t entry, uint16_t core_affinity,
 			 uint8_t priority, uint16_t flags) {
 	thread_t* thr = thrCreateInstance();
 	serial2_printf("created thread at 0x%x \n", thr);
@@ -55,6 +55,8 @@ thread_id create_thread(const uintptr_t entry, uint16_t core_affinity,
 	thr->flags = flags;
 	thr->stack = (uintptr_t) kalloc(4096);
 	thr->state = THREAD_STATE_CREATE;
+	thr->page = page;
+	
 	vxUpdateThreadSlot(thr->id, thr);
 	vxAttachScheduler(thr);
 	LOG2_DEBUG("THREAD", "created thread %d", thr->id);
