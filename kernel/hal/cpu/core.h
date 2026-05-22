@@ -32,7 +32,7 @@ typedef struct __attribute__((aligned(64))) {
 
 void update_core_gs(uint8_t id);
 uint8_t get_current_core_cpuid();
-each_core_data* vxGetCoreData();
+each_core_data* get_current_core_data();
 each_core_data* vxGetCoreDataByCoreID(uint8_t core_id);
 uint8_t vxGetActiveCoreCount();
 

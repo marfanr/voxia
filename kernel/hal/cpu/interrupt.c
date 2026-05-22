@@ -222,7 +222,7 @@ spinlock_t int_lock;
 __attribute__((no_stack_protector)) extern void
 vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 	UNUSED(fpu);
-	auto cpu = vxGetCoreData();
+	auto cpu = get_current_core_data();
 	auto cpu_id = cpu->core_id;
 
 	uint64_t int_number = rsp->int_no;

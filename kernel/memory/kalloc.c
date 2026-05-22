@@ -136,7 +136,7 @@ KALLOC_REFILL(2048)
 
 #define KALLOC_SLAB_ALLOC(BUCKET)                                              \
 	do {                                                                   \
-		uint32_t cpu = vxGetCoreData()->core_id;                       \
+		uint32_t cpu = get_current_core_data()->core_id;                       \
 		struct kalloc_cpu_cache* cc = &cpu_caches[cpu];                \
 		uintptr_t flags = lock_irqsave(&cc->lock);                     \
 		if (cc->c_##BUCKET##_count == 0)                               \
@@ -219,7 +219,7 @@ KERNEL_API void kfree(void* ptr, size_t size) {
 	if (ptr == NULL || size == 0)
 		return;
 
-	uint32_t cpu = vxGetCoreData()->core_id;
+	uint32_t cpu = get_current_core_data()->core_id;
 	struct kalloc_cpu_cache* cc = &cpu_caches[cpu];
 	uintptr_t cpu_flags = lock_irqsave(&cc->lock);
 
@@ -332,7 +332,7 @@ KERNEL_API void kfree2(void* ptr) {
 	if (ptr == NULL)
 		return;
 
-	uint32_t cpu = vxGetCoreData()->core_id;
+	uint32_t cpu = get_current_core_data()->core_id;
 	struct kalloc_cpu_cache* cc = &cpu_caches[cpu];
 	uintptr_t cpu_flags = lock_irqsave(&cc->lock);
 

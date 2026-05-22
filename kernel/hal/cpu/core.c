@@ -51,13 +51,13 @@ void update_core_gs(uint8_t id) {
 	msrSetKernelGSBase(core_data_addr);
 }
 
-each_core_data* vxGetCoreData(void) {
+each_core_data* get_current_core_data(void) {
 	each_core_data* core = (each_core_data*)msrReadGSBase();
 	return core;
 }
 
 KERNEL_API
-uint8_t get_current_core_cpuid() { return vxGetCoreData()->core_id; }
+uint8_t get_current_core_cpuid() { return get_current_core_data()->core_id; }
 
 each_core_data* vxGetCoreDataByCoreID(uint8_t core_id) {
 	each_core_data* core = (each_core_data*)&core_data[core_id];
@@ -83,7 +83,7 @@ cpuTrampolinePhase2(uint64_t core_id) {
 	serial_setup();
 	setup_gdt((uint8_t)core_id);
 	update_core_gs((uint8_t)core_id);
-	__stack_chk_guard = vxGetCoreData()->canary;
+	__stack_chk_guard = get_current_core_data()->canary;
 
 	irq_setup((uint8_t)core_id);
 	apicInitialize();

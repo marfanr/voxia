@@ -14,7 +14,7 @@ extern boolean_t g__scheduler__is__running;
 static boolean_t trigerred = 0;
 
 static void usleep_backend(interrupt_stack_frame_t* _) {
-	each_core_data* core = vxGetCoreData();
+	each_core_data* core = get_current_core_data();
 	core->usleep_trigerred = true;
 	trigerred = true;
 
@@ -36,7 +36,7 @@ void usleep(const uint64_t time_ns) {
 		}
 	}
 
-	each_core_data* core = vxGetCoreData();
+	each_core_data* core = get_current_core_data();
 	core->usleep_trigerred = false;
 
 	vxAPICCreateTimer(APIC_TIMER_ONE_SHOT, time_ns / 1000, 0x24);

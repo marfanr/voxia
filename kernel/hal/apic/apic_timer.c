@@ -44,7 +44,7 @@ static void vxAPICTimerCalibrationUsingHPET() {
 		apic_write(TIMER_DIVIDE_CONFIG, 0b1011);
 
 		LOG2_DEBUG("APIC_TIMER", "[APIC] calibrating core %d....",
-			   vxGetCoreData()->core_id);
+			   get_current_core_data()->core_id);
 		hpet_disable();
 		// TODO: buat utility untuk handle ini
 		// hpet_write(HPET_MAIN_COUNT, 0);
