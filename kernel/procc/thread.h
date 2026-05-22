@@ -24,19 +24,19 @@ typedef struct thread thread_t;
 struct thread {
 	thread_id id;
 	uint16_t core_affinity;
+	volatile uintptr_t page;
 	uint8_t state;
 	uint8_t priority;
 	uint16_t flags;
-	uint8_t _pad0[2];
-	uint64_t last_run_time;
-	uint32_t uuid;
-	boolean_t has_update_run_time;
-	uint8_t _cache_fill[35];
-
-	uintptr_t entry_addr;
 	uint64_t stack;
-	volatile uintptr_t page;
+	uint64_t last_run_time;
+	boolean_t has_update_run_time;
+	uintptr_t entry_addr;
+	uint16_t current_core_id;
+	// 1 cache line
+	
 	cpu_register_t reg;
+	uint32_t uuid;
 } __attribute__((aligned(64)));
 
 typedef struct {

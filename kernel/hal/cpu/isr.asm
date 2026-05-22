@@ -37,6 +37,7 @@
 extern vxInterruptHandler
 
 int_common:
+    swapgs
     pushall
 
     mov rbx, rsp
@@ -65,6 +66,7 @@ int_common:
     mov rsp, rbx            
 
     popall
+    swapgs
 
     add rsp, 16             
     iretq
