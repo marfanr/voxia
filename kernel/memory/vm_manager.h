@@ -9,15 +9,16 @@ enum mem_vma_base {
 	mem_vma_phys_window_pt = 0xFFFFB0000F000000,
 };
 
+#define KERNEL_BASE  0xFFFF800000000000ULL
+#define REGION_SIZE  0x0000200000000000ULL  // 32 TB
+
+
 typedef enum : uintptr_t {
-	VMA_REGION_A = 0xFFFFA00000000000U,
-	VMA_REGION_B = 0xFFFFB00000000000U,
-	// for PCI
-	VMA_REGION_C = 0xFFFFC00000000000U,
-	// for MODULE
-	VMA_REGION_KMODULE = 0x100000,
+	VMA_REGION_A      = KERNEL_BASE,
+	VMA_REGION_B      = KERNEL_BASE + REGION_SIZE * 1,
+	VMA_REGION_C      = KERNEL_BASE + REGION_SIZE * 2,
+	VMA_REGION_KMODULE= KERNEL_BASE + REGION_SIZE * 3,
 	VMA_REGION_PROCESS = 0x400000,
-	VMA_REGION_KLIBRARY = 0x80000000,
 } mem_vma_region;
 
 typedef struct virtual_memory_block virtual_memory_block_t;
