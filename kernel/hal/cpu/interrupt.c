@@ -240,8 +240,8 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 		               exception_messages[int_number], int_number);
 		serial2_printf("  rip=0x%x  rsp=0x%x  err=0x%x  cr2=0x%x\n",
 		               rsp->rip, rsp->rsp, rsp->err_code, cr2);
-		serial2_printf("  rax=0x%x  rbx=0x%x  rcx=0x%x  rdx=0x%x\n",
-		               rsp->rax, rsp->rbx, rsp->rcx, rsp->rdx);
+		serial2_printf("  rax=0x%x  rbp=0x%x  rcx=0x%x  rdx=0x%x\n",
+		               rsp->rax, rsp->rbp, rsp->rcx, rsp->rdx);
 
 		// serial_printf("\n\n[EXCEPTION] %s (vector %d)\n",
 		// 	      exception_messages[int_number], int_number);

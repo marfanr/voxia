@@ -63,7 +63,7 @@ static void vxDeatachFromScheduler(scheduler_queue_t* current,
 		spin_release(&scheduler[core_id].lock);
 }
 
-static void vxSaveRegister(interrupt_stack_frame_t* stack,
+static void vxSaveRegister(volatile interrupt_stack_frame_t* stack,
                            cpu_register_t* reg) {
 	reg->rip = stack->rip;
 	reg->cs = stack->cs;
@@ -87,7 +87,7 @@ static void vxSaveRegister(interrupt_stack_frame_t* stack,
 	reg->r15 = stack->r15;
 }
 
-static void vxRestoreRegister(interrupt_stack_frame_t* stack,
+static void vxRestoreRegister(volatile interrupt_stack_frame_t* stack,
                               cpu_register_t* reg) {
 	stack->rip = reg->rip;
 	stack->cs = reg->cs;
@@ -111,9 +111,15 @@ static void vxRestoreRegister(interrupt_stack_frame_t* stack,
 	stack->r15 = reg->r15;
 }
 
-static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
+static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 	auto current_core = get_current_core_data();
+	if (!current_core)
+		return;
+
 	const uint16_t core_id = current_core->core_id;
+
+	volatile uintptr_t* reload_page = nullptr;
+	thread_t* next_thread_out = nullptr;
 
 	spin_acquire(&scheduler[core_id].lock);
 
@@ -153,7 +159,7 @@ static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 	case THREAD_STATE_READY: {
 		thread->state = THREAD_STATE_RUNNING;
 		// TODO: handle error interrupt on userspace
-		
+
 		if (thread->flags & THREAD_USER) {
 			reg->rip = thread->entry_addr;
 			reg->rsp =
@@ -181,17 +187,21 @@ static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 			thread->current_core_id = core_id;
 		}
 
-		current_core->active_thread = thread;
-		paging_reload(thread->page);
+		next_thread_out = thread;
 
-		goto end_scheduler_tick;
+		if (thread->page)
+			reload_page = thread->page;
+
+		goto unlock_and_return_w_load;
 	}
 
 	case THREAD_STATE_RUNNING:
 		vxSaveRegister(reg, &thread->reg);
 		thread->current_core_id = core_id;
 		current_core->active_thread = thread;
-		paging_reload(thread->page);
+
+		if (thread->page)
+			reload_page = thread->page;
 
 		break;
 
@@ -199,9 +209,9 @@ static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 		LOG2_DEBUG("SCHEDULER", "core %d terminated thread id %d",
 		           core_id, thread->id);
 		thread->state = THREAD_STATE_HAL;
+
 		vxDeatachFromScheduler(current, true);
-		spin_release(&scheduler[core_id].lock);
-		return;
+		goto unlock_and_return;
 
 	default:
 		break;
@@ -213,10 +223,18 @@ static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 		scheduler_queue_t* next = current->next_queue;
 
 		if (!next || next == current)
-			goto end_scheduler_tick;
+			goto unlock_and_return_w_load;
+
+		thread_t* next_thread = next->thread;
+		if (!next_thread)
+			goto unlock_and_return_w_load;
 
 		if (next->thread->state == THREAD_STATE_RUNNING)
 			vxRestoreRegister(reg, &next->thread->reg);
+
+		reload_page = nullptr;
+		if (next->thread->page)
+			reload_page = next->thread->page;
 
 		current_core->active_thread = next->thread;
 
@@ -224,12 +242,20 @@ static void vxSchedulerTick(interrupt_stack_frame_t* reg) {
 		next->thread->has_update_run_time = true;
 		thread->has_update_run_time = false;
 		scheduler[core_id].current = next;
-		
-		if (next->thread->page) 
-			paging_reload(next->thread->page);
+		next_thread_out = next_thread;
 	}
 
-end_scheduler_tick:
+unlock_and_return_w_load:
+	spin_release(&scheduler[core_id].lock);
+	if (next_thread_out)
+		current_core->active_thread = next_thread_out;
+
+	if (reload_page)
+		paging_reload(reload_page);
+
+	return;
+
+unlock_and_return:
 	spin_release(&scheduler[core_id].lock);
 }
 
