@@ -52,15 +52,35 @@ syscall_entry:
     push qword 0            ; err_code
     push qword 0x80         ; int_no (Syscall)
 
-    ; pushall
+    pushall
 
-    ; mov rdi, rsp
+    mov rdi, rsp
     call syscall_dispatch
 
-    ; popall
+    popall
+
     add rsp, 16             ; int_no, err_code
 
+    mov rcx, [rsp] ; RIP
+    mov r11, [rsp + 16] ; RFLAGS
+
     swapgs
-    ; for now using iretq
-    ; TODO: setup propper gs so can be used to make a hot path 
+
+    push rax
+    push rbx
+
+    mov rax, [gs:40] ; scheduler
+    mov rax, [rax] ; current
+    mov rax, [rax + 16] ; next queue
+    mov rax, [rax] ; thread
+    mov rbx, [rax + 26] ; flags
+
+    test rbx, 1 ; user thread
+    pop rax
+    pop rbx
+    jnz .sysr    
     iretq
+
+    .sysr:
+        mov rsp, [rsp + 24] ; RSP
+        sysretq

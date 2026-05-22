@@ -1,4 +1,5 @@
 #include "syscall.h"
+#include "console/console.h"
 #include "hal/cpu/msr.h"
 #include "init/init.h"
 #include "libk/serial.h"
@@ -23,7 +24,7 @@ void syscall_init(void) {
 }
 
 extern void syscall_dispatch(void) {
-    serial2_printf("hello syscall\n");
+    console_printf("hello syscall\n");
 }
 
 INIT(Syscall) { syscall_init(); }
