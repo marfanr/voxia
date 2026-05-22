@@ -69,7 +69,7 @@ _start(struct stivale2_struct* stivale2_struct) {
 		LOG2_INFO("KALLOC_TEST", "Large alloc freed successfully");
 	}
 
-	execve("/sbin/term.elf", 0, 0);
+	// execve("/sbin/term.elf", 0, 0);
 	print_dentry_tree(get_root_dentry(), 0);
 
 	pmm_log_usage();
