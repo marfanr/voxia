@@ -7,7 +7,7 @@
 #include <type.h>
 
 #undef FONT_SIZE
-#define FONT_SIZE 16
+#define FONT_SIZE 14
 
 #define SLOT_EMPTY 0x00
 #define SLOT_WRITING 0xFE
