@@ -249,6 +249,7 @@ int vfs_umount(dentry_ptr dentry) {
 	return ok;
 }
 
+__attribute__((unused))
 static void detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 	UNUSED(data);
 	UNUSED(ctx);
@@ -328,6 +329,8 @@ static void detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 	kfree2(d_);
 }
 
+
+__attribute__((unused))
 static void vfs_notify_probe_handler(void* data, void* ctx) {
 
 	UNUSED(ctx);
@@ -358,6 +361,7 @@ static void vfs_notify_probe_handler(void* data, void* ctx) {
 static void vfs_event_handler(uint32_t event, void* data, void* ctx) {
 	UNUSED(data);
 	UNUSED(ctx);
+	UNUSED(event);
 
 	switch (event) {
 	case VFS_NOTIFY_PROBE:
