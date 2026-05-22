@@ -32,7 +32,7 @@ extern void initTimer(init_context_t* _);
 
 extern uint8_t x2_apic_supported;
 
-static each_core_data core_data[VOXIA_MAX_CORE] = {0};
+each_core_data core_data[VOXIA_MAX_CORE] = {0};
 
 extern uint8_t ap_stack_top[VOXIA_MAX_CORE][65536];
 
