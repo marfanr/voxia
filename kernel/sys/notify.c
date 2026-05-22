@@ -8,8 +8,6 @@
 
 static struct notify_dev_table notify_table = {0};
 
-/* Internal helper: find a notify_dev by name.
- * Acquires and releases notify_table.lock internally. */
 static struct notify_dev* find_dev(const char* name) {
 	auto h = hash(name, NOTIFY_DEV_HASH_SIZE);
 	size_t name_len = strlen(name);
@@ -31,8 +29,13 @@ void notify_dev_create(kstring name) {
 	auto h = hash(name->c_str, NOTIFY_DEV_HASH_SIZE);
 
 	auto n = (struct notify_dev*)kalloc(sizeof(struct notify_dev));
+	if (!n)
+		return;
+
+	memset(n, 0, sizeof(struct notify_dev));
 	n->hash = h;
 	n->name = name;
+	n->chain.lock = (spinlock_t)SPINLOCK_INIT;
 
 	spin_acquire(&notify_table.lock);
 
@@ -61,6 +64,9 @@ int notify_register(char* name, struct notifier* n) {
 		return 0;
 
 	auto new_notifier = (struct notifier*)kalloc(sizeof(struct notifier));
+	if (!new_notifier)
+		return 0;
+
 	new_notifier->callback = n->callback;
 	new_notifier->context = n->context;
 	new_notifier->priority = n->priority;
@@ -86,12 +92,18 @@ int notify_call(char* name, uint32_t event, void* data) {
 	if (!current_dev)
 		return 0;
 
+
+
+	(void)event;
+	(void)data;
+
 	spin_acquire(&current_dev->chain.lock);
 
 	auto current = current_dev->chain.head;
 	while (current) {
 		auto next = current->next;
-		current->callback(event, data, current->context);
+		if (current->callback)
+			current->callback(event, data, current->context);
 		current = next;
 	}
 
