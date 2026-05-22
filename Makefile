@@ -1,6 +1,6 @@
 # Variabel umum
 QEMU=qemu-system-x86_64
-QEMU_FLAGS=-m 3G -cpu host -M q35 -smp 3  -enable-kvm -rtc base=localtime -no-reboot
+QEMU_FLAGS=-m 3G -cpu host -M q35 -smp 2 -enable-kvm -rtc base=localtime
 QEMU_USB=-device usb-ehci,id=ehci -device usb-kbd,bus=ehci.0,port=1,id=kbd
 # 	-device usb-mouse,bus=ehci.0,port=2,id=mouse
 # QEMU_NETWORK= -netdev user,id=net0,hostfwd=tcp::1234-:1234\
@@ -21,10 +21,10 @@ all: lib kernel lib modules iso sbin
 
 modules:
 	@mkdir -p ./initrd/modules
-# 	$(MAKE) -C ./modules/e1000
-# 	$(MAKE) -C ./modules/ehci
-# 	$(MAKE) -C ./modules/usb-hid
-# 	$(MAKE) -C ./modules/virtio-gpu
+	$(MAKE) -C ./modules/e1000
+	$(MAKE) -C ./modules/ehci
+	$(MAKE) -C ./modules/usb-hid
+	$(MAKE) -C ./modules/virtio-gpu
 	$(MAKE) -C ./modules/ahci
 	$(MAKE) -C ./modules/atapi
 # 	$(MAKE) -C ./modules/runtimeinit all
