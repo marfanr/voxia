@@ -36,9 +36,7 @@ _start(struct stivale2_struct* stivale2_struct) {
 	             INTERRUPT_ATTR_KERNEL);
 	vxAPICCreateTimer(APIC_TIMER_PERIOD, 100, irq);
 
-	KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...\n");
-
-	wait_until_receive_notify("/vfs/root", 10000);
+	wait_until_receive_notify("/vfs/root", 5000);
 
 	void* test_ptr = kalloc(256);
 	if (test_ptr) {
@@ -74,8 +72,8 @@ _start(struct stivale2_struct* stivale2_struct) {
 	execve("/sbin/term.elf", 0, 0);
 	print_dentry_tree(get_root_dentry(), 0);
 
-	// pmm_log_usage();
-
+	pmm_log_usage();
+	KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...\n");
 
 	INFLOOP;
 }

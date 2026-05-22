@@ -10,8 +10,8 @@ extern int main() {
 	char buff[100];
 	int a = read(0, buff, 10);
 	
-	char *c = (char *)"hello world";
-	write(0, c, a);
+	// char *c = (char *)"hello world";
+	// write(0, c, a);
 	
 	for (;;)
 		;

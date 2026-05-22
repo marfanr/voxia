@@ -2,13 +2,13 @@ SRC_DIR     := src
 BUILD_DIR   := build
 INCLUDE_DIR := include
 
-ROOT        ?= $(realpath ../..)
-LIB_INCLUDE_DIR := $(ROOT)/include
+# ROOT        ?= $(realpath ../..)
+LIB_INCLUDE_DIR := include
 
 MODULE_NAME := term
 OUT_ELF     := $(MODULE_NAME).elf
 
-CXX := clang++
+CXX := clang
 
 TARGET := x86_64-unknown-none
 
@@ -19,9 +19,7 @@ CXXFLAGS := \
 	-fuse-ld=lld \
 	-fno-exceptions \
 	-fno-rtti \
-	-std=c++20 \
-	-O0 -ggdb \
-	-I$(LIB_INCLUDE_DIR) \
+	-O2 -ggdb \
 	-I$(INCLUDE_DIR)
 
 LDFLAGS := \
@@ -32,19 +30,22 @@ LDFLAGS := \
 	-Wl,--build-id=none \
 	-nostdlib
 
-SRCS := $(shell find $(SRC_DIR) -type f -name '*.cpp')
-OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(SRCS))
+SRCS := $(shell find $(SRC_DIR) -type f -name '*.c')
+OBJS := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
 
 .PHONY: all clean
 
 all: $(OUT_ELF)
+
+$(info SRCS = $(SRCS))
+$(info OBJS = $(OBJS))
 
 $(OUT_ELF): $(OBJS)
 	@mkdir -p ../../root/sbin
 	$(CXX) $(OBJS) $(LDFLAGS) -o $@
 	cp $@ ../../root/sbin/
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
