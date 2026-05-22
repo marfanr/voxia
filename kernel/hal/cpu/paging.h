@@ -55,7 +55,7 @@ page_t paging_get_highest_page_map(void);
 void paging_unmap_page(page_t page_dir, uint64_t virt);
 void paging_unmap_fill(page_t page_dir, uint64_t virt, size_t size);
 void paging_setup(page_t pml4);
-void paging_fork(page_t parent_pml4, page_t child_pml4);
+
 void vxMultipleMmap(page_t page_dir, uint64_t virt, uint64_t phys,
                     uint64_t size, uint64_t flags);
 uint64_t vaddr_to_paddr(page_t pml4, uint64_t vaddr);
