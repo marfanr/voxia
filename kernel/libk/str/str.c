@@ -283,7 +283,8 @@ void* memmove(void* dest, const void* src, size_t n) {
 	return dest;
 }
 
-char* itoa(int value, char* str, int base) {
+char* itoa(int64_t value, int base) {
+	static char str[32];
 	if (base < 2 || base > 36) {
 		*str = '\0';
 		return str;
@@ -295,7 +296,7 @@ char* itoa(int value, char* str, int base) {
 		return str;
 	}
 
-	int tmp = 0;
+	int64_t tmp = 0;
 	char* last = str;
 	char* start = str;
 
@@ -303,7 +304,7 @@ char* itoa(int value, char* str, int base) {
 		tmp = value;
 		value /= base;
 
-		int digit = tmp - value * base;
+		int64_t digit = tmp - value * base;
 
 		*last++ = (char) ((digit < 10) ? ('0' + digit)
 					       : ('a' + (digit - 10)));
