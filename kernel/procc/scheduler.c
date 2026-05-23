@@ -292,9 +292,11 @@ static scheduler_queue_t* vxAllocScheduler(const uint16_t core) {
 	return queue;
 }
 
-void vxAttachScheduler(thread_t* new_thread) {
+void attach_to_scheduler(thread_t* new_thread) {
 	if (!new_thread)
 		return;
+
+	// TODO: lock
 
 	uint16_t core = 1;
 	if (new_thread->core_affinity != (uint16_t)-1)

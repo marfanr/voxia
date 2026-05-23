@@ -21,7 +21,7 @@ typedef struct scheduler_core {
 
 void               vxStartScheduler(void);
 scheduler_core_t*  vxGetSchedulerCore(uint16_t core);
-void               vxAttachScheduler(thread_t* new_thread);
+void               attach_to_scheduler(thread_t* new_thread);
 scheduler_queue_t* vxSchedulerGetCurrentQueue(uint16_t core);
 
 #endif /* __PROCC__SCHEDULER_H__ */
