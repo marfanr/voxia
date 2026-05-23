@@ -1,4 +1,4 @@
-#include "procc/proccess.h"
+#include "procc/process.h"
 #include "hal/cpu/paging.h"
 #include "init/init.h"
 #include "libk/executable/elf.h"
@@ -7,7 +7,9 @@
 #include "memory/kalloc.h"
 #include "memory/memory_utils.h"
 #include "memory/phys_base_allocator.h"
+#include "memory/slab.h"
 #include "memory/vm_manager.h"
+#include "procc/scheduler.h"
 #include "procc/thread.h"
 #include "type.h"
 #include "vfs/dentry.h"
@@ -18,7 +20,60 @@
 // static pid_t increment_pid = 1;
 // static proccess_t* proccess_list;
 
-INIT(Proccess) {}
+static struct slab_cache* process_cache = 0;
+static uint8_t* pid_bitmap = 0;
+
+__attribute__((unused)) static struct process_head process_bucket[256] = {0};
+
+INIT(Process) {
+	vxCreateSlabCache(&process_cache, "process", sizeof(proccess_t), 0, 0);
+	pid_bitmap = (uint8_t*)kalloc(MAX_PID_ALLOWED / 8);
+	memset(pid_bitmap, 0, MAX_PID_ALLOWED / 8);
+}
+
+pid_t alloc_pid() {
+	uint8_t curr_byte = 0;
+	uint8_t* curr_byte_ptr = pid_bitmap;
+	while (1) {
+		if (*curr_byte_ptr == 0xFF) {
+			curr_byte++;
+			continue;
+		}
+		for (pid_t i = 0; i < 8; i++) {
+			if ((*curr_byte_ptr & (1 << i)) == 0) {
+				*curr_byte_ptr |= (1 << i);
+				return (pid_t)curr_byte * 8 + i;
+			}
+		}
+	}
+
+	return 0;
+}
+
+void free_pid(pid_t pid) {
+	pid_t curr_byte = pid / 8;
+	uint8_t curr_bit = pid % 8;
+	pid_bitmap[curr_byte] &= ~(1 << curr_bit);
+}
+
+proccess_t* create_process(char* name, thread_t* main_thread) {
+	auto p = (proccess_t*)vxSlabAlloc(process_cache);
+	auto name_len = strlen(name);
+	if (name_len > 64)
+	name_len = 64;
+strncpy(p->name, name, name_len);
+	p->name[name_len] = '\0';
+	p->pid = alloc_pid();
+	
+	p->main_thread = main_thread;
+	main_thread->porccess = p;
+	p->exit_code = 0;
+	p->exited = false;
+
+	// insert into cache
+
+	return p;
+}
 
 // TODO: make enum for return error code
 int execve(const char* path, char* const* argv, char* const* envp) {
@@ -93,7 +148,6 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	          ehdr.e_phnum);
 	LOG2_INFO("ELF", "entry : 0x%x", ehdr.e_entry);
 
-	// Elf64_Phdr* phdr = ELF_PTR(Elf64_Phdr, file_buffer, ehdr.e_phoff);
 	serial_trace("phdr count %d\n", ehdr.e_phnum);
 
 	uintptr_t base_vaddr = 0;
@@ -126,7 +180,8 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	}
 
 	// TODO: currently bypass
-	serial2_printf("temporary_base 0x%x -> base 0x%x\n", temporary_base, base_addr);
+	serial2_printf("temporary_base 0x%x -> base 0x%x\n", temporary_base,
+	               base_addr);
 	if (!temporary_base) {
 		serial2_printf("error temporary addr must be not empty\n");
 		kfree2(mmap_table);
@@ -155,24 +210,30 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	serial2_printf("base vaddr %x %x\n", base_vaddr,
 	               (ehdr.e_entry - base_vaddr));
 
-	auto entry_addr = (ehdr.e_entry ) + base_addr;
-	create_thread(page, entry_addr, 1, 2, THREAD_USER);
+	auto entry_addr = (ehdr.e_entry) + base_addr;
 
-	serial2_printf(
-	    "done setuping executable, now ready to sended to scheduler\n");
+	auto thr = create_thread(page, entry_addr, 1, 2, THREAD_USER);
 
-	// auto kernel_page = paging_get_highest_page_map();
-	// for (int i = 0; i < ehdr.e_phnum; i++) {
-	// 	if (mmap_table[i].mapped) {
-	// 		vma_unregister(mmap_table[i].vaddr);
-	// 		paging_unmap_fill(kernel_page,
-	// 		                  mmap_table[i].vaddr +
-	// 		                      mmap_table[i].alligned,
-	// 		                  mmap_table[i].size);
-	// 	}
-	// }
+	create_process(loaded_file_dentry->name->c_str, thr);
+	
 
-	// kfree2(mmap_table);
+	serial2_printf("done setuping executable, now ready to sended "
+	               "to scheduler\n");
+
+	attach_to_scheduler(thr);
+
+	auto kernel_page = paging_get_highest_page_map();
+	for (int i = 0; i < ehdr.e_phnum; i++) {
+		if (mmap_table[i].mapped) {
+			vma_unregister(mmap_table[i].vaddr);
+			paging_unmap_fill(kernel_page,
+			                  mmap_table[i].vaddr +
+			                      mmap_table[i].alligned,
+			                  mmap_table[i].size);
+		}
+	}
+
+	kfree2(mmap_table);
 	dentry_put(loaded_file_dentry);
 	return VFS_OK;
 }
