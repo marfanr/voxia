@@ -19,6 +19,7 @@ CXXFLAGS := \
 	-fuse-ld=lld \
 	-fno-exceptions \
 	-fno-rtti \
+	-nostdinc \
 	-O2 -ggdb \
 	-I$(INCLUDE_DIR)
 
