@@ -49,7 +49,7 @@ char* strtok_r(char* str, const char* delim, char** saveptr);
 
 typedef const char* __str;
 char* rtrim(char* str);
-char* itoa(int value, char* str, int base);
+char* itoa(int64_t value, int base);
 
 // Commenting out the incomplete explode function for now to resolve compilation errors.
 // static inline void
