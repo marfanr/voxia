@@ -18,26 +18,30 @@ struct process_node {
 };
 
 struct thread;
-typedef struct proccess {
+typedef struct process {
 	pid_t pid;
 	pid_t parent_pid;
 
 	char name[64];
 
 	struct thread* main_thread;
-	// file_descriptor_t fd;
+	struct fdtable* fdtable;
 	int exit_code;
 	bool exited;
 
 	struct process_node cache;
-} __attribute__((aligned(64))) proccess_t;
+
+	// linked list
+	struct process* next;
+	struct process* prev;
+} __attribute__((aligned(64))) process_t;
 
 struct thread;
 
 pid_t alloc_pid();
 void free_pid(pid_t pid);
 
-proccess_t* create_process(char* name, struct thread* main_thread);
+process_t* create_process(char* name, struct thread* main_thread);
 int execve(const char* path, char* const argv[], char* const envp[]);
 
 #endif // __PROCC__PROCESS_H__

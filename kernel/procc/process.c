@@ -11,6 +11,7 @@
 #include "memory/vm_manager.h"
 #include "procc/scheduler.h"
 #include "procc/thread.h"
+#include "sys/fd.h"
 #include "type.h"
 #include "vfs/dentry.h"
 #include "vfs/enum.h"
@@ -22,57 +23,15 @@
 
 static struct slab_cache* process_cache = 0;
 static uint8_t* pid_bitmap = 0;
-
+static dentry_ptr process_dentry = 0;
 __attribute__((unused)) static struct process_head process_bucket[256] = {0};
+static process_t* _process_list = 0;
 
 INIT(Process) {
-	vxCreateSlabCache(&process_cache, "process", sizeof(proccess_t), 0, 0);
+	vxCreateSlabCache(&process_cache, "process", sizeof(process_t), 0, 0);
 	pid_bitmap = (uint8_t*)kalloc(MAX_PID_ALLOWED / 8);
 	memset(pid_bitmap, 0, MAX_PID_ALLOWED / 8);
-}
-
-pid_t alloc_pid() {
-	uint8_t curr_byte = 0;
-	uint8_t* curr_byte_ptr = pid_bitmap;
-	while (1) {
-		if (*curr_byte_ptr == 0xFF) {
-			curr_byte++;
-			continue;
-		}
-		for (pid_t i = 0; i < 8; i++) {
-			if ((*curr_byte_ptr & (1 << i)) == 0) {
-				*curr_byte_ptr |= (1 << i);
-				return (pid_t)curr_byte * 8 + i;
-			}
-		}
-	}
-
-	return 0;
-}
-
-void free_pid(pid_t pid) {
-	pid_t curr_byte = pid / 8;
-	uint8_t curr_bit = pid % 8;
-	pid_bitmap[curr_byte] &= ~(1 << curr_bit);
-}
-
-proccess_t* create_process(char* name, thread_t* main_thread) {
-	auto p = (proccess_t*)vxSlabAlloc(process_cache);
-	auto name_len = strlen(name);
-	if (name_len > 64)
-	name_len = 64;
-strncpy(p->name, name, name_len);
-	p->name[name_len] = '\0';
-	p->pid = alloc_pid();
-	
-	p->main_thread = main_thread;
-	main_thread->porccess = p;
-	p->exit_code = 0;
-	p->exited = false;
-
-	// insert into cache
-
-	return p;
+	vxnamei("/proc", &process_dentry);
 }
 
 // TODO: make enum for return error code
@@ -214,8 +173,9 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 
 	auto thr = create_thread(page, entry_addr, 1, 2, THREAD_USER);
 
-	create_process(loaded_file_dentry->name->c_str, thr);
-	
+	auto procc = create_process(loaded_file_dentry->name->c_str, thr);
+
+	serial2_printf("process id %d\n", procc->pid);
 
 	serial2_printf("done setuping executable, now ready to sended "
 	               "to scheduler\n");
@@ -236,4 +196,84 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	kfree2(mmap_table);
 	dentry_put(loaded_file_dentry);
 	return VFS_OK;
+}
+
+/*
+Internal Function
+*/
+
+pid_t alloc_pid() {
+	uint8_t curr_byte = 0;
+	uint8_t* curr_byte_ptr = pid_bitmap;
+	while (1) {
+		if (*curr_byte_ptr == 0xFF) {
+			curr_byte++;
+			continue;
+		}
+		for (pid_t i = 0; i < 8; i++) {
+			if ((*curr_byte_ptr & (1 << i)) == 0) {
+				*curr_byte_ptr |= (1 << i);
+				return (pid_t)curr_byte * 8 + i;
+			}
+		}
+	}
+
+	return 0;
+}
+
+void free_pid(pid_t pid) {
+	pid_t curr_byte = pid / 8;
+	uint8_t curr_bit = pid % 8;
+	pid_bitmap[curr_byte] &= ~(1 << curr_bit);
+}
+
+process_t* create_process(char* name, thread_t* main_thread) {
+	auto p = (process_t*)vxSlabAlloc(process_cache);
+	auto name_len = strlen(name);
+	if (name_len > 64)
+		name_len = 64;
+	strncpy(p->name, name, name_len);
+	p->name[name_len] = '\0';
+	p->pid = alloc_pid();
+
+	p->main_thread = main_thread;
+	main_thread->process = p;
+	p->exit_code = 0;
+	p->exited = false;
+	p->fdtable = alloc_fdtable();
+	p->cache.next = &p->cache;
+	p->cache.prev = &p->cache;
+
+	// TODO: insert into cache
+	auto bucket_idx = p->pid % 256;
+	auto h = process_bucket[bucket_idx].first;
+	auto n = &p->cache;
+
+	n->next = h;
+	n->prev = NULL;
+	if (h)
+		h->prev = n;
+	process_bucket[bucket_idx].first = n;
+
+	// llist
+	p->next = p->prev = p;
+
+	if (!_process_list) {
+		_process_list = p;
+	} else {
+		struct process* tail = _process_list->prev;
+
+		tail->next = p;
+		p->prev = tail;
+
+		p->next = _process_list;
+		_process_list->prev = p;
+	}
+
+	// saved into /proc
+	dentry_ptr d = 0;
+	resolve_dentry(itoa(p->pid, 10), process_dentry, &d,
+	               CREATE_MISSING_ENTRY);
+
+	return p;
 }
