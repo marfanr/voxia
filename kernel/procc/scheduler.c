@@ -118,9 +118,6 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 
 	const uint16_t core_id = current_core->core_id;
 
-	volatile uintptr_t* reload_page = nullptr;
-	thread_t* next_thread_out = nullptr;
-
 	spin_acquire(&scheduler[core_id].lock);
 
 	if (!scheduler[core_id].run_queue_head) {
@@ -131,132 +128,109 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 	if (!scheduler[core_id].current)
 		scheduler[core_id].current = scheduler[core_id].run_queue_head;
 
-	scheduler_queue_t* current = scheduler[core_id].current;
-	if (!current) {
+	scheduler_queue_t* current_node = scheduler[core_id].current;
+	if (!current_node || !current_node->thread) {
 		spin_release(&scheduler[core_id].lock);
 		return;
 	}
 
-	thread_t* thread = current->thread;
-	if (!thread) {
-		spin_release(&scheduler[core_id].lock);
-		return;
-	}
-
-	uint64_t tick = vxHPETGetMainCount();
+	thread_t* thread = current_node->thread;
+	uint64_t current_tick = vxHPETGetMainCount();
+	bool needs_context_switch = false;
 
 	if (!thread->has_update_run_time) {
-		thread->last_run_time = tick;
+		thread->last_run_time = current_tick;
 		thread->has_update_run_time = true;
 	}
 
-	switch (thread->state) {
-	case THREAD_STATE_CREATE:
-		LOG2_DEBUG("SCHEDULER", "thread create at core %d (id %d)",
+	// save previous state
+	if (thread->state == THREAD_STATE_RUNNING) {
+		vxSaveRegister(reg, &thread->reg);
+
+		if (ns2ms(current_tick - thread->last_run_time) >
+		    VOXIA_MAX_SCHEDULER_TIME_MS) {
+			needs_context_switch = true;
+			thread->has_update_run_time = false;
+		}
+	} else if (thread->state == THREAD_STATE_TERMINATED) {
+		LOG2_DEBUG("SCHEDULER", "core %d terminated thread id %d",
 		           core_id, thread->id);
-		break;
+		thread->state = THREAD_STATE_HAL;
 
-	case THREAD_STATE_READY: {
-		thread->state = THREAD_STATE_RUNNING;
-		// TODO: handle error interrupt on userspace
+		vxDeatachFromScheduler(current_node, true);
+		needs_context_switch = true;
 
-		if (thread->flags & THREAD_USER) {
-			reg->rip = thread->entry_addr;
-			reg->rsp =
-			    ((thread->stack + 0x1000) & ~(uint64_t)0xF) - 8;
+		if (!scheduler[core_id].run_queue_head) {
+			spin_release(&scheduler[core_id].lock);
+			return;
+		}
+	}
+
+	// find next thread candidate
+	scheduler_queue_t* next_node = current_node;
+
+	if (needs_context_switch) {
+		next_node = current_node->next_queue;
+		// Fallback safety
+		if (!next_node)
+			next_node = scheduler[core_id].run_queue_head;
+
+		scheduler[core_id].current = next_node;
+	}
+
+	thread_t* next_thread = next_node->thread;
+
+	// load state
+	if (next_thread->state == THREAD_STATE_READY) {
+		next_thread->state = THREAD_STATE_RUNNING;
+
+		if (next_thread->flags & THREAD_USER) {
+			reg->rip = next_thread->entry_addr;
+			reg->rsp = next_thread->stack;
 			reg->cs = 0x48 | 3; /* user code segment  (ring 3) */
 			reg->ss = 0x40 | 3; /* user stack segment (ring 3) */
 			reg->rflags = 0x202;
 			reg->rbp = 0;
-
 			LOG2_DEBUG("SCHEDULER",
 			           "core %d ready: user mode rip=0x%x", core_id,
-			           thread->entry_addr);
+			           next_thread->entry_addr);
 		} else {
-			reg->rip = thread->entry_addr;
+			reg->rip = next_thread->entry_addr;
 			reg->rsp =
-			    ((thread->stack + 0x1000) & ~(uint64_t)0xF) - 8;
+			    ((next_thread->stack + 0x1000) & ~(uint64_t)0xF) -
+			    8;
 			reg->cs = 0x28; /* kernel code segment */
 			reg->ss = 0x30; /* kernel stack segment */
 			reg->rflags = 0x202;
 			reg->rbp = 0;
 			LOG2_DEBUG("SCHEDULER",
 			           "core %d ready: kernel mode rip=0x%x",
-			           core_id, thread->entry_addr);
-
-			thread->current_core_id = core_id;
+			           core_id, next_thread->entry_addr);
 		}
-
-		next_thread_out = thread;
-
-		if (thread->page)
-			reload_page = thread->page;
-
-		goto unlock_and_return_w_load;
+	} else if (next_thread->state == THREAD_STATE_RUNNING) {
+		if (needs_context_switch && next_thread != thread) {
+			vxRestoreRegister(reg, &next_thread->reg);
+			if (next_thread->fs_base)
+				msrSetFSBase(next_thread->fs_base);
+		}
 	}
 
-	case THREAD_STATE_RUNNING:
-		vxSaveRegister(reg, &thread->reg);
-		thread->current_core_id = core_id;
-		current_core->active_thread = thread;
+	// update metadata
+	next_thread->current_core_id = core_id;
+	current_core->active_thread = next_thread;
+	current_core->next_is_user = (next_thread->flags & THREAD_USER) ? 1 : 0;
 
-		if (thread->page)
-			reload_page = thread->page;
-
-		break;
-
-	case THREAD_STATE_TERMINATED:
-		LOG2_DEBUG("SCHEDULER", "core %d terminated thread id %d",
-		           core_id, thread->id);
-		thread->state = THREAD_STATE_HAL;
-
-		vxDeatachFromScheduler(current, true);
-		goto unlock_and_return;
-
-	default:
-		break;
+	if (needs_context_switch || !next_thread->has_update_run_time) {
+		next_thread->last_run_time = vxHPETGetMainCount();
+		next_thread->has_update_run_time = true;
 	}
 
-	if (ns2ms(vxHPETGetMainCount() - thread->last_run_time) >
-	    VOXIA_MAX_SCHEDULER_TIME_MS) {
+	volatile uintptr_t* reload_page = next_thread->page;
 
-		scheduler_queue_t* next = current->next_queue;
-
-		if (!next || next == current)
-			goto unlock_and_return_w_load;
-
-		thread_t* next_thread = next->thread;
-		if (!next_thread)
-			goto unlock_and_return_w_load;
-
-		if (next->thread->state == THREAD_STATE_RUNNING)
-			vxRestoreRegister(reg, &next->thread->reg);
-
-		reload_page = nullptr;
-		if (next->thread->page)
-			reload_page = next->thread->page;
-
-		current_core->active_thread = next->thread;
-
-		next->thread->last_run_time = vxHPETGetMainCount();
-		next->thread->has_update_run_time = true;
-		thread->has_update_run_time = false;
-		scheduler[core_id].current = next;
-		next_thread_out = next_thread;
-	}
-
-unlock_and_return_w_load:
 	spin_release(&scheduler[core_id].lock);
-	if (next_thread_out)
-		current_core->active_thread = next_thread_out;
-
-	if (reload_page)
+	if (reload_page) {
 		paging_reload(reload_page);
-
-	return;
-
-unlock_and_return:
-	spin_release(&scheduler[core_id].lock);
+	}
 }
 
 static scheduler_queue_t* vxAllocScheduler(const uint16_t core) {
