@@ -34,6 +34,12 @@ INIT(Process) {
 	vxnamei("/proc", &process_dentry);
 }
 
+#define AT_NULL 0
+#define AT_PAGESZ 6
+#define AT_PHNUM 5
+#define AT_PHENT 4
+#define AT_PHDR 3
+
 // TODO: make enum for return error code
 int execve(const char* path, char* const* argv, char* const* envp) {
 	UNUSED(path);
@@ -98,10 +104,15 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 		return -2;
 	}
 
+	if (ehdr.e_type == ET_EXEC) {
+		base_addr = 0;
+	}
+
 	elf_section_map sh_map = {0};
 	elf_section_map_all(file_buffer, &sh_map);
 
-	elf_mmap_got(page, &sh_map, base_addr);
+	if (ehdr.e_type == ET_DYN)
+		elf_mmap_got(page, &sh_map, base_addr);
 
 	LOG2_INFO("ELF", "version : %d, ph num : %d", ehdr.e_version,
 	          ehdr.e_phnum);
@@ -128,7 +139,7 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	// (void)*mmap_table;
 
 	auto l = elf_load(page, file_buffer, base_addr, base_addr, mmap_table);
-	serial2_printf("loaded size %d\n", l);
+	serial2_printf("loaded size %d kb\n", l / 1024);
 
 	uintptr_t temporary_base = 0;
 	for (int i = 0; i < ehdr.e_phnum; i++) {
@@ -164,36 +175,82 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 		elf_relocate_dyn(&dyn_map, temporary_base, &gnu_hash, 0);
 	}
 
-	elf_call_init_array(&sh_map, temporary_base);
+	// elf_call_init_array(&sh_map, temporary_base);
 
 	serial2_printf("base vaddr %x %x\n", base_vaddr,
 	               (ehdr.e_entry - base_vaddr));
 
-	auto entry_addr = (ehdr.e_entry) + base_addr;
+	// auto entry_addr = (ehdr.e_entry) + base_addr;
+	auto entry_addr =
+	    (ehdr.e_type == ET_EXEC) ? ehdr.e_entry : ehdr.e_entry + base_addr;
 
-	auto thr = create_thread(page, entry_addr, 1, 2, THREAD_USER);
+	auto stack = (uintptr_t)phys_base_alloc(1); // 4k
+	auto stack_vaddr = vma_lookup_free_vaddr(VMA_REGION_A, 1);
+	vxMultipleMmap(page, stack_vaddr, stack, 1, 0b111);
+	vxMultipleMmap(paging_get_highest_page_map(), stack_vaddr, stack, 1,
+	               0b111);
+
+	// TODO: refactor this
+	uintptr_t phdr_vaddr =
+	    (ehdr.e_type == ET_EXEC)
+	        ? base_vaddr + ehdr.e_phoff // ET_EXEC: absolute vaddr
+	        : base_addr + ehdr.e_phoff; // ET_DYN:  load base + offset
+
+	auto sp = (uint64_t*)(stack_vaddr + 4096);
+	// auxv
+	*(--sp) = 0;                // AT_NULL value
+	*(--sp) = AT_NULL;          // AT_NULL tag = 0
+	*(--sp) = 0x1000;           // AT_PAGESZ value
+	*(--sp) = AT_PAGESZ;        // AT_PAGESZ tag = 6
+	*(--sp) = ehdr.e_phnum;     // AT_PHNUM value
+	*(--sp) = AT_PHNUM;         // AT_PHNUM tag = 5
+	*(--sp) = ehdr.e_phentsize; // AT_PHENT value
+	*(--sp) = AT_PHENT;         // AT_PHENT tag = 4
+	*(--sp) = phdr_vaddr;       // AT_PHDR value
+	*(--sp) = AT_PHDR;          // AT_PHDR tag = 3
+
+	// envp null terminator
+	*(--sp) = 0;
+
+	// argv null terminator + argv[0] (kosong dulu)
+	*(--sp) = 0;
+	*(--sp) = 0; // argv[0] = null
+
+	// argc
+	*(--sp) = 1;
+
+	// 5. hitung user rsp
+	uintptr_t offset = (uintptr_t)(stack_vaddr + 4096) - (uintptr_t)sp;
+	uintptr_t user_rsp = stack_vaddr + 4096 - offset;
+
+	// TODO: unmap stack on kernel page
+
+	auto thr = create_thread(page, entry_addr, user_rsp, 1, 2, THREAD_USER);
 
 	auto procc = create_process(loaded_file_dentry->name->c_str, thr);
+
+	print_dentry_tree(get_root_dentry(), 0);
 
 	serial2_printf("process id %d\n", procc->pid);
 
 	serial2_printf("done setuping executable, now ready to sended "
 	               "to scheduler\n");
 
+	// run
 	attach_to_scheduler(thr);
 
-	auto kernel_page = paging_get_highest_page_map();
-	for (int i = 0; i < ehdr.e_phnum; i++) {
-		if (mmap_table[i].mapped) {
-			vma_unregister(mmap_table[i].vaddr);
-			paging_unmap_fill(kernel_page,
-			                  mmap_table[i].vaddr +
-			                      mmap_table[i].alligned,
-			                  mmap_table[i].size);
-		}
-	}
+	// auto kernel_page = paging_get_highest_page_map();
+	// for (int i = 0; i < ehdr.e_phnum; i++) {
+	// 	if (mmap_table[i].mapped) {
+	// 		vma_unregister(mmap_table[i].vaddr);
+	// 		paging_unmap_fill(kernel_page,
+	// 		                  mmap_table[i].vaddr +
+	// 		                      mmap_table[i].alligned,
+	// 		                  mmap_table[i].size);
+	// 	}
+	// }
 
-	kfree2(mmap_table);
+	// kfree2(mmap_table);
 	dentry_put(loaded_file_dentry);
 	return VFS_OK;
 }
@@ -271,9 +328,30 @@ process_t* create_process(char* name, thread_t* main_thread) {
 	}
 
 	// saved into /proc
-	dentry_ptr d = 0;
-	resolve_dentry(itoa(p->pid, 10), process_dentry, &d,
+	dentry_ptr current_proc = 0;
+	resolve_dentry(itoa(p->pid, 10), process_dentry, &current_proc,
 	               CREATE_MISSING_ENTRY);
 
+	dentry_ptr current_proc_fd = 0;
+	resolve_dentry("fd", current_proc, &current_proc_fd, CREATE_MISSING_ENTRY);
+
+	// create default fd
+	// fd0 -> stdin
+	{
+		dentry_ptr fd;
+		auto next_fd = p->fdtable->next_fd++;
+		resolve_dentry(itoa(next_fd, 10), current_proc_fd, &fd, CREATE_MISSING_ENTRY);
+		auto fd0 = alloc_fd();
+		p->fdtable->fds[next_fd] = fd0;
+	}
+	// fd1 -> stdout
+	{
+		dentry_ptr fd;
+		auto next_fd = p->fdtable->next_fd++;
+		resolve_dentry(itoa(next_fd, 10), current_proc_fd, &fd, CREATE_MISSING_ENTRY);
+		auto fd1 = alloc_fd();
+		p->fdtable->fds[next_fd] = fd1;
+	}
+	// fd2 -> stderr
 	return p;
 }
