@@ -11,10 +11,12 @@
 #include "memory/vm_manager.h"
 #include "procc/scheduler.h"
 #include "procc/thread.h"
+#include "sys/err_no.h"
 #include "sys/fd.h"
 #include "type.h"
 #include "vfs/dentry.h"
 #include "vfs/enum.h"
+#include "vfs/vfs.h"
 #include "vfs/vnode.h"
 #include <str.h>
 
@@ -284,6 +286,42 @@ void free_pid(pid_t pid) {
 	pid_bitmap[curr_byte] &= ~(1 << curr_bit);
 }
 
+// TODO: will be moved
+struct win_size {
+	uint16_t ws_row;
+	uint16_t ws_col;
+	uint16_t ws_xpixel;
+	uint16_t ws_ypixel;
+};
+
+#define TIOCGWINSZ 0x5413
+
+static int char_ioctl(vnode_t* vnode, uint32_t req, void* arg) {
+	(void)vnode;
+	(void)req;
+	(void)arg;
+
+	switch (req) {
+		case TIOCGWINSZ: {
+			// request winsize
+			serial2_printf("ioctl: win size request\n");
+			struct win_size* ws = (struct win_size*)arg;
+			if (!ws) 
+				return -EBADF;
+
+			// dummy
+			ws->ws_row = 24;
+			ws->ws_col = 80;
+			ws->ws_xpixel = 0;
+			ws->ws_ypixel = 0;
+			return 0;
+		}
+	}
+
+	return -ENOTTY;
+}
+
+
 process_t* create_process(char* name, thread_t* main_thread) {
 	auto p = (process_t*)vxSlabAlloc(process_cache);
 	auto name_len = strlen(name);
@@ -333,14 +371,19 @@ process_t* create_process(char* name, thread_t* main_thread) {
 	               CREATE_MISSING_ENTRY);
 
 	dentry_ptr current_proc_fd = 0;
-	resolve_dentry("fd", current_proc, &current_proc_fd, CREATE_MISSING_ENTRY);
+	resolve_dentry("fd", current_proc, &current_proc_fd,
+	               CREATE_MISSING_ENTRY);
 
-	// create default fd
+	// TODO: remove this, makes propperly
 	// fd0 -> stdin
 	{
 		dentry_ptr fd;
 		auto next_fd = p->fdtable->next_fd++;
-		resolve_dentry(itoa(next_fd, 10), current_proc_fd, &fd, CREATE_MISSING_ENTRY);
+		resolve_dentry(itoa(next_fd, 10), current_proc_fd, &fd,
+		               CREATE_MISSING_ENTRY);
+		vnode_ptr_t fd_vnode = create_and_attach_vnode();
+		fd->vnode = fd_vnode;
+		fd_vnode->vnode_private = (void*)fd;
 		auto fd0 = alloc_fd();
 		p->fdtable->fds[next_fd] = fd0;
 	}
@@ -348,9 +391,18 @@ process_t* create_process(char* name, thread_t* main_thread) {
 	{
 		dentry_ptr fd;
 		auto next_fd = p->fdtable->next_fd++;
-		resolve_dentry(itoa(next_fd, 10), current_proc_fd, &fd, CREATE_MISSING_ENTRY);
+		resolve_dentry(itoa(next_fd, 10), current_proc_fd, &fd,
+		               CREATE_MISSING_ENTRY);
+		vnode_ptr_t fd_vnode = create_and_attach_vnode();
+		fd->vnode = fd_vnode;
+		fd_vnode->vnode_private = (void*)fd;
 		auto fd1 = alloc_fd();
 		p->fdtable->fds[next_fd] = fd1;
+		fd1->vnode = fd_vnode;
+		auto ops = (vops_file_t *)kalloc(sizeof(vops_file_t));
+		fd_vnode->ops = ops;
+		fd1->ops = ops;
+		ops->ioctl = char_ioctl;
 	}
 	// fd2 -> stderr
 	return p;
