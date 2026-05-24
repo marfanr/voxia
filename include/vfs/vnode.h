@@ -28,14 +28,15 @@ typedef struct vnode vnode_t;
 typedef struct {
 	int (*read)(vnode_t* vnode, void* buf, size_t len, size_t offset);
 	int (*ioctl)(vnode_t* vnode, uint32_t req, void* arg);
+	long (*write)(vnode_t* vnode, void* buf, size_t len, size_t offset);
 } vops_file_t;
 
 typedef struct thread thread_t;
 typedef struct vops_blk {
-	int (*open)(void* vdata, int op_mode, thread_t* thread);
-	int (*read)(void* vdata, uintptr_t addr, void* buf, size_t count);
-	int (*write)(void* vdata, uintptr_t addr, void* buf, size_t count);
-	int (*close)(void* vdata);
+	int (*open)(vnode_t* vnode, int op_mode, thread_t* thread);
+	int (*read)(vnode_t* vnode, uintptr_t addr, void* buf, size_t count);
+	int (*write)(vnode_t* vnode, uintptr_t addr, void* buf, size_t count);
+	int (*close)(vnode_t* vnode);
 	void* v_data;
 } vops_blk_t;
 
