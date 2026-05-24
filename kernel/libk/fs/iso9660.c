@@ -27,8 +27,19 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 	}
 
 	auto block_dentry = instance->block_dentry;
-	auto cdev_ops = instance->cdev->ops;
-	if (!cdev_ops) {
+	if (!block_dentry) {
+		LOG2_WARN("ISO9660", "missing block dentry");
+		return -1;
+	}
+
+	auto block_vnode = block_dentry->vnode;
+	if (!block_vnode) {
+		LOG2_WARN("ISO9660", "missing block vnode");
+		return -1;
+	}
+
+	auto ops = (vops_blk_t*)block_vnode->ops;
+	if (!ops) {
 		LOG2_WARN("ISO9660", "missing cdev ops");
 		return -1;
 	}
@@ -42,8 +53,8 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 			return -2;
 		}
 
-		if (cdev_ops->read(block_dentry->vnode, 16, pvd,
-		                   sizeof(struct iso9660_pvd)) < 0) {
+		if (ops->read(block_vnode, 16, pvd,
+		              sizeof(struct iso9660_pvd)) < 0) {
 			LOG2_WARN("ISO9660", "read failed");
 			kfree2(pvd);
 			return -2;
@@ -123,8 +134,8 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 		return -2;
 	}
 
-	if (cdev_ops->read(block_dentry->vnode, iso_node->extent, dir_buf,
-	                   iso_node->size) < 0) {
+	if (ops->read(block_vnode, iso_node->extent, dir_buf, iso_node->size) <
+	    0) {
 		LOG2_ERROR("ISO9660", "failed to read dir extent");
 		kfree2(dir_buf);
 		return -3;
@@ -213,8 +224,7 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 
 int iso9660_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 	UNUSED(offset);
-	
-	
+
 	if (!vnode || !buf || !len)
 		return -1;
 
@@ -226,15 +236,15 @@ int iso9660_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 	if (!block_dentry)
 		return -2;
 
-	auto cdev = vnode->fs_instance->cdev;
-	if (!cdev)
+	auto block_vnode = block_dentry->vnode;
+	if (!block_vnode)
 		return -2;
 
-	auto cdev_ops = cdev->ops;
-	if (!cdev_ops)
+	auto ops = (vops_blk_t*)block_vnode->ops;
+	if (!ops)
 		return -3;
 
-	if (cdev_ops->read(block_dentry->vnode, iso_node->extent, buf,
+	if (ops->read(block_vnode, iso_node->extent, buf,
 	                   iso_node->size) < 0) {
 		LOG2_ERROR("ISO9660", "failed to read dir extent");
 		return -3;
