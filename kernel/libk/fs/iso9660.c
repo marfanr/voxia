@@ -213,6 +213,7 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 int iso9660_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 	UNUSED(offset);
 	
+	
 	if (!vnode || !buf || !len)
 		return -1;
 

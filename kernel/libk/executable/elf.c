@@ -543,13 +543,34 @@ void elf_call_init_array(elf_section_map* map, uintptr_t base) {
 	ctor_t* arr = (ctor_t*)(base + init_aray->sh_addr);
 	size_t count = init_aray->sh_size / sizeof(void*);
 
-	LOG2_INFO("VOXMO", "lib init array count %d", count);
+	LOG2_INFO("ELF", "lib init array count %d", count);
 	for (size_t i = 0; i < count; i++) {
 		if (arr[i]) {
-			LOG2_DEBUG("VOXMO", "load .init array %x", arr[i]);
+			LOG2_DEBUG("ELF", "load .init array %x", arr[i]);
 			arr[i]();
 		}
 	}
+}
+
+void elf_call_init_array2(elf_section_map* map, uintptr_t base) {
+	if (!map->init_aray) {
+		return;
+	}
+
+	(void) base;
+
+	Elf64_Shdr* init_aray = map->init_aray;
+
+	// ctor_t* arr = (ctor_t*)(base + init_aray->sh_addr);
+	size_t count = init_aray->sh_size / sizeof(void*);
+
+	LOG2_INFO("ELF", "lib init array count %d", count);
+	// for (size_t i = 0; i < count; i++) {
+	// 	if (arr[i]) {
+	// 		LOG2_DEBUG("ELF", "load .init array %x", arr[i]);
+	// 		// arr[i]();
+	// 	}
+	// }
 }
 
 uintptr_t elf_find_symbol(const char* name, GnuHashHeader* gnuhash,
