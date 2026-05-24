@@ -2,6 +2,7 @@
 #include "ioforge/ioforge.h"
 #include "ioforge/ioforge_int_pipe.hpp"
 #include "type.h"
+#include "vfs/dev.h"
 #include "vfs/vfs.h"
 #include "vfs/vnode.h"
 #include <str.h>
@@ -47,8 +48,9 @@ void HIDKeyboard::load(ioforge_usb_device* dev) {
 	serial2_printf("inode at 0x%x\n", inode_);
 	dentry_->vnode = inode_;
 	inode_->permission = 600;
-	inode_->type = VNODE_TYPE_BLK;
+	inode_->type = VNODE_TYPE_CHR;
 	inode_->size = 128;
+
 	inode_->vnode_private = (void*)priv;
 
 	// setup usb interrupt pipe
@@ -82,10 +84,10 @@ void HIDKeyboard::store_in_vfs(const uint8_t* data, size_t len) {
 	event->available = len > 0;
 	memcopy((void*)event->data, (void*)data, len);
 
-	for (int i = 0; i < (int)len; i++) {
-		serial2_printf("%x ", data[i]);
-	}
-	serial2_printf("\n");
+	// for (int i = 0; i < (int)len; i++) {
+	// 	serial2_printf("%x ", data[i]);
+	// }
+	// serial2_printf("\n");
 }
 
 void HIDKeyboard::fireHandler(const uint8_t* data, size_t len) {
