@@ -6,7 +6,7 @@
 #include "libk/serial.h"
 #include "memory/phys_base_allocator.h"
 #include "notify.h"
-#include "procc/proccess.h"
+#include "procc/process.h"
 #include <console/console.h>
 #include <hal/acpi/hpet.h>
 #include <memory/kalloc.h>
@@ -69,12 +69,15 @@ _start(struct stivale2_struct* stivale2_struct) {
 		LOG2_INFO("KALLOC_TEST", "Large alloc freed successfully");
 	}
 
-	// execve("/sbin/term.elf", 0, 0);
-	print_dentry_tree(get_root_dentry(), 0);
-
+	
+	// KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...\n");
+	
+	execve("/sbin/term.elf", 0, 0);
+	execve("/sbin/hello.elf", 0, 0);
+	
+	// print_dentry_tree(get_root_dentry(), 0);
 	pmm_log_usage();
-	KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...\n");
-
+	
 	INFLOOP;
 }
 

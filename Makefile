@@ -1,6 +1,6 @@
 # Variabel umum
 QEMU=qemu-system-x86_64
-QEMU_FLAGS=-m 3G -cpu host -M q35 -smp 2 -enable-kvm -rtc base=localtime
+QEMU_FLAGS=-m 3G -cpu host -M q35 -smp 4 -enable-kvm -rtc base=localtime
 QEMU_USB=-device usb-ehci,id=ehci -device usb-kbd,bus=ehci.0,port=1,id=kbd
 # 	-device usb-mouse,bus=ehci.0,port=2,id=mouse
 # QEMU_NETWORK= -netdev user,id=net0,hostfwd=tcp::1234-:1234\
@@ -48,15 +48,28 @@ run:
 	-nographic
 
 debug:
-	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) -vga none  -device virtio-serial-pci -S -s \
-	-monitor stdio -serial file:qemu.log -d trace:ahci* -D aqemu.log \
-	-nographic
+	$(QEMU) $(QEMU_FLAGS) \
+		-cdrom $(ISO) \
+		-boot d \
+		$(QEMU_NETWORK) \
+		$(QEMU_USB) \
+		-vga none \
+		-device virtio-serial-pci \
+		-S -s \
+		-monitor stdio \
+		-serial file:qemu.log \
+		-d trace:cpu_reset* \
+		-D aqemu.log \
+		-nographic &
+
+	gnome-terminal -- gdb kernel.elf \
+		-ex "target remote localhost:1234"
 
 run-gpu2:
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) $(QEMU_NETWORK) \
 	-display gtk,gl=on,full-screen=on \
 	-device virtio-gpu-gl-pci,xres=1920,yres=1080,id=gpu \
-	-monitor stdio -serial file:qemu.log -d trace:*virtio* -D aqemu.log
+	-monitor stdio -serial file:qemu.log -d trace:*virtio* -D aqemu.log -s
 
 run-gpu-win: 
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) $(QEMU_NETWORK) \

@@ -25,4 +25,5 @@ int syscall_open(const char* path, int flags, int mode);
 int syscall_arch_prctl(int code, unsigned long addr);
 pid_t syscall_set_tid(uint32_t tid);
 int ioctl(int fd, uint32_t req, void* arg);
+
 #endif // __SYS__SYSCALL_H__
