@@ -222,9 +222,6 @@ int KERNEL_API vxnamei(const char* path, dentry_ptr* out) {
 
 	dentry_get(curr);
 
-	serial2_printf("root dentry: %s\n",
-	               curr->name ? curr->name->c_str : "NULL");
-
 	char* path_iter = temp;
 
 	while (path_iter && *path_iter != '\0') {
@@ -236,8 +233,6 @@ int KERNEL_API vxnamei(const char* path, dentry_ptr* out) {
 		dentry_t* next = cache_lookup(root_cache, curr, component);
 
 		if (!next) {
-			serial2_printf("created new entry : %s\n", component);
-
 			dentry_t* new_entry =
 			    create_dentry(str(component), 0, curr);
 
