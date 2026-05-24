@@ -1,6 +1,7 @@
 #ifndef __SYS_FD_H__
 #define __SYS_FD_H__
 
+#include "vfs/dentry.h"
 #include <type.h>
 
 #define INITIAL_MAX_FDS 64
@@ -13,6 +14,7 @@ struct file_descriptor {
     uint8_t mode;
     uint64_t pos;
     uint32_t flags;
+    vnode_ptr_t vnode;
 } __attribute__((aligned(64)));
 
 struct fdtable {
