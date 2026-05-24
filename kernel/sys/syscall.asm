@@ -64,23 +64,15 @@ syscall_entry:
     mov rcx, [rsp] ; RIP
     mov r11, [rsp + 16] ; RFLAGS
 
+    cli
+    cmp qword [gs:0x20], 1
+    je .to_user
+    
     swapgs
-
-    push rax
-    push rbx
-
-    mov rax, [gs:40] ; scheduler
-    mov rax, [rax] ; current
-    mov rax, [rax + 16] ; next queue
-    mov rax, [rax] ; thread
-    mov rbx, [rax + 26] ; flags
-
-    test rbx, 1 ; user thread
-    pop rax
-    pop rbx
-    jnz .sysr    
     iretq
+    
+.to_user:
+    mov rsp, [rsp + 24]         ; user RSP — must be last before sysretq
+    swapgs
+    o64 sysret
 
-    .sysr:
-        mov rsp, [rsp + 24] ; RSP
-        sysretq
