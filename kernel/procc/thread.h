@@ -3,6 +3,7 @@
 
 #include "autoconf.h"
 #include "hal/cpu/register.h"
+#include "procc/process.h"
 #include <spinlock.h>
 
 typedef uint64_t thread_id;
@@ -35,8 +36,15 @@ struct thread {
 	uint16_t current_core_id;
 	// 1 cache line
 
-	cpu_register_t reg;
+	process_t* process;
+	uint32_t *clear_child_tid;
 	uint32_t uuid;
+	uint64_t fs_base;
+	uint64_t gs_base;
+	uint8_t _pad[12];
+	// 1 cache line
+
+	cpu_register_t reg;
 } __attribute__((aligned(64)));
 
 typedef struct {
@@ -55,7 +63,7 @@ typedef struct thread_bucket {
 #define THREAD_GET_ID(tid) ((uint32_t)((tid) & 0xFFFFFFFFULL) - 1)
 #define THREAD_GET_GEN(tid) ((uint32_t)((tid) >> 32))
 
-thread_id create_thread(volatile uintptr_t* page, uintptr_t entry,
+thread_t* create_thread(volatile uintptr_t* page, uintptr_t entry, uintptr_t stack,
                         uint16_t core_affinity, uint8_t priority,
                         uint16_t flags);
 void vxThreadExit(void);
