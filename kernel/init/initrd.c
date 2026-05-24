@@ -23,7 +23,6 @@
 #include <memory/slab.h>
 #include <memory/vm_manager.h>
 
-#include <sys/descriptor.h>
 
 struct initrd_internal_data {
 	uint64_t raw_addr;

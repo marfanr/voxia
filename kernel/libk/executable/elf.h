@@ -322,4 +322,7 @@ uintptr_t elf_count_load_size(uint8_t* data);
 #define ELF_PTR(type, base, off)                                               \
 	((type*)ASSUME_ALIGNED(PTR_ADD((base), (off)), alignof(type)))
 
+// debug
+void elf_call_init_array2(elf_section_map* map, uintptr_t base);
+
 #endif
