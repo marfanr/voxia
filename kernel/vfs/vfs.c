@@ -7,7 +7,6 @@
 #include "llist.h"
 #include "memory/slab.h"
 #include "notify.h"
-#include "procc/proccess.h"
 #include "str.h"
 #include "vfs/vnode.h"
 #include <string.h>
@@ -44,7 +43,7 @@ KERNEL_API vnode_t* create_and_attach_vnode() {
 	vnode_t* vnode = create_vnode();
 
 	rbt_node* node = (rbt_node*)vxSlabAlloc(rbt_node_cache);
-	memset(node, 0, sizeof(rbt_node)); // ← tambah ini
+	memset(node, 0, sizeof(rbt_node));
 	rbt_insert_node(&vfs_tree, node, vnode, NIL);
 
 	return vnode;
@@ -54,7 +53,7 @@ INIT(Vfs) {
 	vxCreateSlabCache(&rbt_node_cache, "rbt_node", sizeof(rbt_node), 64, 0);
 
 	NIL = (struct rbt_node*)vxSlabAlloc(rbt_node_cache);
-	memset(NIL, 0, sizeof(rbt_node)); // ← tambah ini
+	memset(NIL, 0, sizeof(rbt_node));
 	NIL->data = create_vnode();
 	NIL->left = NIL->right = NIL->parent = NIL;
 	vfs_tree = NIL;
@@ -113,6 +112,11 @@ KERNEL_API int vfs_mount(dentry_ptr dev_dentry, char* fs, dentry_ptr dentry,
 	auto fs_ = retrieve_filesystem(fs);
 	if (!fs_) {
 		LOG2_WARN("VFS", "vfs_mount: fs %s not found", fs);
+		return VFS_ERR;
+	}
+
+	if (!fs_->data.ops) {
+		LOG2_WARN("VFS", "vfs_mount: fs %s ops not found", fs);
 		return VFS_ERR;
 	}
 
@@ -239,8 +243,7 @@ int vfs_umount(dentry_ptr dentry) {
 		return VFS_ERR;
 	}
 
-	KDEBUG(DEBUG_LEVEL_OK, "mounted %s\n",
-	       dentry->name->c_str);
+	KDEBUG(DEBUG_LEVEL_OK, "mounted %s\n", dentry->name->c_str);
 
 	dentry_put(dentry);
 	auto ok = vfs_umount_recursive(dentry);
@@ -249,8 +252,8 @@ int vfs_umount(dentry_ptr dentry) {
 	return ok;
 }
 
-__attribute__((unused))
-static void detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
+__attribute__((unused)) static void
+detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 	UNUSED(data);
 	UNUSED(ctx);
 
@@ -324,14 +327,12 @@ static void detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 			vfs_mount(dentry, "ISO9660", mount_entry, 0);
 			notify_call("/vfs/root", VFS_NOTIFY_ROOT_FOUND, dentry);
 		}
-
 	}
 	kfree2(d_);
 }
 
-
-__attribute__((unused))
-static void vfs_notify_probe_handler(void* data, void* ctx) {
+__attribute__((unused)) static void vfs_notify_probe_handler(void* data,
+                                                             void* ctx) {
 
 	UNUSED(ctx);
 

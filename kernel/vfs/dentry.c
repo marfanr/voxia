@@ -312,16 +312,19 @@ void print_dentry_tree(dentry_t* dentry, int depth) {
 		indent[i * 2 + 1] = ' ';
 	}
 
-	serial2_printf("%s└── %s (0x%x) (%x) (reff %d) ", indent,
+	serial2_printf("%s└── %s (0x%x) (%x) (reff %d)", indent,
 	               dentry->name->c_str, dentry, dentry->hash,
 	               dentry->refcount.counter);
 
 	auto vnode = dentry->vnode;
 	if (vnode) {
+		serial2_printf(" permission %d ",  vnode->permission);
 		if (vnode->type == VNODE_TYPE_BLK) {
 			serial2_printf("BLOCK DEVICE %d:%d",
 			               vnode->device.major,
 			               vnode->device.minor);
+		} else if (vnode->type == VNODE_TYPE_CHR) {
+			serial2_printf("CHAR DEVICE");
 		} else {
 			serial2_printf("[%s]",
 			               vnode->fs_instance
