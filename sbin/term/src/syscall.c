@@ -16,3 +16,7 @@ int read(int fd, void* buf, long count) {
 int write(int fd, void* buf, long count) {
 	return (int)__syscall3(1, fd, (long)buf, (long)count);
 }
+
+int open(const char* path, int flags, int mode) {
+	return (int)__syscall3(2, (long)path, (long)flags, (long)mode);
+}
