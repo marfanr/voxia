@@ -33,7 +33,8 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 		           rsp->rdx);
 
 	auto int_no = rsp->rax;
-	// SYSCALL_DEF(0x20, ())
+	
+	// TODO: refactor this using array of linker section
 	switch (int_no) {
 	case SYSCALL_READ:
 		rsp->rax = (uint64_t)syscall_read(
@@ -66,7 +67,11 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 	}
 	case SYSCALL_IOCTL: {
 		rsp->rax = (uint64_t)ioctl((int)rsp->rdi, (uint32_t)rsp->rsi,
-		                            (void*)rsp->rdx);
+		                           (void*)rsp->rdx);
+		break;
+	}
+	case SYSCALL_WRITEV: {
+		rsp->rax = (uint64_t)-1;
 		break;
 	}
 	default:
