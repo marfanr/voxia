@@ -17,7 +17,7 @@ export ROOT
 
 .PHONY: all modules all-hdd rust kernel lib iso sbin
 
-all: lib kernel lib modules iso sbin
+all: lib config kernel lib modules iso sbin
 
 modules:
 	@mkdir -p ./initrd/modules
@@ -237,9 +237,9 @@ menuconfig:
 
 config: .config
 	@mkdir -p generated
-	@echo "// Auto-generated from .config" > generated/autoconf.h
+	@echo "// Auto-generated from .config" > include/autoconf.h
 	@grep -E '^CONFIG_' .config | sed \
 		-e 's/=y/ 1/' \
 		-e 's/=n/ 0/' \
 		-e 's/=/ /' \
-		-e 's/^CONFIG_/ #define VOXIA_/' >> generated/autoconf.h
+		-e 's/^CONFIG_/ #define VOXIA_/' >> include/autoconf.h

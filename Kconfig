@@ -83,6 +83,13 @@ config VFS_CACHE_TTL_MS
 
 endmenu
 
+menu "TTY Configuration"
+config TTY_MAX_COUNT
+    int "Maximum TTY count"
+    default 8
+    range 1 8a
+endmenu
+
 # menu "Kernel Modules"
 # config EHCI
 # endmenu
