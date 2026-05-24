@@ -1,3 +1,4 @@
+#include "console/console.h"
 #include "libk/serial.h"
 #include "type.h"
 #include <sys/syscall.h>
@@ -7,7 +8,7 @@ int syscall_write(int fd, void* buf, long count) {
     UNUSED(buf);
     UNUSED(count);
 
-    serial2_printf("%s\n", buf);
+    console_printf("%s\n", buf);
     
     return 0;
 }
