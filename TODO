@@ -1,6 +1,0 @@
-- [ ] impleement file descriptor
-- [ ] implement syscall open 
-    - baca path
-    - resolve vfs
-    - buat fd
-    - return fd
