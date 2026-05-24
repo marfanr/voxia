@@ -167,12 +167,18 @@ void ATAPIModule::identify(struct ioforge_block_device* block) {
 	IOUtils::DMAFree((void*)buff_phys, (void*)buff, 512);
 }
 
-extern "C" int ATAPIModule::read(void* vdata, uintptr_t addr, void* buf,
+extern "C" int ATAPIModule::read(vnode_t* vnode, uintptr_t addr, void* buf,
                                  size_t count) {
 	auto i = ATAPIModule::getInstance();
 
+	auto vops = (vops_blk_t*)vnode->ops;
+	if (!vops) {
+		log(i->mod, "read: vops is null");
+		return -EINVAL;
+	}
+
 	struct ioforge_block_device* block =
-	    (struct ioforge_block_device*)vdata;
+	    (struct ioforge_block_device*)vops->v_data;
 	if (!block) {
 		log(i->mod, "read: block device is null");
 		return -EINVAL;
@@ -230,12 +236,17 @@ extern "C" int ATAPIModule::read(void* vdata, uintptr_t addr, void* buf,
 	return (int)count;
 }
 
-extern "C" int ATAPIModule::write(void* vdata, uintptr_t addr, void* buf,
+extern "C" int ATAPIModule::write(vnode_t* vnode, uintptr_t addr, void* buf,
                                   size_t count) {
 	auto i = ATAPIModule::getInstance();
+	auto vops = (vops_blk_t*)vnode->ops;
+	if (!vops) {
+		log(i->mod, "read: vops is null");
+		return -EINVAL;
+	}
 
 	struct ioforge_block_device* block =
-	    (struct ioforge_block_device*)vdata;
+	    (struct ioforge_block_device*)vops->v_data;
 	if (!block) {
 		log(i->mod, "write: block device is null");
 		return -EINVAL;

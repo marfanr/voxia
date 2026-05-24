@@ -281,7 +281,7 @@ detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 	}
 
 	// ISO9660 PVD is always at byte sector 16
-	int ret = ops->read(ops->v_data, 16, d_, request_size);
+	int ret = ops->read(vnode, 16, d_, request_size);
 
 	if (ret < 0) {
 		serial2_printf("read failed: %d\n", ret);
