@@ -15,7 +15,7 @@
 #include <console/console.h>
 
 #define TIOCGWINSZ 0x5413
-#define FONT_SIZE  14
+#define FONT_SIZE 14
 
 // forward declarations
 static void configure_tty(int tty);
@@ -23,9 +23,9 @@ static int char_ioctl(vnode_t* vnode, uint32_t req, void* arg);
 static long char_write(vnode_t* vnode, void* buf, size_t len, size_t offset);
 static void do_scroll(struct tty_internal* priv);
 
-static dentry_ptr   __tty_dentry[VOXIA_TTY_MAX_COUNT] = {0};
-static int          __current_tty_active               = 0;
-static vops_file_t* __tty_ops                          = 0;
+static dentry_ptr __tty_dentry[VOXIA_TTY_MAX_COUNT] = {0};
+static int __current_tty_active = 0;
+static vops_file_t* __tty_ops = 0;
 
 // TODO: will be moved
 struct win_size {
@@ -42,7 +42,7 @@ static void do_scroll(struct tty_internal* priv) {
 }
 
 INIT(TTY) {
-	__tty_ops        = (vops_file_t*)kalloc(sizeof(vops_file_t));
+	__tty_ops = (vops_file_t*)kalloc(sizeof(vops_file_t));
 	__tty_ops->ioctl = char_ioctl;
 	__tty_ops->write = char_write;
 
@@ -59,11 +59,11 @@ static int char_ioctl(vnode_t* vnode, uint32_t req, void* arg) {
 		if (!ws)
 			return -EBADF;
 
-		auto priv      = (struct tty_internal*)vnode->vnode_private;
-		ws->ws_row     = priv ? (uint16_t)priv->rows : 24;
-		ws->ws_col     = priv ? (uint16_t)priv->cols : 80;
-		ws->ws_xpixel  = (uint16_t)vxGetWidth();
-		ws->ws_ypixel  = (uint16_t)vxGetHeight();
+		auto priv = (struct tty_internal*)vnode->vnode_private;
+		ws->ws_row = priv ? (uint16_t)priv->rows : 24;
+		ws->ws_col = priv ? (uint16_t)priv->cols : 80;
+		ws->ws_xpixel = (uint16_t)vxGetWidth();
+		ws->ws_ypixel = (uint16_t)vxGetHeight();
 		return 0;
 	}
 	}
@@ -84,7 +84,7 @@ static long char_write(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 	if (!len)
 		return 0;
 
-	auto   tail      = priv->tail;
+	auto tail = priv->tail;
 	size_t available = VOXIA_TTY_INPUT_BUFFER_SIZE - tail;
 	if (len > available)
 		return -ENOSPC;
@@ -103,7 +103,8 @@ static long char_write(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 
 	if (memchr(buf, '\n', len)) {
 		priv->dirty = true;
-		vxAddWorkqueueTask((void (*)(void*))tty_check_and_flush, NULL, NULL);
+		vxAddWorkqueueTask((void (*)(void*))tty_check_and_flush, NULL,
+		                   NULL);
 	}
 
 	return (long)len;
@@ -111,30 +112,30 @@ static long char_write(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 
 static void configure_tty(int tty) {
 	auto curr_dentry = &__tty_dentry[tty];
-	auto path_name   = str_concat(str("/dev/tty"), itoa(tty, 10));
+	auto path_name = str_concat(str("/dev/tty"), itoa(tty, 10));
 	vxnamei(path_name->c_str, curr_dentry);
 	str_release(path_name);
 
 	vnode_ptr_t vnode = create_and_attach_vnode();
-	vnode->type       = VNODE_TYPE_CHR;
+	vnode->type = VNODE_TYPE_CHR;
 
-	(*curr_dentry)->vnode             = vnode;
-	(*curr_dentry)->vnode->ops        = __tty_ops;
+	(*curr_dentry)->vnode = vnode;
+	(*curr_dentry)->vnode->ops = __tty_ops;
 	(*curr_dentry)->vnode->permission = 660;
 
 	auto dev = create_dev(__tty_ops, DEV_MAJOR_TTY);
-	(*curr_dentry)->vnode->device.major  = dev->major;
-	(*curr_dentry)->vnode->device.minor  = dev->minor;
-	(*curr_dentry)->vnode->mountedhere   = dev;
+	(*curr_dentry)->vnode->device.major = dev->major;
+	(*curr_dentry)->vnode->device.minor = dev->minor;
+	(*curr_dentry)->vnode->mountedhere = dev;
 
 	auto priv = (struct tty_internal*)kalloc(sizeof(struct tty_internal));
 	memset(priv, 0, sizeof(struct tty_internal));
 	(*curr_dentry)->vnode->vnode_private = priv;
 
-	priv->enable  = true;
-	priv->dirty   = false;
-	priv->cols    = screen_cols();
-	priv->rows    = screen_rows();
+	priv->enable = true;
+	priv->dirty = false;
+	priv->cols = screen_cols();
+	priv->rows = screen_rows();
 	priv->cursorx = 0;
 	priv->cursory = 0;
 }
@@ -166,8 +167,9 @@ void tty_check_and_flush() {
 	priv->dirty = false;
 
 	while (priv->head != priv->tail) {
-		char c    = priv->input_buffer[priv->head];
-		priv->head = (priv->head + 1) & (VOXIA_TTY_INPUT_BUFFER_SIZE - 1);
+		char c = priv->input_buffer[priv->head];
+		priv->head =
+		    (priv->head + 1) & (VOXIA_TTY_INPUT_BUFFER_SIZE - 1);
 
 		if (c == '\n') {
 			priv->cursorx = 0;
