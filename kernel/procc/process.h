@@ -4,6 +4,7 @@
 #include <type.h>
 
 #define MAX_PID_ALLOWED 4194304
+#define INVALID_PID ((pid_t)-1)
 
 typedef uint32_t pid_t;
 

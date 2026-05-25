@@ -248,23 +248,20 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 /*
 * Internal functions
 */
-pid_t alloc_pid() {
-	uint8_t curr_byte = 0;
-	uint8_t* curr_byte_ptr = pid_bitmap;
-	while (1) {
-		if (*curr_byte_ptr == 0xFF) {
-			curr_byte++;
-			curr_byte_ptr++;
+pid_t alloc_pid(void) {
+	for (size_t i = 0; i < MAX_PID_ALLOWED / 8; i++) {
+		uint8_t byte = pid_bitmap[i];
+
+		if (byte == 0xFF)
 			continue;
-		}
-		for (pid_t i = 0; i < 8; i++) {
-			if ((*curr_byte_ptr & (1 << i)) == 0) {
-				*curr_byte_ptr |= (1 << i);
-				return (pid_t)curr_byte * 8 + i;
-			}
-		}
+
+		uint8_t free_bit = (uint8_t)__builtin_ctz((unsigned)(~byte & 0xFF));
+
+		pid_bitmap[i] |= (1u << free_bit);
+		return (pid_t)(i * 8 + free_bit);
 	}
-	return 0;
+
+	return INVALID_PID;
 }
 
 void free_pid(pid_t pid) {
