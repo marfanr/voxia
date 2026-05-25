@@ -199,7 +199,6 @@ void* phys_base_alloc(uint64_t block) {
 		uint64_t word;
 		memcopy(&word, &bitmap_base_[word_idx * 8], sizeof(word));
 
-		// Geser word sesuai posisi bit_idx
 		word >>= bit_idx;
 
 		if (bit_idx == 0 && word == (uint64_t) -1) {
@@ -208,14 +207,12 @@ void* phys_base_alloc(uint64_t block) {
 			continue;
 		}
 
-		// Kalau semua bit dipakai skip chunk
 		if (word == (uint64_t) -1) {
 			i += 64 - bit_idx;
 			consecutive = 0;
 			continue;
 		}
 
-		// Scan bit berturut-turut
 		for (uint64_t b = bit_idx; b < 64 && i < total_blocks;
 		     b++, i++) {
 			bool used = (bitmap_base_[i / 8] >> (i % 8)) & 1;
@@ -243,43 +240,6 @@ void* phys_base_alloc(uint64_t block) {
 	return NULL;
 }
 
-void* pDMAalloc(uint64_t block) {
-	spin_acquire(&pmm_lock);
-	uint64_t consecutive = 0;
-	uint64_t start = 0;
-
-	for (uint64_t i = 0; i < dma_bitmap_count * 8; i++) {
-		bool used = dma_bitmap_base_[i / 8] & (1 << (i % 8));
-
-		if (!used) {
-			if (consecutive == 0)
-				start = i;
-
-			consecutive++;
-
-			// ditemukan blok kosong yang cukup
-			if (consecutive == block) {
-				for (uint64_t j = start; j < start + block; j++)
-					dma_bitmap_base_[j / 8] |=
-						(1 << (j % 8));
-
-				// serial_trace("allocated %llu blocks starting
-				// at %llu\n", block, start);
-				spin_release(&pmm_lock);
-				return (void*) (smallest_free_entry_base
-						+ start * BLOCK_SIZE);
-			}
-		} else {
-			// reset kalau ketemu blok yang sudah terpakai
-			consecutive = 0;
-		}
-	}
-
-	// tidak ditemukan blok kosong
-	spin_release(&pmm_lock);
-	return 0;
-}
-
 void* phys_base_alloc_on_top(uint64_t block) {
 	if (block == 0)
 		return NULL;
@@ -305,15 +265,6 @@ void vxPhysBaseFree(void* ptr, uint64_t size) {
 	uint64_t index = (uint64_t) ptr / BLOCK_SIZE;
 	for (uint64_t i = index; i < index + size; i++) {
 		bitmap_base_[i / 8] &= ~(1 << (i % 8));
-	}
-	spin_release(&pmm_lock);
-}
-
-void dma_free(void* ptr, uint64_t size) {
-	spin_acquire(&pmm_lock);
-	uint64_t index = (uint64_t) ptr / BLOCK_SIZE;
-	for (uint64_t i = index; i < index + size; i++) {
-		dma_bitmap_base_[i / 8] &= ~(1 << (i % 8));
 	}
 	spin_release(&pmm_lock);
 }
