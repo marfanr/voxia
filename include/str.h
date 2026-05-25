@@ -50,29 +50,7 @@ char* strtok_r(char* str, const char* delim, char** saveptr);
 typedef const char* __str;
 char* rtrim(char* str);
 char* itoa(int64_t value, int base);
-
-// Commenting out the incomplete explode function for now to resolve compilation errors.
-// static inline void
-// explode(const char* path, const char delim, vector(string) * out) {
-// 	// size_t len = strlen(path);
-// 	// // serial_trace("exploding path len %d \n", len);
-
-// 	// char* buf = (char*) kalloc(len + 1);
-// 	// strcpy(buf, path);
-// 	// buf[len] = 0;
-
-// 	// char* rest = buf;
-// 	// const char* token;
-
-// 	// while ((token = strsep(&rest, delim)) != 0) {
-// 	// 	// serial_trace("%s \n", rest);
-// 	// 	if (strlen(token) > 0) {
-// 	// 		kstring tmp = str(token);
-// 	// 		vector_push_back(out, tmp);
-// 	// 	}
-// 	// }
-// 	// kfree(buf, len + 1);
-// }
+void* memchr(const void* buf, int c, size_t len);
 
 #ifdef __cplusplus
 }
