@@ -28,7 +28,8 @@ void HIDKeyboard::load(ioforge_usb_device* dev) {
 
 	serial2_printf("dev before vxnamei2: %p %p\n", dev_, dev);
 
-	auto priv = (struct dev_event_data*)kalloc(sizeof(struct dev_event_data));
+	auto priv =
+	    (struct dev_event_data*)kalloc(sizeof(struct dev_event_data));
 	if (!priv) {
 		serial2_printf("failed alloc priv\n");
 		return;
@@ -37,8 +38,6 @@ void HIDKeyboard::load(ioforge_usb_device* dev) {
 	memset(priv, 0, sizeof(struct dev_event_data));
 
 	priv->data = (uint8_t*)kalloc(128);
-
-	
 
 	inode_ = create_and_attach_vnode();
 	if (!inode_) {
@@ -72,7 +71,6 @@ void HIDKeyboard::load(ioforge_usb_device* dev) {
 }
 
 void HIDKeyboard::store_in_vfs(const uint8_t* data, size_t len) {
-
 	if (!inode_)
 		return;
 

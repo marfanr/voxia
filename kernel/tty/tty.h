@@ -20,7 +20,6 @@ struct tty_internal {
 	uint32_t tail;
 
 	char line_buff[1024];
-
 } __attribute__((aligned(64)));
 
 void change_active_tty(int tty);
