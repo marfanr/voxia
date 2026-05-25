@@ -14,26 +14,7 @@ void* memmove(void* dest, const void* src, size_t n);
 void memset(void* ptr, int value, size_t num);
 int memcmp(const void* s1, const void* s2, size_t n);
 void to_lowercase(char* str);
-
-/**
- * @brief Menghitung panjang string.
- *
- * Fungsi ini menghitung panjang string hingga karakter null pertama.
- *
- * @param s Pointer ke string.
- * @return Panjang string.
- */
 size_t strlen(const char* s);
-
-/**
- * @brief Membandingkan dua string secara leksikografis hingga n karakter.
- *
- * @param s1 Pointer ke string pertama.
- * @param s2 Pointer ke string kedua.
- * @param n Jumlah karakter yang akan dibandingkan.
- * @return Nilai negatif jika s1 < s2, nilai positif jika s1 > s2, dan 0 jika s1
- * = s2.
- */
 int strncmp(const char* s1, const char* s2, size_t n);
 int strcmp(const char* s1, const char* s2);
 void strcpy(char* dest, const char* src);
