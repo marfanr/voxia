@@ -13,12 +13,14 @@
 #include "procc/thread.h"
 #include "sys/err_no.h"
 #include "sys/fd.h"
+#include "tty/tty.h"
 #include "type.h"
 #include "vfs/dentry.h"
 #include "vfs/enum.h"
 #include "vfs/vfs.h"
 #include "vfs/vnode.h"
 #include <str.h>
+#include <sys/syscall.h>
 
 // static pid_t increment_pid = 1;
 // static proccess_t* proccess_list;
@@ -241,18 +243,18 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	// run
 	attach_to_scheduler(thr);
 
-	// auto kernel_page = paging_get_highest_page_map();
-	// for (int i = 0; i < ehdr.e_phnum; i++) {
-	// 	if (mmap_table[i].mapped) {
-	// 		vma_unregister(mmap_table[i].vaddr);
-	// 		paging_unmap_fill(kernel_page,
-	// 		                  mmap_table[i].vaddr +
-	// 		                      mmap_table[i].alligned,
-	// 		                  mmap_table[i].size);
-	// 	}
-	// }
+	auto kernel_page = paging_get_highest_page_map();
+	for (int i = 0; i < ehdr.e_phnum; i++) {
+		if (mmap_table[i].mapped) {
+			vma_unregister(mmap_table[i].vaddr);
+			paging_unmap_fill(kernel_page,
+			                  mmap_table[i].vaddr +
+			                      mmap_table[i].alligned,
+			                  mmap_table[i].size);
+		}
+	}
 
-	// kfree2(mmap_table);
+	kfree2(mmap_table);
 	dentry_put(loaded_file_dentry);
 	return VFS_OK;
 }
@@ -285,42 +287,6 @@ void free_pid(pid_t pid) {
 	uint8_t curr_bit = pid % 8;
 	pid_bitmap[curr_byte] &= ~(1 << curr_bit);
 }
-
-// TODO: will be moved
-struct win_size {
-	uint16_t ws_row;
-	uint16_t ws_col;
-	uint16_t ws_xpixel;
-	uint16_t ws_ypixel;
-};
-
-#define TIOCGWINSZ 0x5413
-
-static int char_ioctl(vnode_t* vnode, uint32_t req, void* arg) {
-	(void)vnode;
-	(void)req;
-	(void)arg;
-
-	switch (req) {
-		case TIOCGWINSZ: {
-			// request winsize
-			serial2_printf("ioctl: win size request\n");
-			struct win_size* ws = (struct win_size*)arg;
-			if (!ws) 
-				return -EBADF;
-
-			// dummy
-			ws->ws_row = 24;
-			ws->ws_col = 80;
-			ws->ws_xpixel = 0;
-			ws->ws_ypixel = 0;
-			return 0;
-		}
-	}
-
-	return -ENOTTY;
-}
-
 
 process_t* create_process(char* name, thread_t* main_thread) {
 	auto p = (process_t*)vxSlabAlloc(process_cache);
@@ -381,28 +347,26 @@ process_t* create_process(char* name, thread_t* main_thread) {
 		auto next_fd = p->fdtable->next_fd++;
 		resolve_dentry(itoa(next_fd, 10), current_proc_fd, &fd,
 		               CREATE_MISSING_ENTRY);
-		vnode_ptr_t fd_vnode = create_and_attach_vnode();
-		fd->vnode = fd_vnode;
-		fd_vnode->vnode_private = (void*)fd;
 		auto fd0 = alloc_fd();
 		p->fdtable->fds[next_fd] = fd0;
 	}
 	// fd1 -> stdout
+	// TODO: currently hardcode :v into /dev/tty0
 	{
-		dentry_ptr fd;
+		dentry_ptr fd_dentry;
 		auto next_fd = p->fdtable->next_fd++;
-		resolve_dentry(itoa(next_fd, 10), current_proc_fd, &fd,
+		resolve_dentry(itoa(next_fd, 10), current_proc_fd, &fd_dentry,
 		               CREATE_MISSING_ENTRY);
-		vnode_ptr_t fd_vnode = create_and_attach_vnode();
-		fd->vnode = fd_vnode;
-		fd_vnode->vnode_private = (void*)fd;
+
+		auto tty_dentry = get_tty_dentry(0);
+		auto tty_vnode = tty_dentry->vnode;
+
+		fd_dentry->vnode = tty_vnode;
+		
 		auto fd1 = alloc_fd();
+		fd1->vnode = tty_vnode;
 		p->fdtable->fds[next_fd] = fd1;
-		fd1->vnode = fd_vnode;
-		auto ops = (vops_file_t *)kalloc(sizeof(vops_file_t));
-		fd_vnode->ops = ops;
-		fd1->ops = ops;
-		ops->ioctl = char_ioctl;
+		fd1->ops = tty_vnode->ops;
 	}
 	// fd2 -> stderr
 	return p;
