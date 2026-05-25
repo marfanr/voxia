@@ -8,7 +8,7 @@ int syscall_write(int fd, void* buf, long count) {
     UNUSED(buf);
     UNUSED(count);
 
-    console_printf("%s\n", buf);
+    // console_printf("%s\n", buf);
     
     return 0;
 }
