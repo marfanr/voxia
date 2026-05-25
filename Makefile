@@ -15,9 +15,9 @@ BIOS_OVMF=ovmf-x64/OVMF.fd
 ROOT:=$(realpath .)
 export ROOT
 
-.PHONY: all modules all-hdd rust kernel lib iso sbin
+.PHONY: defconfig all modules all-hdd rust kernel lib iso sbin
 
-all: lib config kernel lib modules iso sbin
+all: defconfig lib kernel lib modules iso sbin
 
 modules:
 	@mkdir -p ./initrd/modules
@@ -228,8 +228,8 @@ distclean: clean
 	$(MAKE) -C kernel distclean
 
 defconfig:
-	@yes "" | kconfig-conf --oldconfig Kconfig > .config
-	@make config
+	yes "" | kconfig-conf --oldconfig Kconfig > .config
+	make config
 
 menuconfig:
 	kconfig-mconf Kconfig
