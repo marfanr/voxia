@@ -22,9 +22,6 @@
 #include <str.h>
 #include <sys/syscall.h>
 
-// static pid_t increment_pid = 1;
-// static proccess_t* proccess_list;
-
 static struct slab_cache* process_cache = 0;
 static uint8_t* pid_bitmap = 0;
 static dentry_ptr process_dentry = 0;
@@ -39,12 +36,11 @@ INIT(Process) {
 }
 
 #define AT_NULL 0
-#define AT_PAGESZ 6
-#define AT_PHNUM 5
-#define AT_PHENT 4
 #define AT_PHDR 3
+#define AT_PHENT 4
+#define AT_PHNUM 5
+#define AT_PAGESZ 6
 
-// TODO: make enum for return error code
 int execve(const char* path, char* const* argv, char* const* envp) {
 	UNUSED(path);
 	UNUSED(argv);
@@ -64,12 +60,10 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 		               loaded_file_dentry->vnode->size / 1024);
 	}
 
-	// alloc new page
 	auto page = paging_create_page_directory();
 	paging_setup(page);
 	serial2_printf("new page pml4 %p\n", (uintptr_t)page);
 
-	// loaded into buffer
 	auto size = loaded_file_dentry->vnode->size;
 	uint8_t* file_buffer = (uint8_t*)kalloc(size);
 	if (!file_buffer) {
@@ -91,7 +85,6 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	Elf64_Ehdr ehdr;
 	memcopy(&ehdr, (void*)file_buffer, sizeof(Elf64_Ehdr));
 
-	// allocate base addr
 	size_t loaded_size = elf_count_load_size(file_buffer);
 	LOG_INFO("VOXMO", "loaded size %d (%d kb)", loaded_size,
 	         loaded_size / 1024);
@@ -108,9 +101,8 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 		return -2;
 	}
 
-	if (ehdr.e_type == ET_EXEC) {
+	if (ehdr.e_type == ET_EXEC)
 		base_addr = 0;
-	}
 
 	elf_section_map sh_map = {0};
 	elf_section_map_all(file_buffer, &sh_map);
@@ -121,14 +113,12 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	LOG2_INFO("ELF", "version : %d, ph num : %d", ehdr.e_version,
 	          ehdr.e_phnum);
 	LOG2_INFO("ELF", "entry : 0x%x", ehdr.e_entry);
-
 	serial_trace("phdr count %d\n", ehdr.e_phnum);
 
 	uintptr_t base_vaddr = 0;
 	Elf64_Phdr* phdr = ELF_PTR(Elf64_Phdr, file_buffer, ehdr.e_phoff);
 	for (uint64_t i = 0; i < ehdr.e_phnum; i++) {
 		Elf64_Phdr* p = ELF_PTR(Elf64_Phdr, phdr, i * ehdr.e_phentsize);
-
 		if (p->p_vaddr > 0) {
 			if (!base_vaddr)
 				base_vaddr = p->p_vaddr;
@@ -140,7 +130,6 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	struct elf_load_mmap_table* mmap_table =
 	    (struct elf_load_mmap_table*)kalloc(
 	        sizeof(struct elf_load_mmap_table) * ehdr.e_phnum);
-	// (void)*mmap_table;
 
 	auto l = elf_load(page, file_buffer, base_addr, base_addr, mmap_table);
 	serial2_printf("loaded size %d kb\n", l / 1024);
@@ -153,7 +142,6 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 		}
 	}
 
-	// TODO: currently bypass
 	serial2_printf("temporary_base 0x%x -> base 0x%x\n", temporary_base,
 	               base_addr);
 	if (!temporary_base) {
@@ -172,87 +160,85 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 		LOG_INFO("VOXMO", "dynamic section found at 0x%x", dyn);
 		elf_dynamic_map dyn_map = {0};
 		elf_dyn_map_all(dyn, file_buffer, &dyn_map);
-
 		LOG_INFO("VOXMO", "strtab found at 0x%x", dyn_map.strtab);
 		LOG_INFO("VOXMO", "needed size %d", dyn_map.needed.size);
-
 		elf_relocate_dyn(&dyn_map, temporary_base, &gnu_hash, 0);
 	}
-
-	// elf_call_init_array(&sh_map, temporary_base);
 
 	serial2_printf("base vaddr %x %x\n", base_vaddr,
 	               (ehdr.e_entry - base_vaddr));
 
-	// auto entry_addr = (ehdr.e_entry) + base_addr;
 	auto entry_addr =
 	    (ehdr.e_type == ET_EXEC) ? ehdr.e_entry : ehdr.e_entry + base_addr;
 
-	auto stack = (uintptr_t)phys_base_alloc(1); // 4k
+	// Stack setup
+	auto stack_phys = (uintptr_t)phys_base_alloc(1);
 	auto stack_vaddr = vma_lookup_free_vaddr(VMA_REGION_A, 1);
-	vxMultipleMmap(page, stack_vaddr, stack, 1, 0b111);
-	vxMultipleMmap(paging_get_highest_page_map(), stack_vaddr, stack, 1,
-	               0b111);
+	vxMultipleMmap(page, USER_STACK_VADDR, stack_phys, 1, 0b111);
+	vxMultipleMmap(paging_get_highest_page_map(), stack_vaddr, stack_phys,
+	               1, 0b111);
 
-	// TODO: refactor this
-	uintptr_t phdr_vaddr =
-	    (ehdr.e_type == ET_EXEC)
-	        ? base_vaddr + ehdr.e_phoff // ET_EXEC: absolute vaddr
-	        : base_addr + ehdr.e_phoff; // ET_DYN:  load base + offset
+	uintptr_t phdr_vaddr = (ehdr.e_type == ET_EXEC)
+	                           ? base_vaddr + ehdr.e_phoff
+	                           : base_addr + ehdr.e_phoff;
 
-	auto sp = (uint64_t*)(stack_vaddr + 4096);
-	// auxv
+	uint8_t* stack_base = (uint8_t*)stack_vaddr;
+	uint8_t* stack_top = stack_base + 4096;
+
+	const char* progname = path;
+	size_t progname_len = strlen(progname) + 1;
+	uint8_t* name_dst = stack_top - progname_len;
+	memcopy(name_dst, (void*)progname, progname_len);
+
+	uintptr_t argv0_user = USER_STACK_VADDR + 4096 - progname_len;
+	uint64_t* sp = (uint64_t*)((uintptr_t)name_dst & ~(uintptr_t)7);
+
+	// --- auxv ---
 	*(--sp) = 0;                // AT_NULL value
-	*(--sp) = AT_NULL;          // AT_NULL tag = 0
+	*(--sp) = AT_NULL;          // AT_NULL tag
 	*(--sp) = 0x1000;           // AT_PAGESZ value
-	*(--sp) = AT_PAGESZ;        // AT_PAGESZ tag = 6
+	*(--sp) = AT_PAGESZ;        // AT_PAGESZ tag
 	*(--sp) = ehdr.e_phnum;     // AT_PHNUM value
-	*(--sp) = AT_PHNUM;         // AT_PHNUM tag = 5
+	*(--sp) = AT_PHNUM;         // AT_PHNUM tag
 	*(--sp) = ehdr.e_phentsize; // AT_PHENT value
-	*(--sp) = AT_PHENT;         // AT_PHENT tag = 4
+	*(--sp) = AT_PHENT;         // AT_PHENT tag
 	*(--sp) = phdr_vaddr;       // AT_PHDR value
-	*(--sp) = AT_PHDR;          // AT_PHDR tag = 3
+	*(--sp) = AT_PHDR;          // AT_PHDR tag
 
-	// envp null terminator
-	*(--sp) = 0;
+	// --- envp ---
+	*(--sp) = 0; // envp null terminator (tidak ada env)
 
-	// argv null terminator + argv[0] (kosong dulu)
-	*(--sp) = 0;
-	*(--sp) = 0; // argv[0] = null
+	// --- argv ---
+	*(--sp) = 0;          // argv null terminator
+	*(--sp) = argv0_user; // argv[0] → name program
 
-	// argc
+	// --- argc ---
 	*(--sp) = 1;
 
-	// 5. hitung user rsp
-	uintptr_t offset = (uintptr_t)(stack_vaddr + 4096) - (uintptr_t)sp;
-	uintptr_t user_rsp = stack_vaddr + 4096 - offset;
+	uintptr_t offset = (uintptr_t)stack_top - (uintptr_t)sp;
+	uintptr_t user_rsp = USER_STACK_VADDR + 4096 - offset;
 
-	// TODO: unmap stack on kernel page
+	serial2_printf("=== STACK DEBUG ===\n");
+	serial2_printf("user_rsp  = 0x%x\n", user_rsp);
+	serial2_printf("argc      = %d\n", *(uint64_t*)sp);
+	serial2_printf("argv[0]   = 0x%x\n", *((uint64_t*)sp + 1));
+	serial2_printf("argv0_str = %s\n", (char*)name_dst);
+	serial2_printf("entry     = 0x%x\n", entry_addr);
+	serial2_printf("===================\n");
+
+	paging_unmap_page(paging_get_highest_page_map(), stack_vaddr);
+	vma_unregister(stack_vaddr);
 
 	auto thr = create_thread(page, entry_addr, user_rsp, 1, 2, THREAD_USER);
-
 	auto procc = create_process(loaded_file_dentry->name->c_str, thr);
 
 	print_dentry_tree(get_root_dentry(), 0);
 
 	serial2_printf("process id %d\n", procc->pid);
+	serial2_printf(
+	    "done setuping executable, now ready to sended to scheduler\n");
 
-	serial2_printf("done setuping executable, now ready to sended "
-	               "to scheduler\n");
-
-	// run
 	attach_to_scheduler(thr);
-
-	auto kernel_page = paging_get_highest_page_map();
-	for (int i = 0; i < ehdr.e_phnum; i++) {
-		if (mmap_table[i].mapped) {
-			vma_unregister(mmap_table[i].vaddr);
-			paging_unmap_fill(kernel_page,
-			                  mmap_table[i].vaddr +
-			                      mmap_table[i].alligned,
-			                  mmap_table[i].size);
-		}
-	}
 
 	kfree2(mmap_table);
 	dentry_put(loaded_file_dentry);
@@ -260,15 +246,15 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 }
 
 /*
-Internal Function
+* Internal functions
 */
-
 pid_t alloc_pid() {
 	uint8_t curr_byte = 0;
 	uint8_t* curr_byte_ptr = pid_bitmap;
 	while (1) {
 		if (*curr_byte_ptr == 0xFF) {
 			curr_byte++;
+			curr_byte_ptr++;
 			continue;
 		}
 		for (pid_t i = 0; i < 8; i++) {
@@ -278,7 +264,6 @@ pid_t alloc_pid() {
 			}
 		}
 	}
-
 	return 0;
 }
 
@@ -305,33 +290,26 @@ process_t* create_process(char* name, thread_t* main_thread) {
 	p->cache.next = &p->cache;
 	p->cache.prev = &p->cache;
 
-	// TODO: insert into cache
 	auto bucket_idx = p->pid % 256;
 	auto h = process_bucket[bucket_idx].first;
 	auto n = &p->cache;
-
 	n->next = h;
 	n->prev = NULL;
 	if (h)
 		h->prev = n;
 	process_bucket[bucket_idx].first = n;
 
-	// llist
 	p->next = p->prev = p;
-
 	if (!_process_list) {
 		_process_list = p;
 	} else {
 		struct process* tail = _process_list->prev;
-
 		tail->next = p;
 		p->prev = tail;
-
 		p->next = _process_list;
 		_process_list->prev = p;
 	}
 
-	// saved into /proc
 	dentry_ptr current_proc = 0;
 	resolve_dentry(itoa(p->pid, 10), process_dentry, &current_proc,
 	               CREATE_MISSING_ENTRY);
@@ -340,8 +318,7 @@ process_t* create_process(char* name, thread_t* main_thread) {
 	resolve_dentry("fd", current_proc, &current_proc_fd,
 	               CREATE_MISSING_ENTRY);
 
-	// TODO: remove this, makes propperly
-	// fd0 -> stdin
+	// fd0 → stdin (placeholder)
 	{
 		dentry_ptr fd;
 		auto next_fd = p->fdtable->next_fd++;
@@ -350,8 +327,7 @@ process_t* create_process(char* name, thread_t* main_thread) {
 		auto fd0 = alloc_fd();
 		p->fdtable->fds[next_fd] = fd0;
 	}
-	// fd1 -> stdout
-	// TODO: currently hardcode :v into /dev/tty0
+	// fd1 → stdout (/dev/tty0)
 	{
 		dentry_ptr fd_dentry;
 		auto next_fd = p->fdtable->next_fd++;
@@ -360,14 +336,13 @@ process_t* create_process(char* name, thread_t* main_thread) {
 
 		auto tty_dentry = get_tty_dentry(0);
 		auto tty_vnode = tty_dentry->vnode;
-
 		fd_dentry->vnode = tty_vnode;
-		
+
 		auto fd1 = alloc_fd();
 		fd1->vnode = tty_vnode;
-		p->fdtable->fds[next_fd] = fd1;
 		fd1->ops = tty_vnode->ops;
+		p->fdtable->fds[next_fd] = fd1;
 	}
-	// fd2 -> stderr
+	// fd2 → stderr (TODO)
 	return p;
 }

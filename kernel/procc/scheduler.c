@@ -2,7 +2,6 @@
 
 #include "hal/acpi/hpet.h"
 #include "hal/apic/apic.h"
-#include "hal/cpu/interrupt.h"
 #include "hal/cpu/msr.h"
 #include "hal/cpu/paging.h"
 #include "hal/cpu/register.h"
@@ -301,4 +300,72 @@ void vxStartScheduler(void) {
 	             INTERRUPT_ATTR_KERNEL);
 
 	vxAPICCreateTimer(APIC_TIMER_PERIOD, 100, 0x45);
+}
+
+void sch_restore_to_next_thread(volatile interrupt_stack_frame_t* rsp, uint16_t core_id) {
+    spin_acquire(&scheduler[core_id].lock);
+
+    scheduler_queue_t* current_node = scheduler[core_id].current;
+    if (!current_node || !current_node->thread) {
+        spin_release(&scheduler[core_id].lock);
+        return;
+    }
+
+    thread_t* crashed = current_node->thread;
+    crashed->state = THREAD_STATE_HAL;
+
+    // Detach dari queue (already_locked = true)
+    vxDeatachFromScheduler(current_node, true);
+
+    // Tidak ada thread lain → tidak bisa recover
+    if (!scheduler[core_id].run_queue_head) {
+        spin_release(&scheduler[core_id].lock);
+        INFLOOP;
+    }
+
+    // Ambil next thread yang sudah valid
+    scheduler_queue_t* next_node = scheduler[core_id].current;
+    if (!next_node)
+        next_node = scheduler[core_id].run_queue_head;
+
+    thread_t* next = next_node->thread;
+
+    // Restore FULL register context — ini yang sebelumnya hilang
+    if (next->state == THREAD_STATE_RUNNING) {
+        vxRestoreRegister(rsp, &next->reg);
+        if (next->fs_base)
+            msrSetFSBase(next->fs_base);
+    } else if (next->state == THREAD_STATE_READY) {
+        // Thread belum pernah jalan, set up fresh context
+        next->state = THREAD_STATE_RUNNING;
+        if (next->flags & THREAD_USER) {
+            rsp->rip    = next->entry_addr;
+            rsp->rsp    = next->stack;
+            rsp->cs     = 0x48 | 3;
+            rsp->ss     = 0x40 | 3;
+            rsp->rflags = 0x202;
+            rsp->rbp    = 0;
+        } else {
+            rsp->rip    = next->entry_addr;
+            rsp->rsp    = ((next->stack + 0x1000) & ~(uint64_t)0xF) - 8;
+            rsp->cs     = 0x28;
+            rsp->ss     = 0x30;
+            rsp->rflags = 0x202;
+            rsp->rbp    = 0;
+        }
+    }
+
+    auto current_core = get_current_core_data();
+    next->current_core_id  = core_id;
+    current_core->active_thread = next;
+    current_core->next_is_user  = (next->flags & THREAD_USER) ? 1 : 0;
+
+    scheduler[core_id].current = next_node;
+
+    volatile uintptr_t* reload_page = next->page;
+    spin_release(&scheduler[core_id].lock);
+
+    // Switch page map ke milik next thread — WAJIB jika beda process
+    if (reload_page)
+        paging_reload(reload_page);
 }

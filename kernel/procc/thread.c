@@ -63,12 +63,6 @@ thread_t* create_thread(volatile uintptr_t* page, uintptr_t entry,
 	return thr;
 }
 
-// TODO: unused
-// static thread_id vxCreateKThread(const uintptr_t entry, uint16_t
-// core_affinity, 				 uint8_t priority) { 	return vxCreateThread(entry,
-// core_affinity, priority, 			      THREAD_KERNEL & THREAD_PREEMPT_DISABLE);
-// }
-
 void vxThreadExit() {
 	const uint16_t core_id = get_current_core_cpuid();
 	auto queue = vxSchedulerGetCurrentQueue(core_id);
