@@ -6,15 +6,16 @@
 #include <sys/syscall.h>
 
 int ioctl(int fd, uint32_t req, void* arg) {
-
 	auto curr_procc = get_current_core_data()->active_thread->process;
 	auto fdt = (struct fdtable*)curr_procc->fdtable;
 	auto curr_fd = fdt->fds[fd];
 
 	if (fd < 0 || fd > (int)fdt->max_fds) {
-		LOG2_ERROR("Ioctl", "fd %d is invalid, max fd %d", fd, fdt->max_fds);
+		LOG2_ERROR("Ioctl", "fd %d is invalid, max fd %d", fd,
+		           fdt->max_fds);
 		return -EBADF;
 	}
+	
 	auto ops = (vops_file_t*)curr_fd->ops;
 	if (!ops) {
 		LOG2_ERROR("Ioctl", "fd %d ops is missing", fd);

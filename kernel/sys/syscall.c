@@ -27,13 +27,13 @@ void syscall_init(void) {
 
 extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 	// #DEBUG
-	if (rsp->rax != SYSCALL_EXIT)
+	if (rsp->rax != SYSCALL_EXIT && rsp->rax != SYSCALL_WRITEV)
 		LOG2_DEBUG("syscall", "called %d (%s) %d 0x%x %d", rsp->rax,
 		           get_syscall_name((int)rsp->rax), rsp->rdi, rsp->rsi,
 		           rsp->rdx);
 
 	auto int_no = rsp->rax;
-	
+
 	// TODO: refactor this using array of linker section
 	switch (int_no) {
 	case SYSCALL_READ:
@@ -71,7 +71,9 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 		break;
 	}
 	case SYSCALL_WRITEV: {
-		rsp->rax = (uint64_t)-1;
+		rsp->rax = (uint64_t)syscall_readv(
+		    (int)rsp->rdi, (const struct iovec*)rsp->rsi,
+		    (int)rsp->rdx);
 		break;
 	}
 	default:
@@ -84,10 +86,7 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 INIT(Syscall) { syscall_init(); }
 
 extern const char* syscall_names[335];
-// Fungsi aman untuk mendapatkan nama syscall tanpa takut segmentation fault /
-// array out-of-bounds
 static const char* get_syscall_name(int rax) {
-	// Menghitung ukuran array dinamis jika ada update di masa depan
 	int max_syscalls = sizeof(syscall_names) / sizeof(syscall_names[0]);
 
 	if (rax >= 0 && rax < max_syscalls && syscall_names[rax] != NULL) {
