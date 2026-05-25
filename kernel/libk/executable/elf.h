@@ -305,7 +305,9 @@ void elf_gnu_hash_parse(GnuHashHeader* gnu_hash, Elf64_Shdr* gnu_hash_sym,
 
 void elf_relocate_dyn(elf_dynamic_map* map, uintptr_t base,
                       GnuHashHeader* gnu_hash,
-                      symbols_ptr_vector_t* external_syms);
+                      symbols_ptr_vector_t* external_syms,
+                      struct elf_load_mmap_table* table, int table_count);
+					  
 void elf_get_symbol(const char* sym_name, uintptr_t base, elf_section_map* map,
                     uint8_t* data, symbols_ptr_vector_t* syms,
                     boolean_t skip_empty_val);
