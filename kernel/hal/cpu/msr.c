@@ -1,6 +1,5 @@
 #include "hal/cpu/msr.h"
 
-
 void vxWRSR(uint32_t msr, uint64_t value) {
 	// serial_printf("value : 0x%lx\n", value);
 
@@ -25,9 +24,18 @@ void msrSetGSBase(uint64_t base) {
 	vxWRSR(MSR_GS_BASE, base);
 }
 
+uintptr_t msrReadFSBase() {
+	return vxRDMSR(MSR_FS_BASE);
+}
+
 uintptr_t msrReadGSBase() {
 	return vxRDMSR(MSR_GS_BASE);
 }
+
+uintptr_t msrReadKernelGSBase() {
+	return vxRDMSR(MSR_KERNEL_GS_BASE);
+}
+
 
 void msrSetKernelGSBase(uint64_t base) {
 	vxWRSR(MSR_KERNEL_GS_BASE, base);

@@ -866,6 +866,7 @@ next:
 }
 
 void EHCIModule::fireHandler() {
+	// log("EHCI IRQ", "transfer complete");
 	EHCIModule* module = EHCIModule::getInstance();
 	if (!module)
 		return;
@@ -876,7 +877,6 @@ void EHCIModule::fireHandler() {
 
 	if (status & (1 << 0)) {
 		// USBINT → transfer complete
-		// log("EHCI IRQ", "transfer complete");
 		auto node = ioforge_get_usb_devices_root();
 		module->call_completion_callback(node);
 	}

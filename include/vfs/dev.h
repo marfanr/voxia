@@ -59,17 +59,17 @@ enum {
 	DEV_OK = 1,
 };
 
-struct  vops_blk;
+
 typedef struct cdev {
 	uint32_t major;
 	uint32_t minor;
-	struct  vops_blk* ops;
+	void* ops;
 
 	struct cdev* next;
 } __attribute__((aligned(64))) cdev_t;
 typedef cdev_t* cdev_ptr_t;
 
-cdev_ptr_t create_dev(struct  vops_blk* ops, uint32_t major);
+cdev_ptr_t create_dev(void* ops, uint32_t major);
 cdev_ptr_t retrieve_dev(uint32_t major, uint32_t minor);
 
 #ifdef __cplusplus

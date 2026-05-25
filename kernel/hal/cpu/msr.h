@@ -18,5 +18,7 @@ void      msrSetFSBase(uint64_t base);
 void      msrSetGSBase(uint64_t base);
 void      msrSetKernelGSBase(uint64_t base);
 uintptr_t msrReadGSBase();
+uintptr_t msrReadFSBase();
+uintptr_t msrReadKernelGSBase();
 
 #endif // __HAL__CPU__MSR_H__

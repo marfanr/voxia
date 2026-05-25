@@ -59,14 +59,14 @@ endmenu
 menu "Voxmo Configuration"
 config DEFAULT_VOXMO_PATH
     string "Default Voxmo path"
-    default "/dev/initrd/modules/"
+    default "/init/modules/"
 
 endmenu
 
 menu "Initrd Configuration"
 config  INITRD_MOUNT_PATH
     string "Initrd mount path"
-    default "/dev/initrd"
+    default "/init"
 
 endmenu
 
@@ -81,6 +81,23 @@ config VFS_CACHE_TTL_MS
     default 5000
     range 1 60000
 
+endmenu
+
+menu "TTY Configuration"
+config TTY_MAX_COUNT
+    int "Maximum TTY count"
+    default 8
+    range 1 8
+
+config TTY_INPUT_BUFFER_SIZE
+    int "TTY input buffer size"
+    default 4096
+    range 256 65536
+
+config TTY_LINE_BUFFER_SIZE
+    int "TTY line buffer size"
+    default 1024
+    range 256 65536
 endmenu
 
 # menu "Kernel Modules"

@@ -1,8 +1,9 @@
 #ifndef __USB_HID__HID_HPP__
 #define __USB_HID__HID_HPP__
 
-#include "ioforge/ioforge_block.h"
-#include "ioforge/ioforge_block.hpp"
+#include <ioforge/ioforge_block.h>
+#include <ioforge/ioforge_block.hpp>
+#include <vfs/filesystem.h>
 
 class ATAPIModule : public IOForgeBlock {
       public:
@@ -11,8 +12,8 @@ class ATAPIModule : public IOForgeBlock {
 	void unload() override;
 
 	static ATAPIModule* getInstance();
-	static int read(void* vdata, uintptr_t addr, void* buf, size_t count);
-	static int write(void* vdata, uintptr_t addr, void* buf, size_t count);
+	static int read(vnode_t* vnode, uintptr_t addr, void* buf, size_t count);
+	static int write(vnode_t* vnode, uintptr_t addr, void* buf, size_t count);
 
       protected:
 	void probe(struct ioforge_block_device* block);

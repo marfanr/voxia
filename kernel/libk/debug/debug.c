@@ -1,5 +1,4 @@
 #include "debug.h"
-#include <spinlock.h>
 #include "type.h"
 #include <console/console.h>
 #include <libk/serial.h>
@@ -59,13 +58,6 @@ void kernel_debug_impl(const char* file_, uint16_t line_num_,
 	console_add_space(1);
 	console_vaprintf(message_, args);
 	__builtin_va_end(args);
-
-	// Also output to serial for headless debugging
-	serial2_printf("[%s] ", get_debug_level_str(level_));
-	__builtin_va_start(args, message_);
-	parse_multicore(args, message_);
-	__builtin_va_end(args);
-	serial2_printf("\n");
 }
 
 // void kernel_assert_impl(const char* file_, uint16_t line_num_) {

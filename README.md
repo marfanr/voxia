@@ -2,6 +2,8 @@
 
 A Simple modular x86_64 kernel designed with simplicity and elegance in mind.
 
+[![CodeFactor](https://www.codefactor.io/repository/github/marfanr/voxia/badge)](https://www.codefactor.io/repository/github/marfanr/voxia)
+
 ---
 
 ## ✨ Features

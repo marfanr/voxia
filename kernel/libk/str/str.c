@@ -8,6 +8,7 @@ extern void __fast__memcpy_aligned__(void* dst, void* val, size_t len);
 extern void __fast_memset__(void* dst, int val, size_t len);
 extern void __fast_memset_aligned__(void* dst, int val, size_t len);
 extern int __fast__strncmp__(const char* s1, const char* s2, size_t n);
+extern void* __fast__memchr__(const void* buf, int c, size_t len);
 
 KERNEL_API int strcmp(const char* s1, const char* s2) {
 	while (*s1 && (*s1 == *s2)) {
@@ -30,6 +31,21 @@ KERNEL_API int strncmp(const char* s1, const char* s2, size_t n) {
 	}
 
 	return __fast__strncmp__(s1, s2, n);
+}
+
+KERNEL_API void* memchr(const void* buf, int c, size_t len) {
+    if (!simd_has_avx2) {
+        const unsigned char* p = (const unsigned char*)buf;
+        const unsigned char target = (unsigned char)c;
+        while (len--) {
+            if (*p == target)
+                return (void*)p;
+            p++;
+        }
+        return NULL;
+    }
+
+    return __fast__memchr__(buf, c, len);
 }
 
 KERNEL_API int memcmp(const void* s1, const void* s2, size_t n) {
@@ -283,7 +299,8 @@ void* memmove(void* dest, const void* src, size_t n) {
 	return dest;
 }
 
-char* itoa(int value, char* str, int base) {
+char* itoa(int64_t value, int base) {
+	static char str[32];
 	if (base < 2 || base > 36) {
 		*str = '\0';
 		return str;
@@ -295,7 +312,7 @@ char* itoa(int value, char* str, int base) {
 		return str;
 	}
 
-	int tmp = 0;
+	int64_t tmp = 0;
 	char* last = str;
 	char* start = str;
 
@@ -303,7 +320,7 @@ char* itoa(int value, char* str, int base) {
 		tmp = value;
 		value /= base;
 
-		int digit = tmp - value * base;
+		int64_t digit = tmp - value * base;
 
 		*last++ = (char) ((digit < 10) ? ('0' + digit)
 					       : ('a' + (digit - 10)));

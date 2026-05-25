@@ -14,26 +14,7 @@ void* memmove(void* dest, const void* src, size_t n);
 void memset(void* ptr, int value, size_t num);
 int memcmp(const void* s1, const void* s2, size_t n);
 void to_lowercase(char* str);
-
-/**
- * @brief Menghitung panjang string.
- *
- * Fungsi ini menghitung panjang string hingga karakter null pertama.
- *
- * @param s Pointer ke string.
- * @return Panjang string.
- */
 size_t strlen(const char* s);
-
-/**
- * @brief Membandingkan dua string secara leksikografis hingga n karakter.
- *
- * @param s1 Pointer ke string pertama.
- * @param s2 Pointer ke string kedua.
- * @param n Jumlah karakter yang akan dibandingkan.
- * @return Nilai negatif jika s1 < s2, nilai positif jika s1 > s2, dan 0 jika s1
- * = s2.
- */
 int strncmp(const char* s1, const char* s2, size_t n);
 int strcmp(const char* s1, const char* s2);
 void strcpy(char* dest, const char* src);
@@ -49,30 +30,8 @@ char* strtok_r(char* str, const char* delim, char** saveptr);
 
 typedef const char* __str;
 char* rtrim(char* str);
-char* itoa(int value, char* str, int base);
-
-// Commenting out the incomplete explode function for now to resolve compilation errors.
-// static inline void
-// explode(const char* path, const char delim, vector(string) * out) {
-// 	// size_t len = strlen(path);
-// 	// // serial_trace("exploding path len %d \n", len);
-
-// 	// char* buf = (char*) kalloc(len + 1);
-// 	// strcpy(buf, path);
-// 	// buf[len] = 0;
-
-// 	// char* rest = buf;
-// 	// const char* token;
-
-// 	// while ((token = strsep(&rest, delim)) != 0) {
-// 	// 	// serial_trace("%s \n", rest);
-// 	// 	if (strlen(token) > 0) {
-// 	// 		kstring tmp = str(token);
-// 	// 		vector_push_back(out, tmp);
-// 	// 	}
-// 	// }
-// 	// kfree(buf, len + 1);
-// }
+char* itoa(int64_t value, int base);
+void* memchr(const void* buf, int c, size_t len);
 
 #ifdef __cplusplus
 }

@@ -48,7 +48,7 @@ void update_core_gs(uint8_t id) {
 
 	const uintptr_t core_data_addr = (uintptr_t)&core_data[id];
 	msrSetGSBase(core_data_addr);
-	msrSetKernelGSBase(core_data_addr);
+	msrSetKernelGSBase(0);
 }
 
 each_core_data* get_current_core_data(void) {

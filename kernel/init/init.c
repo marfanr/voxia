@@ -6,7 +6,8 @@
 #include "libk/serial.h"
 #include "memory/phys_base_allocator.h"
 #include "notify.h"
-#include "procc/proccess.h"
+#include "procc/process.h"
+#include "tty/tty.h"
 #include <console/console.h>
 #include <hal/acpi/hpet.h>
 #include <memory/kalloc.h>
@@ -36,9 +37,7 @@ _start(struct stivale2_struct* stivale2_struct) {
 	             INTERRUPT_ATTR_KERNEL);
 	vxAPICCreateTimer(APIC_TIMER_PERIOD, 100, irq);
 
-	KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...\n");
-
-	wait_until_receive_notify("/vfs/root", 10000);
+	wait_until_receive_notify("/vfs/root", 5000);
 
 	void* test_ptr = kalloc(256);
 	if (test_ptr) {
@@ -71,16 +70,17 @@ _start(struct stivale2_struct* stivale2_struct) {
 		LOG2_INFO("KALLOC_TEST", "Large alloc freed successfully");
 	}
 
-	// TODO: start scheduler on bsp
+	pmm_log_usage();
+	start_tty();
 
-	// TODO: spawn /sbin/term
-	// jump into userspace
+	execve("/sbin/hello.elf", 0, 0);
 	execve("/sbin/term.elf", 0, 0);
-	print_dentry_tree(get_root_dentry(), 0);
-
-	// pmm_log_usage();
-
-
+	
+	// KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...\n");
+	
+	
+	// print_dentry_tree(get_root_dentry(), 0);
+	
 	INFLOOP;
 }
 

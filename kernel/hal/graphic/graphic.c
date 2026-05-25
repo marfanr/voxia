@@ -78,8 +78,6 @@ static void ssfn_free_(void* ptr) {
 #undef _STRING_H_
 #pragma GCC diagnostic pop
 
-#define FONT_SIZE 16
-
 volatile framebuffer_t* g__fb;
 static ssfn_buf_t dst;
 static ssfn_t ssfn_ctx = {0};
@@ -263,13 +261,10 @@ void put_pixel_alpha_fast(int x, int y, pixel_t src) {
 	*dst_ptr = rb | g;
 }
 
-// static void clear_screen(uint32_t color) {
-// 	for (int y = 0; y < g__fb->framebuffer_height; y++) {
-// 		for (int x = 0; x < g__fb->framebuffer_width; x++) {
-// 			put_pixel(x, y, color);
-// 		}
-// 	}
-// }
+void clear_screen(uint32_t color) {
+	memset((void *)g__fb->framebuffer_addr, color,
+	       g__fb->framebuffer_pitch * g__fb->framebuffer_height);
+}
 
 __attribute__((unused)) static void scroll_up(int lines, uint32_t bg_color) {
 	int line_height = 15; // Asumsi tinggi karakter 15px
@@ -300,4 +295,18 @@ void vxScroll(int px) {
 	ssfn_memcpy(dst.ptr, dst.ptr + row_bytes * px, total);
 
 	ssfn_memset(dst.ptr + total, 0, row_bytes * px);
+}
+
+
+uint32_t screen_cols(void) {
+	uint32_t w = vxGetWidth();
+	if (w == 0)
+		return 80;
+	return (w / (FONT_SIZE / 2));
+}
+uint32_t screen_rows(void) {
+	uint32_t h = vxGetHeight();
+	if (h == 0)
+		return 25;
+	return (h / FONT_SIZE);
 }

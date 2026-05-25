@@ -58,7 +58,8 @@ static int32_t alloc_minor(uint32_t major) {
 // 	bitmap[minor / 8] &= ~(1 << (minor % 8));
 // }
 
-KERNEL_API cdev_ptr_t create_dev(struct vops_blk* ops, uint32_t major) {
+
+KERNEL_API cdev_ptr_t create_dev(void* ops, uint32_t major) {
 	if (!block_device_cache)
 		vxCreateSlabCache(&block_device_cache, "block_device",
 		                  sizeof(cdev_t), 0, 0);

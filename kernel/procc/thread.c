@@ -1,12 +1,12 @@
 #include "procc/thread.h"
 #include "autoconf.h"
-#include <hal/cpu/core.h>
 #include "init/init.h"
 #include "libk/atomic.h"
 #include "libk/serial.h"
 #include "memory/slab.h"
 #include "scheduler.h"
 #include "type.h"
+#include <hal/cpu/core.h>
 
 static struct slab_cache* thread_cache = nullptr;
 static thread_bucket_t bucket = {0};
@@ -21,7 +21,7 @@ static thread_id thrAcquireNewSlot() {
 			bucket.slot[i].used = true;
 			bucket.slot[i].gen++;
 			LOG2_DEBUG("THREAD", "NEW SLOT Gen %d Id %d",
-				   bucket.slot[i].gen, i);
+			           bucket.slot[i].gen, i);
 			return THREAD_MAKE_ID(i, bucket.slot[i].gen);
 		}
 	}
@@ -30,7 +30,7 @@ static thread_id thrAcquireNewSlot() {
 }
 
 static thread_t* thrCreateInstance() {
-	return (thread_t*) vxSlabAlloc(thread_cache);
+	return (thread_t*)vxSlabAlloc(thread_cache);
 }
 
 // TODO: unused
@@ -44,8 +44,9 @@ static void vxUpdateThreadSlot(const thread_id id, thread_t* thr) {
 	bucket.slot[idx].thread = thr;
 }
 
-thread_id create_thread(const uintptr_t entry, uint16_t core_affinity,
-			 uint8_t priority, uint16_t flags) {
+thread_t* create_thread(volatile uintptr_t* page, uintptr_t entry,
+                        uintptr_t stack, uint16_t core_affinity,
+                        uint8_t priority, uint16_t flags) {
 	thread_t* thr = thrCreateInstance();
 	serial2_printf("created thread at 0x%x \n", thr);
 	thr->id = thrAcquireNewSlot();
@@ -53,20 +54,14 @@ thread_id create_thread(const uintptr_t entry, uint16_t core_affinity,
 	thr->core_affinity = core_affinity;
 	thr->priority = priority;
 	thr->flags = flags;
-	thr->stack = (uintptr_t) kalloc(4096);
+	thr->stack = stack;
 	thr->state = THREAD_STATE_CREATE;
-	vxUpdateThreadSlot(thr->id, thr);
-	vxAttachScheduler(thr);
-	LOG2_DEBUG("THREAD", "created thread %d", thr->id);
-	return thr->id;
-}
+	thr->page = page;
 
-// TODO: unused
-// static thread_id vxCreateKThread(const uintptr_t entry, uint16_t core_affinity,
-// 				 uint8_t priority) {
-// 	return vxCreateThread(entry, core_affinity, priority,
-// 			      THREAD_KERNEL & THREAD_PREEMPT_DISABLE);
-// }
+	vxUpdateThreadSlot(thr->id, thr);
+	LOG2_DEBUG("THREAD", "created thread %d", thr->id);
+	return thr;
+}
 
 void vxThreadExit() {
 	const uint16_t core_id = get_current_core_cpuid();
@@ -74,5 +69,5 @@ void vxThreadExit() {
 	queue->thread->state = THREAD_STATE_TERMINATED;
 	for (;;)
 		__asm__ volatile(
-			"hlt"); // LOG_DEBUG("THREAD", "acalled thread exit");
+		    "hlt"); // LOG_DEBUG("THREAD", "acalled thread exit");
 }

@@ -17,6 +17,7 @@ typedef struct __attribute__((aligned(64))) {
 	
 	uint64_t kernel_rsp;
 	uint64_t user_rsp;
+	int next_is_user;	
 	
 	boolean_t usleep_trigerred;
 	scheduler_core_t* scheduler;
@@ -24,7 +25,7 @@ typedef struct __attribute__((aligned(64))) {
 	thread_t* active_thread;
 	
 
-	uint8_t _pad[6];
+	uint8_t _pad[2];
 	// cache line end
 
 	workqueue_t workqueue[VOXIA_MAX_WORKQUEUE_EACH_CORE];

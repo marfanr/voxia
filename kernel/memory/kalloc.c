@@ -11,7 +11,6 @@
 #include <hal/cpu/irq_lock.h>
 #include <autoconf.h>
 
-#define KALLOC_BASE_ADDR 0xFFFFFE0000000000ULL
 #define MAX_FREED_VADDRS 512
 
 typedef struct {

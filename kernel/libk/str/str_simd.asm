@@ -125,22 +125,22 @@ global __fast__strncmp__
 section .text
 __fast__strncmp__:
     test rdx, rdx
-    je .done                 ; jika n == 0, return 0
+    je .done
 
 .loop32:
     cmp rdx, 32
-    jb .tail                 ; sisa <32, pakai loop byte biasa
+    jb .tail
 
     vmovdqu ymm0, [rdi]      ; load 32 byte s1
     vmovdqu ymm1, [rsi]      ; load 32 byte s2
 
     vpcmpeqb ymm2, ymm0, ymm1 ; compare byte per byte
-    vpmovmskb eax, ymm2        ; mask 32-bit, 1 jika sama
+    vpmovmskb eax, ymm2        ; mask 32-bit
 
     cmp eax, 0xFFFFFFFF
-    jne .mismatch             ; ada beda
+    jne .mismatch
 
-    ; cek null terminator
+    ; null terminator check
     vpxor ymm3, ymm3, ymm3    ; register zero
     vpcmpeqb ymm4, ymm0, ymm3
     vpmovmskb ecx, ymm4
@@ -169,7 +169,7 @@ __fast__strncmp__:
     jmp .done
 
 .mismatch:
-    ; cari byte pertama berbeda dalam block 32-byte
+    ; find first difference byte inside block 32-byte
     mov rcx, 0
 .byte_scan:
     cmp rcx, 32
@@ -184,7 +184,7 @@ __fast__strncmp__:
     jmp .byte_scan
 
 .null_found:
-    ; scan untuk null terminator
+    ; scan for null terminator
     mov rcx, 0
 .null_scan:
     cmp rcx, 32
@@ -206,4 +206,60 @@ __fast__strncmp__:
 
 .done:
     xor eax, eax
+    ret
+
+global __fast__memchr__
+section .text
+__fast__memchr__:
+    ; rdi = buf, rsi = c (char), rdx = len
+    test rdx, rdx
+    jz .not_found
+
+    movd xmm0, esi
+    vpbroadcastb ymm0, xmm0
+
+.loop32:
+    cmp rdx, 32
+    jb .tail
+
+    prefetchnta [rdi+256]
+    vmovdqu ymm1, [rdi]          ; load 32 byte from buf
+
+    vpcmpeqb ymm2, ymm1, ymm0   ; compare per byte with target
+    vpmovmskb eax, ymm2          ; bitmask: bit=1 if match
+
+    test eax, eax
+    jnz .found32                 
+
+    add rdi, 32
+    sub rdx, 32
+    jmp .loop32
+
+.found32:
+    ; find first found byte inside block 32-byte
+    bsf eax, eax                 ; bit scan forward
+    add rdi, rax
+    mov rax, rdi
+    vzeroupper
+    ret
+
+.tail:
+    test rdx, rdx
+    jz .not_found
+.tail_loop:
+    mov al, [rdi]
+    cmp al, sil
+    je .found_tail
+    inc rdi
+    dec rdx
+    jnz .tail_loop
+
+.not_found:
+    xor eax, eax
+    vzeroupper
+    ret
+
+.found_tail:
+    mov rax, rdi
+    vzeroupper
     ret

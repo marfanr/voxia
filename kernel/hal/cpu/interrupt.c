@@ -1,9 +1,9 @@
 #include "./interrupt.h"
 #include "autoconf.h"
 #include "hal/apic/apic.h"
+#include "hal/cpu/paging.h"
 #include "init/init.h"
 #include <hal/cpu/core.h>
-#include <hal/ethernet/e1000/e1000.h>
 #include <libk/debug/debug.h>
 #include <libk/io.h>
 #include <libk/serial.h>
@@ -230,18 +230,6 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 	if (int_number < 32) {
 		uintptr_t cr2 = 0;
 
-		if (int_number == PAGE_FAULT) {
-			asm volatile("mov %%cr2, %0" : "=r"(cr2));
-			KDEBUG(DEBUG_LEVEL_ERROR, "\npage fault 0x%x\n", cr2);
-		}
-
-		serial2_printf("\n\n[EXCEPTION] %s (vector %d)\n",
-		               exception_messages[int_number], int_number);
-		serial2_printf("  rip=0x%x  rsp=0x%x  err=0x%x  cr2=0x%x\n",
-		               rsp->rip, rsp->rsp, rsp->err_code, cr2);
-		serial2_printf("  rax=0x%x  rbx=0x%x  rcx=0x%x  rdx=0x%x\n",
-		               rsp->rax, rsp->rbx, rsp->rcx, rsp->rdx);
-
 		// serial_printf("\n\n[EXCEPTION] %s (vector %d)\n",
 		// 	      exception_messages[int_number], int_number);
 		// serial_printf("  rip=0x%lx  rsp=0x%lx  err=0x%lx
@@ -261,10 +249,26 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 			           exception_messages[int_number],
 			           queue->thread->id, rsp->rip, cr2);
 			queue->thread->state = THREAD_STATE_TERMINATED;
-			// rsp->rip =
-			// (uintptr_t)queue->next_queue->thread->reg.rip;
-			INFLOOP;
+			sch_restore_to_next_thread(rsp, cpu_id);
+			// INFLOOP;
 		} else {
+			if (int_number == PAGE_FAULT) {
+				asm volatile("mov %%cr2, %0" : "=r"(cr2));
+				KDEBUG(DEBUG_LEVEL_ERROR, "\npage fault 0x%x\n",
+				       cr2);
+				serial_trace("\npage fault 0x%x\n", cr2);
+			}
+
+			serial2_printf("\n\n[EXCEPTION] %s (vector %d)\n",
+			               exception_messages[int_number],
+			               int_number);
+			serial2_printf(
+			    "  rip=0x%x  rsp=0x%x  err=0x%x  cr2=0x%x\n",
+			    rsp->rip, rsp->rsp, rsp->err_code, cr2);
+			serial2_printf(
+			    "  rax=0x%x  rbp=0x%x  rcx=0x%x  rdx=0x%x\n",
+			    rsp->rax, rsp->rbp, rsp->rcx, rsp->rdx);
+
 			INFLOOP;
 
 			/* Tidak ada thread — terjadi di konteks kernel awal,
@@ -273,6 +277,8 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 
 		goto end;
 	}
+
+	// paging_reload(paging_get_highest_page_map());
 
 	{
 

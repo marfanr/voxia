@@ -1,3 +1,4 @@
+#include "ioforge/ioforge.h"
 #include "type.h"
 #include <cstdint>
 #include <stdint.h>
@@ -147,9 +148,7 @@ void VirtioGpu::setup() {
 
 	// irq
 	if (dev_->pci.interrupt_line) {
-		auto irq = IOUtils::irq_alloc_entry();
-		IOUtils::isr_map(dev_->pci.interrupt_line, irq);
-		IOUtils::irq_register(irq, (void*) VirtioGpu::fireHandler);
+		isr_irq_register(dev_->pci.interrupt_line, (void *)VirtioGpu::fireHandler);
 	}
 
 	// -----

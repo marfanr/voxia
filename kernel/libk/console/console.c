@@ -6,9 +6,6 @@
 #include <str.h>
 #include <type.h>
 
-#undef FONT_SIZE
-#define FONT_SIZE 16
-
 #define SLOT_EMPTY 0x00
 #define SLOT_WRITING 0xFE
 #define SLOT_DROPPED 0xFF
@@ -37,21 +34,8 @@ static int pos_x = 0;
 static int pos_y = 0;
 static uint32_t fgcolor = 0xFFFFFFFF;
 
-static int screen_cols(void) {
-	uint32_t w = vxGetWidth();
-	if (w == 0)
-		return 80;
-	return (int)(w / (FONT_SIZE / 2));
-}
-static int screen_rows(void) {
-	uint32_t h = vxGetHeight();
-	if (h == 0)
-		return 25;
-	return (int)(h / FONT_SIZE);
-}
-
 static void do_scroll(void) {
-	int rows = screen_rows();
+	int rows = (int)screen_rows();
 	vxScroll(FONT_SIZE);
 	pos_y = rows > 0 ? rows - 1 : 0;
 	pos_x = 0;
@@ -59,11 +43,11 @@ static void do_scroll(void) {
 
 static void advance_cursor(void) {
 	pos_x++;
-	if (pos_x >= screen_cols()) {
+	if (pos_x >= (int)screen_cols()) {
 		pos_x = 0;
 		pos_y++;
 	}
-	if (pos_y >= screen_rows())
+	if (pos_y >= (int)screen_rows())
 		do_scroll();
 }
 
@@ -71,7 +55,7 @@ static void put_char_raw(char c, uint32_t color) {
 	if (c == '\n') {
 		pos_x = 0;
 		pos_y++;
-		if (pos_y >= screen_rows())
+		if (pos_y >= (int)screen_rows())
 			do_scroll();
 		return;
 	}

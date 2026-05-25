@@ -7,7 +7,6 @@
 #include "llist.h"
 #include "memory/slab.h"
 #include "notify.h"
-#include "procc/proccess.h"
 #include "str.h"
 #include "vfs/vnode.h"
 #include <string.h>
@@ -44,7 +43,7 @@ KERNEL_API vnode_t* create_and_attach_vnode() {
 	vnode_t* vnode = create_vnode();
 
 	rbt_node* node = (rbt_node*)vxSlabAlloc(rbt_node_cache);
-	memset(node, 0, sizeof(rbt_node)); // ← tambah ini
+	memset(node, 0, sizeof(rbt_node));
 	rbt_insert_node(&vfs_tree, node, vnode, NIL);
 
 	return vnode;
@@ -54,7 +53,7 @@ INIT(Vfs) {
 	vxCreateSlabCache(&rbt_node_cache, "rbt_node", sizeof(rbt_node), 64, 0);
 
 	NIL = (struct rbt_node*)vxSlabAlloc(rbt_node_cache);
-	memset(NIL, 0, sizeof(rbt_node)); // ← tambah ini
+	memset(NIL, 0, sizeof(rbt_node));
 	NIL->data = create_vnode();
 	NIL->left = NIL->right = NIL->parent = NIL;
 	vfs_tree = NIL;
@@ -113,6 +112,11 @@ KERNEL_API int vfs_mount(dentry_ptr dev_dentry, char* fs, dentry_ptr dentry,
 	auto fs_ = retrieve_filesystem(fs);
 	if (!fs_) {
 		LOG2_WARN("VFS", "vfs_mount: fs %s not found", fs);
+		return VFS_ERR;
+	}
+
+	if (!fs_->data.ops) {
+		LOG2_WARN("VFS", "vfs_mount: fs %s ops not found", fs);
 		return VFS_ERR;
 	}
 
@@ -239,8 +243,7 @@ int vfs_umount(dentry_ptr dentry) {
 		return VFS_ERR;
 	}
 
-	KDEBUG(DEBUG_LEVEL_OK, "mounted %s\n",
-	       dentry->name->c_str);
+	KDEBUG(DEBUG_LEVEL_OK, "mounted %s\n", dentry->name->c_str);
 
 	dentry_put(dentry);
 	auto ok = vfs_umount_recursive(dentry);
@@ -249,7 +252,8 @@ int vfs_umount(dentry_ptr dentry) {
 	return ok;
 }
 
-static void detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
+__attribute__((unused)) static void
+detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 	UNUSED(data);
 	UNUSED(ctx);
 
@@ -277,7 +281,7 @@ static void detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 	}
 
 	// ISO9660 PVD is always at byte sector 16
-	int ret = ops->read(ops->v_data, 16, d_, request_size);
+	int ret = ops->read(vnode, 16, d_, request_size);
 
 	if (ret < 0) {
 		serial2_printf("read failed: %d\n", ret);
@@ -323,12 +327,12 @@ static void detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 			vfs_mount(dentry, "ISO9660", mount_entry, 0);
 			notify_call("/vfs/root", VFS_NOTIFY_ROOT_FOUND, dentry);
 		}
-
 	}
 	kfree2(d_);
 }
 
-static void vfs_notify_probe_handler(void* data, void* ctx) {
+__attribute__((unused)) static void vfs_notify_probe_handler(void* data,
+                                                             void* ctx) {
 
 	UNUSED(ctx);
 
@@ -358,6 +362,7 @@ static void vfs_notify_probe_handler(void* data, void* ctx) {
 static void vfs_event_handler(uint32_t event, void* data, void* ctx) {
 	UNUSED(data);
 	UNUSED(ctx);
+	UNUSED(event);
 
 	switch (event) {
 	case VFS_NOTIFY_PROBE:

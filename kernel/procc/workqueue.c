@@ -1,6 +1,7 @@
 #include "procc/workqueue.h"
 #include "hal/acpi/acpi.h"
 #include "hal/acpi/hpet.h"
+#include "hal/cpu/paging.h"
 #include "init/init.h"
 #include "libk/debug/debug.h"
 #include "libk/serial.h"
@@ -143,6 +144,7 @@ workqueue_t* vxAddWorkqueueTask(void (*task)(void*), void* arg,
 }
 
 INIT(Workqueue) {
+	auto kernel_page = paging_get_highest_page_map();
 	for (uint8_t i = 1; i < vxGetNumberOfCores(); i++) {
 		auto cpu_info = vxGetCpuInfo(i);
 		if (cpu_info->status != Active) {
@@ -150,6 +152,11 @@ INIT(Workqueue) {
 			continue;
 		}
 		serial2_printf("workqueue init on core %d\n", cpu_info->cpuid);
-		create_thread((uintptr_t)workqueue_process, i, 1, 0);
+
+		auto stack = (uintptr_t)kalloc(4096);
+		// auto stack_top = stack + 4096;
+		auto thr = create_thread(
+		    kernel_page, (uintptr_t)workqueue_process, stack, i, 1, 0);
+		attach_to_scheduler(thr);
 	}
 }

@@ -22,8 +22,8 @@
 #include <memory/phys_base_allocator.h>
 #include <memory/slab.h>
 #include <memory/vm_manager.h>
+#include <autoconf.h>
 
-#include <sys/descriptor.h>
 
 struct initrd_internal_data {
 	uint64_t raw_addr;
@@ -71,7 +71,7 @@ INIT(initrd) {
 	create init directory */
 	dentry_ptr init_dentry = 0;
 	{
-		vxnamei("/init", &init_dentry);
+		vxnamei(VOXIA_INITRD_MOUNT_PATH, &init_dentry);
 		auto inode = create_and_attach_vnode();
 		init_dentry->vnode = inode;
 		inode->permission = 660;
