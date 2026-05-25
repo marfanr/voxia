@@ -4,7 +4,6 @@
 #include "hal/cpu/paging.h"
 #include "init/init.h"
 #include <hal/cpu/core.h>
-#include <hal/ethernet/e1000/e1000.h>
 #include <libk/debug/debug.h>
 #include <libk/io.h>
 #include <libk/serial.h>

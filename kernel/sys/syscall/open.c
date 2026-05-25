@@ -8,9 +8,7 @@ int syscall_open(const char* path, int flags, int mode) {
     (void)flags;
     (void)mode;
 
-    auto thr = get_current_core_data()->active_thread;
-    console_printf("process id %d thread id %d on core %d\n", thr->process->pid, thr->id, thr->core_affinity);
-
+    // auto thr = get_current_core_data()->active_thread;
 
     // dentry_ptr out;
     // resolve_dentry((char *)path, 0, &out, (uint8_t)flags);

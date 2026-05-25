@@ -75,20 +75,22 @@ SECTIONS
         KEEP(*(.init_early.ioforge))
         KEEP(*(.init_early.Virtio))
         KEEP(*(.init_early.KernelReader))
+        KEEP(*(.init_early.TTY))
         KEEP(*(.init_early.Scheduler))
         KEEP(*(.init_early.Thread))
         KEEP(*(.init_early.Process))
         KEEP(*(.init_early.Core))
         KEEP(*(.init_early.Workqueue))
         KEEP(*(.init_early.ModuleRegister))
-
-        /*
+        KEEP(*(.init_early.Keymap))
         KEEP(*(.init_early.Syscall))
 
-
+        /*
         KEEP(*(.init_early.Netbuff))
         KEEP(*(.init_early.Netdev))
         KEEP(*(.init_early.Socket))
+
+
 
         
 

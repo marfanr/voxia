@@ -4,7 +4,6 @@
 #include "procc/process.h"
 #include <type.h>
 
-
 // unix/linux compatible
 #define SYSCALL_READ 0X0
 #define SYSCALL_WRITE 0X1
@@ -17,6 +16,7 @@
 #define SYSCALL_EXIT 0x3C
 #define SYSCALL_IOCTL 0x10
 #define SYSCALL_WRITEV 0x14
+#define SYSCALL_EXIT_GROUP 0xE7
 
 void syscall_init(void);
 int syscall_read(int fd, void* buf, long count);
@@ -25,5 +25,12 @@ int syscall_open(const char* path, int flags, int mode);
 int syscall_arch_prctl(int code, unsigned long addr);
 pid_t syscall_set_tid(uint32_t tid);
 int ioctl(int fd, uint32_t req, void* arg);
+
+struct iovec {
+	void* iov_base;
+	int iov_len;
+};
+
+long syscall_readv(int fd, const struct iovec* iov, int iovcnt);
 
 #endif // __SYS__SYSCALL_H__
