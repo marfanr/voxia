@@ -17,3 +17,4 @@ root/sysroot
 initrd/modules/*
 sbin/inputd
 .config*
+musl/.configured

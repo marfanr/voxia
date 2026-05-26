@@ -1,11 +1,17 @@
 ROOT := $(shell pwd)
 include scripts/vars.mk
 
-.PHONY: all modules all-hdd rust kernel lib iso sbin musl
+.PHONY: all modules all-hdd kernel iso sbin musl
 
 all: kernel musl modules sbin iso
 
-musl:
+MUSL_CONFIGURED := ./musl/.configured
+
+musl: $(MUSL_CONFIGURED)
+	@mkdir -p $(ISO_DIR)
+	$(MAKE) -C musl install DESTDIR=$(ISO_DIR)
+
+$(MUSL_CONFIGURED):
 	cd musl && ./configure \
 		--prefix=/usr \
 		--syslibdir=/lib \
@@ -13,8 +19,7 @@ musl:
 		--enable-shared \
 		--target=x86_64-voxia
 	$(MAKE) -C musl
-	@mkdir -p $(realpath $(ISO_DIR))
-	$(MAKE) -C musl install DESTDIR=$(realpath $(ISO_DIR))
+	touch $@
 
 modules:
 	@mkdir -p ./initrd/modules
@@ -27,12 +32,11 @@ modules:
 # 	$(MAKE) -C ./modules/runtimeinit all
 
 sbin:
-	@mkdir -p $(ISO_DIR)/root/sbin
-	$(MAKE) -C $(ROOT_DIR)/sbin/term
+	$(MAKE) -C $(ROOT_DIR)/sbin/hello
 
 sbin-clean:
 	@rm -rf $(ISO_DIR)/root/sbin
-	$(MAKE) -C $(ROOT_DIR)/sbin/term clean
+	$(MAKE) -C $(ROOT_DIR)/sbin/hello clean
 
 all-hdd: $(HDD)
 
@@ -148,13 +152,9 @@ kernel:
 	mkdir -p build/kernel
 	$(MAKE) -C kernel	
 
-# Build ISO
-iso: limine 
-	rm -rf $(ISO_DIR)
+iso: kernel musl modules sbin limine $(MUSL_CONFIGURED)
 	mkdir -p $(ISO_DIR)
-# 	cp -r build/modules ./initrd
 	cd $(INITRD_DIR) && tar -F ustar -cvf $(realpath $(ISO_DIR))/initrd.tar *
-	cp -r $(ROOT_DIR)/* $(ISO_DIR)/
 	cp $(KERNEL_ELF) limine.cfg limine/limine.sys limine/limine-cd.bin limine/limine-eltorito-efi.bin $(ISO_DIR)/
 	xorriso -as mkisofs -b limine-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
@@ -212,7 +212,6 @@ run-flashdisk:
 clean:
 	rm -rf $(ISO_DIR) $(ISO) $(BUILD_DIR) $(SYSROOT)
 	$(MAKE) -C kernel clean	
-	-$(MAKE) -C musl clean
 	$(MAKE) -C modules/ehci clean
 	$(MAKE) -C modules/usb-hid clean
 	$(MAKE) -C modules/e1000 clean
@@ -220,6 +219,8 @@ clean:
 	$(MAKE) -C modules/ahci clean
 	$(MAKE) -C modules/atapi clean
 
+musl-clean:
+	-$(MAKE) -C musl clean
 
 distclean: clean
 	rm -rf limine ovmf-x64
