@@ -347,7 +347,7 @@ static uint64_t* elf_roffset_to_kernel_ptr(uintptr_t r_offset,
 	}
 
 	/* r_offset not in any mapped segment; fall back and let caller fault */
-	LOG2_WARN("ELF", "r_offset 0x%x not in any mapped segment", r_offset);
+	// LOG2_WARN("ELF", "r_offset 0x%x not in any mapped segment", r_offset);
 	return (uint64_t*)(fallback_base + r_offset);
 }
 

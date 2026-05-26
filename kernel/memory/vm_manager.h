@@ -5,8 +5,9 @@
 #include <type.h>
 
 #define KERNEL_BASE 0xFFFF800000000000ULL
-#define REGION_SIZE 0x0000008000000000ULL // 512 GB (Bukan 32 TB)
+#define REGION_SIZE 0x0000008000000000ULL // 512 GB
 #define USER_STACK_VADDR 0x7FFFFFFFE000ULL
+#define USER_MMAP_BASE 0x100000000ULL
 
 typedef enum : uintptr_t {
 	VMA_REGION_A = KERNEL_BASE,                     // 0xFFFF800000000000
@@ -35,7 +36,6 @@ typedef struct virtual_memory virtual_memory_t;
 struct virtual_memory {
 	uintptr_t start_address;
 	uintptr_t end_address;
-	// virtual_memory_block_t *block;
 	uintptr_t phys_address;
 	size_t length;
 	int flags;

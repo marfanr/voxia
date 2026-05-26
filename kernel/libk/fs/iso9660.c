@@ -74,9 +74,6 @@ static int iso9660_get_rr_symlink(struct iso9660_dir* entry, char* out_target) {
 					        c_content, c_len);
 					target_len += c_len;
 
-					/* Tambahkan '/' jika bukan lanjutan
-					 * (CONTINUE) dan bukan komponen
-					 * terakhir di buffer SL ini */
 					if (!(c_flags & 0x01) &&
 					    (comp_offset + 2 + c_len < len)) {
 						out_target[target_len++] = '/';

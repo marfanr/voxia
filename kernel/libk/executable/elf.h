@@ -5,6 +5,20 @@
 #include <type.h>
 #include <vector.h>
 
+#define EI_MAG0		0
+#define ELFMAG0		0x7f
+
+#define EI_MAG1		1
+#define ELFMAG1		'E'
+
+#define EI_MAG2		2
+#define ELFMAG2		'L'
+
+#define EI_MAG3		3
+#define ELFMAG3		'F'
+
+#define	ELFMAG		"\177ELF"
+
 typedef struct Elf64_Ehdr {
 	uint8_t e_ident[16];  /* ELF identification */
 	uint16_t e_type;      /* Object file type */
