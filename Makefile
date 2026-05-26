@@ -243,3 +243,22 @@ config: .config
 		-e 's/=n/ 0/' \
 		-e 's/=/ /' \
 		-e 's/^CONFIG_/ #define VOXIA_/' >> include/autoconf.h
+
+# Documentation
+DOXYGEN_VER := 1.13.2
+DOXYGEN_BIN := tools/docs/doxygen-$(DOXYGEN_VER)/bin/doxygen
+
+$(DOXYGEN_BIN):
+	@echo "[DOC] Downloading Doxygen $(DOXYGEN_VER)..."
+	@mkdir -p tools/docs
+	@curl -sSL https://www.doxygen.nl/files/doxygen-$(DOXYGEN_VER).linux.bin.tar.gz | tar -xz -C tools/docs/
+	@touch $@
+
+.PHONY: doc
+doc: $(DOXYGEN_BIN)
+	@echo "[DOC] Generating documentation..."
+	@ROOT=$(ROOT) $(DOXYGEN_BIN) docs/Doxyfile
+	@echo "[DOC] Done. Open docs/html/index.html in your browser."
+
+doc-clean:
+	rm -rf docs/html docs/latex tools/docs/doxygen-*
