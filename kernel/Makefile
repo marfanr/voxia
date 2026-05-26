@@ -3,12 +3,8 @@ S_FILES := $(shell find . -type f -name '*.asm' ! -path './hal/cpu/core_ap.asm')
 DFILES  := $(C_FILES:.c=.d)
 FONT_OBJ := ../resources/fonts/default.o 
 OBJ := $(C_FILES:.c=.o) $(S_FILES:.asm=_asm.o)
-KERNEL := ../build/kernel.elf
-ROOT?=../
-
-LD=ld
-CC=clang
-
+ROOT ?= $(shell pwd)/..
+include $(ROOT)/scripts/vars.mk
 
 # Verbosity control
 V ?= 0
@@ -42,23 +38,16 @@ LDFLAGS := -nostdlib -static \
 					 -z max-page-size=0x1000 \
 					 -T linker.ld --no-dynamic-linker
 
-# RUST_KERNEL := ../rust/target/x86_64-unknown-none/release/libkernel.a
-
 .PHONY: all
 all: $(OBJ)
-	$(E) "  LD     $(notdir $(KERNEL))"
-	nasm -f bin ./hal/cpu/core_ap.asm -o ./hal/cpu/core_ap.bin
-	objcopy --input-target=binary \
+	$(E) "  LD     $(notdir $(KERNEL_ELF))"
+	$(AS) -f bin ./hal/cpu/core_ap.asm -o ./hal/cpu/core_ap.bin
+	$(OBJCOPY) --input-target=binary \
         --output-target=elf64-x86-64 \
         --binary-architecture=i386 \
         hal/cpu/core_ap.bin hal/cpu/core_ap.o
 	rm -f hal/cpu/core_ap.bin
-	$(LD) $(LDFLAGS) $(OBJ) hal/cpu/core_ap.o -o $(KERNEL)
-# 	objdump -t $(KERNEL) | grep '\.export' | awk '{print $$6}' > keep.txt
-# 	objcopy --strip-unneeded --keep-symbols=keep.txt  $(KERNEL) $(KERNEL)
-
-# 	nm -S --defined-only $(KERNEL) | grep '\.export' >> keep.txt
-# 	nm $(KERNEL) | grep "__export_" | awk '{print $$3}'t > keep.txt
+	$(LD) $(LDFLAGS) $(OBJ) hal/cpu/core_ap.o -o $(KERNEL_ELF)
 
 -include $(DFILES)
 
@@ -79,9 +68,9 @@ hal/graphic/graphic.o: hal/graphic/graphic.c
 
 %_asm.o: %.asm
 	$(E) "  AS      $(notdir $<)"
-	@$(Q)nasm -f elf64 $< -o $@
+	@$(Q)$(AS) -f elf64 $< -o $@
 
 .PHONY: clean
 clean:
-	$(E) "  CLEAN   $(notdir $(KERNEL)) $(notdir $(OBJ))"
-	$(Q)rm -f $(KERNEL) $(OBJ) $(DFILES)
+	$(E) "  CLEAN   $(notdir $(KERNEL_ELF)) $(notdir $(OBJ))"
+	$(Q)rm -f $(KERNEL_ELF) $(OBJ) $(DFILES)
