@@ -50,8 +50,6 @@ static int iso9660_get_rr_symlink(struct iso9660_dir* entry, char* out_target) {
 
 		/* Rock Ridge SL (Symbolic Link) */
 		if (sig0 == 'S' && sig1 == 'L') {
-			/* sua[i+4] adalah SL flags (diabaikan)
-			 * Rekaman komponen dimulai pada offset 5 */
 			uint8_t comp_offset = 5;
 
 			while (comp_offset < len) {
