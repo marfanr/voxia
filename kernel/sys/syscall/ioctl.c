@@ -5,7 +5,7 @@
 #include <sys/fd.h>
 #include <sys/syscall.h>
 
-int ioctl(int fd, uint32_t req, void* arg) {
+int syscall_ioctl(int fd, uint32_t req, void* arg) {
 	auto curr_procc = get_current_core_data()->active_thread->process;
 	auto fdt = (struct fdtable*)curr_procc->fdtable;
 	auto curr_fd = fdt->fds[fd];
