@@ -158,6 +158,7 @@ int KERNEL_API resolve_dentry(char* path, dentry_ptr parent, dentry_ptr* out,
 				if (!ops || !ops->lookup)
 					goto fail;
 
+				serial2_printf("lookup into fs %s\n", component);
 				if (ops->lookup(fs_instance, component, curr,
 				                &next) != VFS_OK)
 					goto fail;

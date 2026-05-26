@@ -17,6 +17,8 @@
 #define SYSCALL_IOCTL 0x10
 #define SYSCALL_WRITEV 0x14
 #define SYSCALL_EXIT_GROUP 0xE7
+#define SYSCALL_BRK 0x0C
+#define SYSCALL_MMAP 0x9
 
 void syscall_init(void);
 int syscall_read(int fd, void* buf, long count);
@@ -24,7 +26,9 @@ int syscall_write(int fd, void* buf, long count);
 int syscall_open(const char* path, int flags, int mode);
 int syscall_arch_prctl(int code, unsigned long addr);
 pid_t syscall_set_tid(uint32_t tid);
-int ioctl(int fd, uint32_t req, void* arg);
+int syscall_ioctl(int fd, uint32_t req, void* arg);
+intptr_t syscall_brk(void *addr);
+void* syscall_mmap(void *addr, size_t len, int prot, int flags, int fd, long off);
 
 struct iovec {
 	void* iov_base;

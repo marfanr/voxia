@@ -29,6 +29,19 @@ uintptr_t elf_find_base_addr(uint8_t* data) {
 	return 0;
 }
 
+static uint64_t vaddr_to_file_offset(Elf64_Ehdr* ehdr, Elf64_Phdr* phdr,
+                                     uint64_t vaddr) {
+	for (int i = 0; i < ehdr->e_phnum; i++) {
+		Elf64_Phdr* p = &phdr[i];
+		if (p->p_type == PT_LOAD && vaddr >= p->p_vaddr &&
+		    vaddr < p->p_vaddr + p->p_filesz) {
+			return p->p_offset + (vaddr - p->p_vaddr);
+		}
+	}
+	LOG2_WARN("ELF", "vaddr 0x%x not found in any PT_LOAD segment", vaddr);
+	return vaddr;
+}
+
 Elf64_Dyn* elf_get_phdr_dynamic(uint8_t* data) {
 	Elf64_Ehdr* ehdr =
 	    (Elf64_Ehdr*)ASSUME_ALIGNED(data, alignof(Elf64_Ehdr));
@@ -55,10 +68,15 @@ void elf_dyn_map_all(Elf64_Dyn* dyn, uint8_t* data, elf_dynamic_map* map) {
 	for (int i = 0; dyn[i].d_tag != DT_NULL; i++) {
 		switch (dyn[i].d_tag) {
 
-		case DT_STRTAB:
-			map->strtab =
-			    (uint8_t*)((uint64_t)data + dyn[i].d_un.d_ptr);
+		case DT_STRTAB: {
+			uint64_t off =
+			    vaddr_to_file_offset(ehdr, phdr, dyn[i].d_un.d_ptr);
+			map->strtab = data + off;
+			LOG2_INFO("ELF",
+			          "strtab at file offset 0x%x (vaddr 0x%x)",
+			          off, dyn[i].d_un.d_ptr);
 			break;
+		}
 
 		case DT_NEEDED: {
 			uint64_t needed = dyn[i].d_un.d_val;
@@ -66,10 +84,15 @@ void elf_dyn_map_all(Elf64_Dyn* dyn, uint8_t* data, elf_dynamic_map* map) {
 			break;
 		}
 
-		case DT_SYMTAB:
-			map->symbols =
-			    (Elf64_Sym*)((uint64_t)data + dyn[i].d_un.d_ptr);
+		case DT_SYMTAB: {
+			uint64_t off =
+			    vaddr_to_file_offset(ehdr, phdr, dyn[i].d_un.d_ptr);
+			map->symbols = (Elf64_Sym*)(void*)(data + off);
+			LOG2_INFO("ELF",
+			          "symtab at file offset 0x%x (vaddr 0x%x)",
+			          off, dyn[i].d_un.d_ptr);
 			break;
+		}
 
 		case DT_HASH: {
 			uint64_t vaddr = dyn[i].d_un.d_ptr;
@@ -84,7 +107,6 @@ void elf_dyn_map_all(Elf64_Dyn* dyn, uint8_t* data, elf_dynamic_map* map) {
 				}
 			}
 			uint32_t* hash = ELF_PTR(uint32_t, data, offset);
-
 			map->symcount = hash[1];
 			break;
 		}
@@ -99,18 +121,25 @@ void elf_dyn_map_all(Elf64_Dyn* dyn, uint8_t* data, elf_dynamic_map* map) {
 			map->pltgot = (uint64_t)dyn[i].d_un.d_ptr;
 			break;
 
-		case DT_JMPREL:
-			map->jmprel =
-			    ELF_PTR(Elf64_Rela, data, dyn[i].d_un.d_ptr);
-
-			LOG2_INFO("ELF", "jmprel : 0x%x", map->jmprel);
+		case DT_JMPREL: {
+			uint64_t off =
+			    vaddr_to_file_offset(ehdr, phdr, dyn[i].d_un.d_ptr);
+			map->jmprel = ELF_PTR(Elf64_Rela, data, off);
+			LOG2_INFO("ELF",
+			          "jmprel at file offset 0x%x (vaddr 0x%x)",
+			          off, dyn[i].d_un.d_ptr);
 			break;
+		}
 
-		case DT_RELA:
-			LOG2_INFO("ELF", "found rela at : 0x%x",
-			          data + dyn[i].d_un.d_ptr);
-			map->rel = ELF_PTR(Elf64_Rela, data, dyn[i].d_un.d_ptr);
+		case DT_RELA: {
+			uint64_t off =
+			    vaddr_to_file_offset(ehdr, phdr, dyn[i].d_un.d_ptr);
+			map->rel = ELF_PTR(Elf64_Rela, data, off);
+			LOG2_INFO("ELF",
+			          "rela at file offset 0x%x (vaddr 0x%x)", off,
+			          dyn[i].d_un.d_ptr);
 			break;
+		}
 
 		case DT_RELASZ:
 			map->relasz = dyn[i].d_un.d_val;
@@ -244,12 +273,10 @@ size_t elf_load(volatile uintptr_t* page, uint8_t* data,
 		uintptr_t phys_alloc = (uintptr_t)phys_base_alloc(sz);
 		auto kernel_page = paging_get_highest_page_map();
 
-		// TODO alloc current vaddr on kernel
-
 		auto temporary_addr = base;
 		if (kernel_page != page) {
 			temporary_addr =
-			    vma_lookup_free_vaddr(VMA_REGION_B, sz);
+			    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_B, sz);
 
 			vxMultipleMmap(kernel_page,
 			               temporary_addr + aligned_vaddr,
@@ -260,7 +287,8 @@ size_t elf_load(volatile uintptr_t* page, uint8_t* data,
 
 		LOG2_INFO("ELF", "vaddr 0x%x, type %d  %x %x", p->p_vaddr,
 		          p->p_type, temporary_addr, base + aligned_vaddr);
-		// save temporary mapping data
+
+		/* save temporary mapping data */
 		if (table) {
 			auto t = &table[i];
 			t->paddr = phys_alloc;
@@ -275,12 +303,6 @@ size_t elf_load(volatile uintptr_t* page, uint8_t* data,
 			memcopy((void*)(temporary_addr + p->p_vaddr),
 			        (void*)((uint8_t*)data + p->p_offset),
 			        p->p_filesz);
-
-		// if (page != kernel_page) {
-		// 	vma_unregister(temporary_addr);
-		// 	paging_unmap_fill(kernel_page,
-		// 	                  temporary_addr + aligned_vaddr, sz);
-		// }
 	}
 
 	LOG2_INFO("ELF", "module loaded");
@@ -305,10 +327,36 @@ elf_resolve_external_symbol(symbols_ptr_vector_t* external_syms,
 	return 0;
 }
 
+static uint64_t* elf_roffset_to_kernel_ptr(uintptr_t r_offset,
+                                           struct elf_load_mmap_table* table,
+                                           int table_count,
+                                           uintptr_t fallback_base) {
+	if (!table)
+		return (uint64_t*)(fallback_base + r_offset);
+
+	for (int i = 0; i < table_count; i++) {
+		if (!table[i].mapped)
+			continue;
+		uintptr_t seg_vaddr_start = table[i].alligned;
+		uintptr_t seg_vaddr_end =
+		    seg_vaddr_start + table[i].size * BLOCK_SIZE;
+		if (r_offset >= seg_vaddr_start && r_offset < seg_vaddr_end) {
+			uintptr_t kernel_base = table[i].vaddr;
+			return (uint64_t*)(kernel_base + r_offset);
+		}
+	}
+
+	/* r_offset not in any mapped segment; fall back and let caller fault */
+	// LOG2_WARN("ELF", "r_offset 0x%x not in any mapped segment", r_offset);
+	return (uint64_t*)(fallback_base + r_offset);
+}
+
 static void elf_relocate_rel(Elf64_Rela* rel, uintptr_t base,
                              uint64_t rela_count, uint8_t* strtab,
                              Elf64_Sym* symbols, GnuHashHeader* gnu_hash,
-                             symbols_ptr_vector_t* external_syms) {
+                             symbols_ptr_vector_t* external_syms,
+                             struct elf_load_mmap_table* table,
+                             int table_count) {
 
 	for (uint64_t i = 0; i < rela_count; i++) {
 		uint64_t sym_idx = ELF64_R_SYM(rel[i].r_info);
@@ -321,7 +369,8 @@ static void elf_relocate_rel(Elf64_Rela* rel, uintptr_t base,
 		if (lookup)
 			symbol = lookup;
 
-		uint64_t* target = (uint64_t*)(base + rel[i].r_offset);
+		uint64_t* target = elf_roffset_to_kernel_ptr(
+		    rel[i].r_offset, table, table_count, base);
 
 		switch (type) {
 
@@ -347,10 +396,12 @@ static void elf_relocate_rel(Elf64_Rela* rel, uintptr_t base,
 			break;
 
 		case R_X86_64_COPY:
-			if (symbol->st_size)
-				memcopy((void*)target,
-				        (void*)(base + symbol->st_value),
+			if (symbol->st_size) {
+				uint64_t* src = elf_roffset_to_kernel_ptr(
+				    symbol->st_value, table, table_count, base);
+				memcopy((void*)target, (void*)src,
 				        symbol->st_size);
+			}
 			break;
 
 		case R_X86_64_GLOB_DAT:
@@ -358,12 +409,10 @@ static void elf_relocate_rel(Elf64_Rela* rel, uintptr_t base,
 			uintptr_t value = 0;
 
 			if (symbol->st_value) {
-
 				value = (uintptr_t)((intptr_t)base +
 				                    (intptr_t)symbol->st_value +
 				                    rel[i].r_addend);
 			} else {
-
 				LOG2_DEBUG("ELF",
 				           "resolving external symbol %s",
 				           name);
@@ -383,29 +432,35 @@ static void elf_relocate_rel(Elf64_Rela* rel, uintptr_t base,
 		}
 
 		default:
-
 			*target = base + symbol->st_value;
 			LOG2_DEBUG("ELF",
 			           "unhandled reloc type %d at 0x%x -> 0x%x",
-			           type, base + rel[i].r_offset, *target);
+			           type, rel[i].r_offset, *target);
 			break;
 		}
 	}
 }
 
+/*
+ * elf_relocate_dyn now takes the mmap_table and its count so that
+ * elf_relocate_rel can resolve r_offset correctly per segment.
+ */
 void elf_relocate_dyn(elf_dynamic_map* map, uintptr_t base,
                       GnuHashHeader* gnu_hash,
-                      symbols_ptr_vector_t* external_syms) {
+                      symbols_ptr_vector_t* external_syms,
+                      struct elf_load_mmap_table* table, int table_count) {
 	if (!map)
 		return;
 
 	serial2_printf("relocating with base = 0x%x\n", base);
+
 	if (map->rel && map->relasz && map->relaent) {
 		LOG2_INFO("VOXMO", "rela found at 0x%x", map->rel);
 		uint64_t count = map->relasz / map->relaent;
 		LOG2_INFO("VOXMO", "rela count %d", count);
 		elf_relocate_rel(map->rel, base, count, map->strtab,
-		                 map->symbols, gnu_hash, external_syms);
+		                 map->symbols, gnu_hash, external_syms, table,
+		                 table_count);
 	}
 
 	if (map->jmprel && map->pltrelsz && map->relaent) {
@@ -413,7 +468,8 @@ void elf_relocate_dyn(elf_dynamic_map* map, uintptr_t base,
 		uint64_t count = map->pltrelsz / map->relaent;
 		LOG2_INFO("VOXMO", "rela count %d", count);
 		elf_relocate_rel(map->jmprel, base, count, map->strtab,
-		                 map->symbols, gnu_hash, external_syms);
+		                 map->symbols, gnu_hash, external_syms, table,
+		                 table_count);
 	}
 }
 
@@ -557,20 +613,11 @@ void elf_call_init_array2(elf_section_map* map, uintptr_t base) {
 		return;
 	}
 
-	(void) base;
+	(void)base;
 
 	Elf64_Shdr* init_aray = map->init_aray;
-
-	// ctor_t* arr = (ctor_t*)(base + init_aray->sh_addr);
 	size_t count = init_aray->sh_size / sizeof(void*);
-
 	LOG2_INFO("ELF", "lib init array count %d", count);
-	// for (size_t i = 0; i < count; i++) {
-	// 	if (arr[i]) {
-	// 		LOG2_DEBUG("ELF", "load .init array %x", arr[i]);
-	// 		// arr[i]();
-	// 	}
-	// }
 }
 
 uintptr_t elf_find_symbol(const char* name, GnuHashHeader* gnuhash,

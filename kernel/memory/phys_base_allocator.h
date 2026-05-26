@@ -24,9 +24,6 @@ void pmm_log_usage();
 uint64_t pys_base_get_free_block_count();
 void* phys_base_alloc_on_top(uint64_t block);
 
-void* pDMAalloc(uint64_t block);
-void dma_free(void* ptr, uint64_t size);
-
 extern uint64_t bitmap_size_;
 
 #endif // __MEMORY__ALLOCATOR_H__

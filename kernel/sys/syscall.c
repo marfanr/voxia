@@ -2,8 +2,10 @@
 #include "hal/cpu/core.h"
 #include "hal/cpu/interrupt.h"
 #include "hal/cpu/msr.h"
+#include "hal/cpu/paging.h"
 #include "init/init.h"
 #include "libk/serial.h"
+#include "sys/err_no.h"
 
 // prototype
 extern void syscall_dispatch(interrupt_stack_frame_t* rsp);
@@ -34,6 +36,16 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 
 	auto int_no = rsp->rax;
 
+	// test
+	// uint64_t cr3 = 0;
+	// asm volatile("mov %%cr3, %0" : "=r"(cr3));
+
+	// if (cr3 == (uint64_t)paging_get_highest_page_map()) {
+	// 	serial2_printf("ini page kernel\n");
+	// } else {
+	// 	serial2_printf("ini page user\n");
+	// }
+
 	// TODO: refactor this using array of linker section
 	switch (int_no) {
 	case SYSCALL_READ:
@@ -63,10 +75,11 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 		auto thr = get_current_core_data()->active_thread;
 		thr->state = THREAD_STATE_TERMINATED;
 		*thr->clear_child_tid = 0;
+		// TODO: clear allocated memory on heap and mmap
 		break;
 	}
 	case SYSCALL_IOCTL: {
-		rsp->rax = (uint64_t)ioctl((int)rsp->rdi, (uint32_t)rsp->rsi,
+		rsp->rax = (uint64_t)syscall_ioctl((int)rsp->rdi, (uint32_t)rsp->rsi,
 		                           (void*)rsp->rdx);
 		break;
 	}
@@ -76,9 +89,19 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 		    (int)rsp->rdx);
 		break;
 	}
+	case SYSCALL_BRK: {
+		rsp->rax = (uint64_t)syscall_brk((void*)rsp->rdi);
+		break;
+	}
+	case SYSCALL_MMAP: {
+		rsp->rax = (uint64_t)syscall_mmap(
+		    (void*)rsp->rdi, (size_t)rsp->rsi, (int)rsp->rdx, (int)rsp->r10,
+		    (int)rsp->r8, (int)rsp->r9);
+		break;
+	}
 	default:
 		serial2_printf("unknown syscall %d\n", int_no);
-		rsp->rax = (uint64_t)-1;
+		rsp->rax = (uint64_t)-ENOSYS;
 		break;
 	}
 }

@@ -112,7 +112,7 @@ INIT(graphic) {
 			vxMultipleMmap(paging_get_highest_page_map(),
 			               0xFFFFFA0000000000, entry->base,
 			               entry->length / PAGE_SIZE, 0b111);
-			vma_register(entry->base, 0xFFFFFA0000000000,
+			vma_register(get_kernel_vmm_page(), entry->base, 0xFFFFFA0000000000,
 			             entry->length / PAGE_SIZE);
 			g__fb->framebuffer_addr = 0xFFFFFA0000000000;
 			break;

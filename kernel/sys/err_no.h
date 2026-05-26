@@ -31,5 +31,6 @@
 #define EPIPE 32   /* Broken pipe */
 #define EDOM 33    /* Math argument out of domain */
 #define ERANGE 34  /* Math result out of range */
+#define ENOSYS 38  /* Function not implemented */
 
 #endif /* __SYS__ERR_NO_H__ */

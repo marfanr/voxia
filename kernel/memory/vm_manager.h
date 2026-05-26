@@ -5,8 +5,9 @@
 #include <type.h>
 
 #define KERNEL_BASE 0xFFFF800000000000ULL
-#define REGION_SIZE 0x0000008000000000ULL // 512 GB (Bukan 32 TB)
+#define REGION_SIZE 0x0000008000000000ULL // 512 GB
 #define USER_STACK_VADDR 0x7FFFFFFFE000ULL
+#define USER_MMAP_BASE 0x100000000ULL
 
 typedef enum : uintptr_t {
 	VMA_REGION_A = KERNEL_BASE,                     // 0xFFFF800000000000
@@ -35,7 +36,6 @@ typedef struct virtual_memory virtual_memory_t;
 struct virtual_memory {
 	uintptr_t start_address;
 	uintptr_t end_address;
-	// virtual_memory_block_t *block;
 	uintptr_t phys_address;
 	size_t length;
 	int flags;
@@ -49,10 +49,31 @@ struct virtual_memory_tree_node {
 	struct virtual_memory_tree_node* next;
 } __attribute__((aligned(8)));
 
-void vma_register(uintptr_t phys_address, uintptr_t virt_addr, size_t size);
+struct virtual_memory_tree {
+	struct virtual_memory_tree_node* active;
+	struct virtual_memory_tree_node* unused;
+};
+
+struct rbt_node;
+struct virtual_memory_page {
+	spinlock_t lock;
+	struct virtual_memory_tree vma_tree_zone_process;
+	struct virtual_memory_tree vma_tree_zone_a;
+	struct rbt_node* tree;
+	uint8_t _pad[6];
+	struct virtual_memory_tree vma_tree_zone_b;
+	struct virtual_memory_tree vma_tree_zone_c;
+	struct virtual_memory_tree vma_tree_zone_kmodule;
+} __attribute__((aligned(64)));
+
+void vma_register(struct virtual_memory_page* page, uintptr_t phys_address,
+                  uintptr_t virt_addr, size_t size);
 virtual_memory_t* vma_find(uintptr_t virt_addr);
-void vma_unregister(uintptr_t virt_addr);
+void vma_unregister(struct virtual_memory_page* page, uintptr_t virt_addr);
 void vma_tree_add(mem_vma_region region, uintptr_t start_address,
                   uintptr_t end_address);
-uintptr_t vma_lookup_free_vaddr(mem_vma_region region, size_t size);
+uintptr_t vma_lookup_free_vaddr(struct virtual_memory_page* page,
+                                mem_vma_region region, size_t size);
+struct virtual_memory_page* get_kernel_vmm_page();
+
 #endif // __MEMORY_VM_MANAGER_H__

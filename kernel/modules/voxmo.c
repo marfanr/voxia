@@ -52,7 +52,7 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 
 	size_t size_4k = ALIGN_UP(1 + loaded_size, BLOCK_SIZE) / BLOCK_SIZE;
 	uintptr_t base_addr =
-	    vma_lookup_free_vaddr(VMA_REGION_KMODULE, size_4k);
+	    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_KMODULE, size_4k);
 	LOG_INFO("VOXMO", "base addr : 0x%x", base_addr);
 
 	Elf64_Ehdr ehdr;
@@ -100,8 +100,13 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 		LOG_INFO("VOXMO", "strtab found at 0x%x", dyn_map.strtab);
 		LOG_INFO("VOXMO", "needed size %d", dyn_map.needed.size);
 
+		/*
+		 * Pass mmap_table + phnum so elf_relocate_dyn can resolve
+		 * r_offset to the correct kernel VA per segment.
+		 * Relocation must complete before mmap_table is freed.
+		 */
 		elf_relocate_dyn(&dyn_map, base_addr, &gnu_hash,
-		                 &voxmo_load_syms);
+		                 &voxmo_load_syms, mmap_table, ehdr.e_phnum);
 	}
 
 	elf_call_init_array(&sh_map, base_addr);
@@ -110,64 +115,66 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 	    elf_find_symbol("load", &gnu_hash, base_addr, &sh_map, data);
 	LOG_INFO("VOXMO", "load : 0x%x", load_addr);
 
-	if (load_addr) {
-		vector(workqueue_ptr_t)* dependency_workqueue = (vector(
-		    workqueue_ptr_t)*)kalloc(sizeof(vector(workqueue_ptr_t)));
-		vector_init(dependency_workqueue);
-
-		for (size_t i = 0; i < module->dependency_count; i++) {
-			voxmo_loaded_module_t_ptr dep_module =
-			    vxGetVoxmoModule(module->dependency[i]);
-
-			if (!dep_module) {
-				LOG2_ERROR("VOXMO",
-				           "dependency module %s not found, "
-				           "aborting load of %s",
-				           module->dependency[i]->c_str,
-				           module->name->c_str);
-
-				spin_release(&module->lock);
-				return;
-			}
-
-			if (!dep_module->loaded || !dep_module->queue) {
-				LOG2_ERROR(
-				    "VOXMO",
-				    "dependency %s not ready (loaded=%d, "
-				    "queue=0x%x), aborting load of %s",
-				    dep_module->name->c_str, dep_module->loaded,
-				    dep_module->queue, module->name->c_str);
-
-				module->loaded = false;
-				spin_release(&module->lock);
-				return;
-			}
-
-			vector_push_back(dependency_workqueue,
-			                 dep_module->queue);
-			LOG_INFO("VOXMO", "dependency %s added to queue 0x%x",
-			         dep_module->name->c_str, dep_module->queue);
-		}
-
-		LOG_INFO("VOXMO", "dependency workqueue size %d",
-		         dependency_workqueue->size);
-
-		{
-			auto queue =
-			    vxAddWorkqueueTask((void (*)(void*))load_addr,
-			                       nullptr, dependency_workqueue);
-			module->queue = queue;
-			module->loaded = true;
-			LOG_INFO("VOXMO", "module %s task created, queue=0x%x",
-			         module->name->c_str, module->queue);
-		}
-	} else {
-		LOG2_ERROR("VOXMO", "load not found");
-	}
-
+	/*
+	 * mmap_table is only needed during load + relocation.
+	 * Free it now before we proceed to workqueue setup.
+	 */
 	kfree2(mmap_table);
 
+	if (!load_addr) {
+		LOG2_ERROR("VOXMO", "load symbol not found in module %s",
+		           module->name->c_str);
+		spin_release(&module->lock);
+		return;
+	}
+
+	/* Build dependency workqueue list */
+	vector(workqueue_ptr_t)* dependency_workqueue =
+	    (vector(workqueue_ptr_t)*)kalloc(sizeof(vector(workqueue_ptr_t)));
+	vector_init(dependency_workqueue);
+
+	for (size_t i = 0; i < module->dependency_count; i++) {
+		voxmo_loaded_module_t_ptr dep_module =
+		    vxGetVoxmoModule(module->dependency[i]);
+
+		if (!dep_module) {
+			LOG2_ERROR("VOXMO",
+			           "dependency module %s not found, "
+			           "aborting load of %s",
+			           module->dependency[i]->c_str,
+			           module->name->c_str);
+			kfree2(dependency_workqueue);
+			spin_release(&module->lock);
+			return;
+		}
+
+		if (!dep_module->loaded || !dep_module->queue) {
+			LOG2_ERROR("VOXMO",
+			           "dependency %s not ready (loaded=%d, "
+			           "queue=0x%x), aborting load of %s",
+			           dep_module->name->c_str, dep_module->loaded,
+			           dep_module->queue, module->name->c_str);
+			kfree2(dependency_workqueue);
+			spin_release(&module->lock);
+			return;
+		}
+
+		vector_push_back(dependency_workqueue, dep_module->queue);
+		LOG_INFO("VOXMO", "dependency %s added to queue 0x%x",
+		         dep_module->name->c_str, dep_module->queue);
+	}
+
+	LOG_INFO("VOXMO", "dependency workqueue size %d",
+	         dependency_workqueue->size);
+
+	void (*load_fn)(void*) = (void (*)(void*))(void*)load_addr;
+	auto queue = vxAddWorkqueueTask(load_fn, nullptr, dependency_workqueue);
+	module->queue = queue;
 	module->loaded = true;
+
+	LOG_INFO("VOXMO", "module %s task created, queue=0x%x",
+	         module->name->c_str, module->queue);
+
 	spin_release(&module->lock);
 }
 
@@ -257,10 +264,8 @@ void vxVoxmoInstall(const char* path) {
 	boolean_t main_found = false;
 	for (uint32_t i = 0; i < header->file_counts; i++) {
 		struct voxmo_metadata_file* file =
-		    (struct
-		     voxmo_metadata_file*)(data + header->header_len +
-		                           i * sizeof(
-		                                   struct voxmo_metadata_file));
+		    (struct voxmo_metadata_file*)(data + header->header_len +
+		                                  i * sizeof(struct voxmo_metadata_file));
 
 		char* file_name =
 		    (char*)((uintptr_t)data + file->nama_file.pos);
@@ -285,7 +290,6 @@ void vxVoxmoInstall(const char* path) {
 
 	if (!main_found) {
 		LOG2_ERROR("VOXMO", "main file not found");
-		/* Cleanup module yang sudah di-alloc sebelum return */
 		str_release(module->name);
 		str_release(module->path);
 		kfree(module, sizeof(voxmo_loaded_module_t));

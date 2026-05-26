@@ -1,9 +1,7 @@
 #include "procc/workqueue.h"
 #include "hal/acpi/acpi.h"
-#include "hal/acpi/hpet.h"
 #include "hal/cpu/paging.h"
 #include "init/init.h"
-#include "libk/debug/debug.h"
 #include "libk/serial.h"
 #include "procc/thread.h"
 #include <hal/cpu/core.h>
@@ -87,8 +85,6 @@ workqueue_t* vxAddWorkqueueTask(void (*task)(void*), void* arg,
                                 vector(workqueue_ptr_t) * dependency) {
 	static uint8_t next_core_hint = 1;
 
-	// Coba cari slot kosong di core yang aktif (selain core 0)
-	// Kita iterasi semua kemungkinan APIC ID untuk fallback yang robust
 	for (uint8_t attempt = 0; attempt < VOXIA_MAX_CORE; attempt++) {
 		uint8_t target_apic_id =
 		    ((__atomic_fetch_add(&next_core_hint, 1,

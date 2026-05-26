@@ -219,7 +219,7 @@ INIT(Core) {
 		auto cpu_id = core_info->apicid;
 
 		uint64_t pstack = (uint64_t)phys_base_alloc(5);
-		uint64_t stack = (uint64_t)vma_lookup_free_vaddr(VMA_REGION_A,
+		uint64_t stack = (uint64_t)vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A,
 		                                                 5); // 8kb
 		vxMultipleMmap(paging_get_highest_page_map(), stack, pstack, 5,
 		               0b111);
@@ -231,12 +231,12 @@ INIT(Core) {
 		// Allocate separate data page for each core to avoid collisions
 		uintptr_t per_core_data_paddr = (uintptr_t)phys_base_alloc(1);
 		uintptr_t per_core_data_vaddr =
-		    vma_lookup_free_vaddr(VMA_REGION_A, 1);
+		    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, 1);
 		vxMultipleMmap(paging_get_highest_page_map(),
 		               per_core_data_vaddr, per_core_data_paddr, 1,
 		               0b111);
 		paging_reload(paging_get_highest_page_map());
-		vma_register(per_core_data_paddr, per_core_data_vaddr,
+		vma_register(get_kernel_vmm_page(), per_core_data_paddr, per_core_data_vaddr,
 		             BLOCK_SIZE);
 
 		volatile uint64_t* core_handshake =

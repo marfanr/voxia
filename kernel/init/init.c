@@ -74,7 +74,8 @@ _start(struct stivale2_struct* stivale2_struct) {
 	start_tty();
 
 	execve("/sbin/hello.elf", 0, 0);
-	execve("/sbin/term.elf", 0, 0);
+	// execve("/sbin/term.elf", 0, 0);
+	// execve("/sysroot/usr/bin/vim.", 0, 0);
 	
 	// KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...\n");
 	

@@ -205,11 +205,11 @@ KERNEL_API void* ioforge_dma_alloc(size_t size, uintptr_t* paddr) {
 	size_t aligned_size = ALIGN_UP(size, BLOCK_SIZE) / BLOCK_SIZE;
 	// LOG_DEBUG("IOFORGE DMA", "alloc size %d", aligned_size);
 	uintptr_t paddr_ = (uintptr_t)phys_base_alloc(aligned_size);
-	uintptr_t vaddr = vma_lookup_free_vaddr(VMA_REGION_A, aligned_size);
+	uintptr_t vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, aligned_size);
 	vxMultipleMmap(paging_get_highest_page_map(), vaddr, paddr_,
 	               aligned_size, 0b111);
 	paging_reload(paging_get_highest_page_map());
-	vma_register(paddr_, vaddr, aligned_size * BLOCK_SIZE);
+	vma_register(get_kernel_vmm_page(), paddr_, vaddr, aligned_size * BLOCK_SIZE);
 	if (paddr != 0) {
 		*paddr = paddr_;
 	}
@@ -223,18 +223,18 @@ void ioforge_dma_free(void* paddr, void* vaddr, size_t size) {
 	paging_unmap_fill(paging_get_highest_page_map(), (uintptr_t)vaddr,
 	                  aligned_size);
 	paging_reload(paging_get_highest_page_map());
-	vma_unregister((uintptr_t)vaddr);
+	vma_unregister(get_kernel_vmm_page(), (uintptr_t)vaddr);
 }
 
 KERNEL_API
 uintptr_t IOforgeMMapPhys(uintptr_t paddr, size_t size) {
 	auto paddr_base = ALIGN_DOWN(paddr, PAGE_SIZE);
 	auto offset_paddr = paddr - paddr_base;
-	auto vaddr = vma_lookup_free_vaddr(VMA_REGION_A, size);
+	auto vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, size);
 	vxMultipleMmap(paging_get_highest_page_map(), vaddr, paddr_base, size,
 	               0b111);
 	paging_reload(paging_get_highest_page_map());
-	vma_register(paddr, vaddr, size / 4096);
+	vma_register(get_kernel_vmm_page(), paddr, vaddr, size / 4096);
 	return vaddr + offset_paddr;
 }
 

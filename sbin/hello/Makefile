@@ -8,7 +8,8 @@ TARGET = x86_64-linux-musl
 # Flags krusial: 
 # --sysroot memaksa Clang mencari include/ dan lib/ di folder OS-mu, bukan host.
 # -static memaksa proses linking menggunakan libc.a (bukan libc.so).
-CFLAGS = --target=$(TARGET) --sysroot=$(SYSROOT) -static -Wall -Wextra -O2
+# CFLAGS = --target=$(TARGET) --sysroot=$(SYSROOT) -static -Wall -Wextra -O2
+CFLAGS = --config ./voxia.cfg
 
 # Nama file output dan source
 TARGET_BIN = hello.elf

@@ -1,6 +1,7 @@
 #ifndef __PROCC__PROCESS_H__
 #define __PROCC__PROCESS_H__
 
+#include "spinlock.h"
 #include <type.h>
 
 #define MAX_PID_ALLOWED 4194304
@@ -18,6 +19,7 @@ struct process_node {
 	struct process_node* prev;
 };
 
+// TODO: move paging page information into here
 struct thread;
 typedef struct process {
 	pid_t pid;
@@ -31,6 +33,10 @@ typedef struct process {
 	bool exited;
 
 	struct process_node cache;
+
+	uintptr_t heap_start;
+	uintptr_t heap_end;
+	spinlock_t vm_lock;
 
 	// linked list
 	struct process* next;
