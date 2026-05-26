@@ -132,7 +132,7 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	size_t size_4k = ALIGN_UP(1 + loaded_size, BLOCK_SIZE) / BLOCK_SIZE;
 
 	uintptr_t base_addr =
-	    vma_lookup_free_vaddr(VMA_REGION_PROCESS, size_4k);
+	    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_PROCESS, size_4k);
 	LOG_INFO("PROCESS", "executable %s has base addr at 0x%x", path,
 	         base_addr);
 
@@ -312,7 +312,7 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 		    ALIGN_UP(1 + ld_so_size, BLOCK_SIZE) / BLOCK_SIZE;
 
 		interp_base_addr =
-		    vma_lookup_free_vaddr(VMA_REGION_PROCESS, ld_so_size_4k);
+		    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_PROCESS, ld_so_size_4k);
 		LOG_INFO("PROCESS", "interp %s has base addr at 0x%x",
 		         interp_dentry->name->c_str, interp_base_addr);
 
@@ -331,7 +331,7 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 
 	// Stack setup
 	auto stack_phys = (uintptr_t)phys_base_alloc(1);
-	auto stack_vaddr = vma_lookup_free_vaddr(VMA_REGION_A, 1);
+	auto stack_vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, 1);
 	vxMultipleMmap(page, USER_STACK_VADDR, stack_phys, 1, 0b111);
 	vxMultipleMmap(paging_get_highest_page_map(), stack_vaddr, stack_phys,
 	               1, 0b111);
@@ -399,7 +399,7 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	serial2_printf("==========================\n");
 
 	paging_unmap_page(paging_get_highest_page_map(), stack_vaddr);
-	vma_unregister(stack_vaddr);
+	vma_unregister(get_kernel_vmm_page(), stack_vaddr);
 
 	// end
 

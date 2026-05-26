@@ -52,7 +52,7 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 
 	size_t size_4k = ALIGN_UP(1 + loaded_size, BLOCK_SIZE) / BLOCK_SIZE;
 	uintptr_t base_addr =
-	    vma_lookup_free_vaddr(VMA_REGION_KMODULE, size_4k);
+	    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_KMODULE, size_4k);
 	LOG_INFO("VOXMO", "base addr : 0x%x", base_addr);
 
 	Elf64_Ehdr ehdr;

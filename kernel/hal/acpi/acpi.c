@@ -7,7 +7,6 @@
 #include "libk/debug/debug.h"
 #include "libk/io.h"
 #include "libk/serial.h"
-#include <type.h>
 #include "memory/memory_utils.h"
 #include "memory/phys_base_allocator.h"
 #include "memory/vm_manager.h"
@@ -15,6 +14,7 @@
 #include <hal/acpi/acpi.h>
 #include <hal/acpi/hpet.h>
 #include <str.h>
+#include <type.h>
 
 static struct cpu_core* cpu_list = 0;
 
@@ -30,10 +30,10 @@ struct cpu_core* vxGetCpuInfo(uint8_t apicid) {
 
 extern void apicSetBaseAddr(uintptr_t addr);
 
-static void
-vxACPIRegisterNewCore(uint8_t apicid, uint8_t cpuid, uint32_t flag) {
+static void vxACPIRegisterNewCore(uint8_t apicid, uint8_t cpuid,
+                                  uint32_t flag) {
 	struct cpu_core* core =
-		(struct cpu_core*) kalloc(sizeof(struct cpu_core));
+	    (struct cpu_core*)kalloc(sizeof(struct cpu_core));
 	core->apicid = apicid;
 	core->cpuid = cpuid;
 	core->flag = flag;
@@ -56,25 +56,27 @@ uintptr_t acpi_map_phys_page(uintptr_t phys_addr, size_t len) {
 	uintptr_t aligned_phys = ALIGN_DOWN(phys_addr, BLOCK_SIZE);
 	uintptr_t offset = phys_addr - aligned_phys;
 
-	uintptr_t vaddr = vma_lookup_free_vaddr(VMA_REGION_A, len);
+	uintptr_t vaddr =
+	    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, len);
 
-	vma_register(aligned_phys, vaddr, len * BLOCK_SIZE);
+	vma_register(get_kernel_vmm_page(), aligned_phys, vaddr,
+	             len * BLOCK_SIZE);
 
 	vxMultipleMmap(paging_get_highest_page_map(), vaddr, aligned_phys, len,
-		       PAGE_PRESENT | PAGE_WRITABLE | PAGE_NO_EXECUTE
-			       | PAGE_WRITE_THROUGH | PAGE_CACHE_DISABLE);
+	               PAGE_PRESENT | PAGE_WRITABLE | PAGE_NO_EXECUTE |
+	                   PAGE_WRITE_THROUGH | PAGE_CACHE_DISABLE);
 	paging_reload(paging_get_highest_page_map());
 	asm volatile("mfence" ::: "memory");
 
 	// paging_debug(paging_get_highest_page_map(), vaddr);
 
-	return (uintptr_t) (vaddr + offset);
+	return (uintptr_t)(vaddr + offset);
 }
 
 void acpi_phys_page_unmap(uintptr_t addr) {
 	paging_unmap_fill(paging_get_highest_page_map(), addr, 1);
 	paging_reload(paging_get_highest_page_map());
-	vma_unregister(addr);
+	vma_unregister(get_kernel_vmm_page(), addr);
 }
 
 // static void parsing_dsdt(uintptr_t dsdt_addr) {
@@ -155,8 +157,8 @@ static void parsing_madt(struct MADT* madt) {
 	apicSetBaseAddr(apic_addr);
 	apicInitialize();
 
-	uint8_t* ptr = (uint8_t*) &madt->table;
-	uint8_t* ptr_end = (uint8_t*) madt + madt->header.Length;
+	uint8_t* ptr = (uint8_t*)&madt->table;
+	uint8_t* ptr_end = (uint8_t*)madt + madt->header.Length;
 	LOG_INFO("ACPI", "madt header 0x%x length 0x%x", ptr, ptr_end);
 
 	// uint8_t bspid = cpuid_get_bsp_id();
@@ -166,50 +168,50 @@ static void parsing_madt(struct MADT* madt) {
 	// *)((uintptr_t)madt + 0x2C);
 
 	while (ptr < ptr_end) {
-		madt_record_table_entry_t* t = (madt_record_table_entry_t*) ptr;
+		madt_record_table_entry_t* t = (madt_record_table_entry_t*)ptr;
 		// LOG_INFO("MADT", "type %d, len %d", t->entry_type,
 		// t->record_length);
 		if (t->record_length == 0)
 			break;
 		switch (t->entry_type) {
 		case ACPI_PROCESSOR_LAPIC: {
-			uint8_t apic_id = *(uint8_t*) (void*) (ptr + 0x3);
-			uint8_t cpu_id = *(uint8_t*) (void*) (ptr + 0x2);
-			uint32_t flags = *(uint32_t*) (void*) (ptr + 0x4);
+			uint8_t apic_id = *(uint8_t*)(void*)(ptr + 0x3);
+			uint8_t cpu_id = *(uint8_t*)(void*)(ptr + 0x2);
+			uint32_t flags = *(uint32_t*)(void*)(ptr + 0x4);
 
 			LOG_INFO("ACPI", "found APIC Id %d CPU Id %d", apic_id,
-				 cpu_id);
+			         cpu_id);
 			vxACPIRegisterNewCore(apic_id, cpu_id, flags);
 
 			break;
 		}
 		case ACPI_IO_INT_OVERRIDE: {
-			uint8_t bus_src = *(uint8_t*) (void*) (ptr + 0x2);
-			uint8_t irq_src = *(uint8_t*) (void*) (ptr + 0x3);
-			uint32_t gsi = *(uint8_t*) (void*) (ptr + 0x4);
-			uint16_t flags = *(uint16_t*) (void*) (ptr + 0x6);
+			uint8_t bus_src = *(uint8_t*)(void*)(ptr + 0x2);
+			uint8_t irq_src = *(uint8_t*)(void*)(ptr + 0x3);
+			uint32_t gsi = *(uint8_t*)(void*)(ptr + 0x4);
+			uint16_t flags = *(uint16_t*)(void*)(ptr + 0x6);
 			LOG_DEBUG("ACPI INT", "BUS %d IRQ %d GSI %d flags %d",
-				  bus_src, irq_src, gsi, flags);
+			          bus_src, irq_src, gsi, flags);
 			ioapic_add_irq_gsi_map(irq_src, gsi, flags);
 			break;
 		}
 		case ACPI_IO_APIC: {
-			uint8_t ioapic_id = *(uint8_t*) (void*) (ptr + 0x2);
-			uint32_t ioapic_addr = *(uint32_t*) (void*) (ptr + 0x4);
+			uint8_t ioapic_id = *(uint8_t*)(void*)(ptr + 0x2);
+			uint32_t ioapic_addr = *(uint32_t*)(void*)(ptr + 0x4);
 			uint32_t ioapic_gsi_base =
-				*(uint32_t*) (void*) (ptr + 0x8);
+			    *(uint32_t*)(void*)(ptr + 0x8);
 			LOG_DEBUG("ACPIO IOAPIC",
-				  "found IOAPIC id %d addr 0x%x GSI Base %d",
-				  ioapic_id, ioapic_addr, ioapic_gsi_base);
+			          "found IOAPIC id %d addr 0x%x GSI Base %d",
+			          ioapic_id, ioapic_addr, ioapic_gsi_base);
 			ioapic_setup(acpi_map_phys_page(ioapic_addr, 1));
 			break;
 		}
 		case ACPI_NMI: {
-			uint8_t processor = *(uint8_t*) (void*) (ptr + 0x2);
-			uint16_t flags = *(uint16_t*) (void*) (ptr + 0x4);
-			uint8_t lint = *(uint8_t*) (void*) (ptr + 0x6);
+			uint8_t processor = *(uint8_t*)(void*)(ptr + 0x2);
+			uint16_t flags = *(uint16_t*)(void*)(ptr + 0x4);
+			uint8_t lint = *(uint8_t*)(void*)(ptr + 0x6);
 			LOG_DEBUG("ACPI NMI", "processor %d flags %d lint %d",
-				  processor, flags, lint);
+			          processor, flags, lint);
 
 			break;
 		}
@@ -227,8 +229,8 @@ static void parsing_madt(struct MADT* madt) {
 #define DSDT_SIGNATURE 0x54445344
 
 INIT(acpi) {
-	struct RSDP_t* rsdp_ptr = (struct RSDP_t*) acpi_map_phys_page(
-		VIRT2PHYS(ctx->rsdp_addr), 1);
+	struct RSDP_t* rsdp_ptr =
+	    (struct RSDP_t*)acpi_map_phys_page(VIRT2PHYS(ctx->rsdp_addr), 1);
 
 	if (!rsdp_ptr) {
 		serial_trace("failed to map RSDP\n");
@@ -237,14 +239,14 @@ INIT(acpi) {
 
 	if (strncmp(rsdp_ptr->Signature, "RSD PTR ", 8) != 0) {
 		serial_trace("invalid rsdp signature: %.8s\n",
-			     rsdp_ptr->Signature);
+		             rsdp_ptr->Signature);
 		return;
 	}
 
 	uintptr_t rsdt_addr = rsdp_ptr->RsdtAddress;
 	LOG_INFO("ACPI", "rsdt addr 0x%x", rsdt_addr);
 
-	struct RSDT* rsdt = (struct RSDT*) acpi_map_phys_page(rsdt_addr, 1);
+	struct RSDT* rsdt = (struct RSDT*)acpi_map_phys_page(rsdt_addr, 1);
 	if (!rsdt) {
 		serial_trace("failed to map RSDT\n");
 		return;
@@ -260,15 +262,15 @@ INIT(acpi) {
 		if (!addr)
 			continue;
 
-		struct SDT* sdt = (struct SDT*) addr;
+		struct SDT* sdt = (struct SDT*)addr;
 
-		uint32_t sig = *(uint32_t*) (void*) (sdt->Signature);
+		uint32_t sig = *(uint32_t*)(void*)(sdt->Signature);
 		LOG_INFO("ACPI", "signature %.4s (0x%x) found", sdt->Signature,
-			 sig);
+		         sig);
 
 		switch (sig) {
 		case APIC_SIGNATURE:
-			parsing_madt((struct MADT*) addr);
+			parsing_madt((struct MADT*)addr);
 			break;
 		case HPET_SIGNATURE:
 			vxHPETInitialize(addr);

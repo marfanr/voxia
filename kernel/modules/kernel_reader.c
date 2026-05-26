@@ -20,13 +20,13 @@ INIT(KernelReader) {
 
 	ksymbols.name = "kernel_symbols";
 
-	uintptr_t addr = vma_lookup_free_vaddr(
+	uintptr_t addr = vma_lookup_free_vaddr(get_kernel_vmm_page(), 
 		VMA_REGION_A, ctx->kernel_raw_size / BLOCK_SIZE);
 	vxMultipleMmap(paging_get_highest_page_map(), addr,
 		       (uintptr_t) ctx->kernel_raw_addr, ctx->kernel_raw_size,
 		       0b111);
 	paging_reload(paging_get_highest_page_map());
-	vma_register(ctx->kernel_raw_addr, addr,
+	vma_register(get_kernel_vmm_page(), ctx->kernel_raw_addr, addr,
 		     ctx->kernel_raw_size / BLOCK_SIZE);
 
 	Elf64_Ehdr* kernel_ehdr = (Elf64_Ehdr*) addr;

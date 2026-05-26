@@ -276,7 +276,7 @@ size_t elf_load(volatile uintptr_t* page, uint8_t* data,
 		auto temporary_addr = base;
 		if (kernel_page != page) {
 			temporary_addr =
-			    vma_lookup_free_vaddr(VMA_REGION_B, sz);
+			    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_B, sz);
 
 			vxMultipleMmap(kernel_page,
 			               temporary_addr + aligned_vaddr,

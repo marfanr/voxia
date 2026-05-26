@@ -75,6 +75,7 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 		auto thr = get_current_core_data()->active_thread;
 		thr->state = THREAD_STATE_TERMINATED;
 		*thr->clear_child_tid = 0;
+		// TODO: clear allocated memory on heap and mmap
 		break;
 	}
 	case SYSCALL_IOCTL: {
@@ -94,7 +95,7 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 	}
 	case SYSCALL_MMAP: {
 		rsp->rax = (uint64_t)syscall_mmap(
-		    (void*)rsp->rdi, (size_t)rsp->rsi, (int)rsp->rdx, (int)rsp->rcx,
+		    (void*)rsp->rdi, (size_t)rsp->rsi, (int)rsp->rdx, (int)rsp->r10,
 		    (int)rsp->r8, (int)rsp->r9);
 		break;
 	}

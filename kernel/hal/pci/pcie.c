@@ -61,7 +61,7 @@ void mcfg_parse(uintptr_t addr) {
 			(mapping_size + PAGE_SIZE - 1) / PAGE_SIZE;
 
 		uintptr_t vaddr =
-			vma_lookup_free_vaddr(VMA_REGION_C, mapping_pages);
+			vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_C, mapping_pages);
 		if (!vaddr) {
 			LOG_INFO("pcie", "vaddr is 0");
 		}

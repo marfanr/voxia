@@ -180,11 +180,11 @@ static void vxPCIGatheringBusInfo(uint8_t bus, uint8_t device, uint8_t func) {
 
 		uintptr_t vaddr = bar;
 		if (original_bar) {
-			vaddr = vma_lookup_free_vaddr(VMA_REGION_C, size_4kb);
+			vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_C, size_4kb);
 			vxMultipleMmap(paging_get_highest_page_map(), vaddr,
 				       addr, size_4kb, 0b10011);
 			paging_reload(paging_get_highest_page_map());
-			vma_register(addr, vaddr, size_4kb * PAGE_SIZE);
+			vma_register(get_kernel_vmm_page(), addr, vaddr, size_4kb * PAGE_SIZE);
 		}
 		uint32_t offset =
 			(uint32_t) (addr - ALIGN_DOWN(addr, PAGE_SIZE));
