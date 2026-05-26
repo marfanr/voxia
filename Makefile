@@ -1,23 +1,25 @@
-# Variabel umum
-QEMU=qemu-system-x86_64
-QEMU_FLAGS=-m 3G -cpu host -M q35 -smp 4 -enable-kvm -rtc base=localtime
-QEMU_USB=-device usb-ehci,id=ehci -device usb-kbd,bus=ehci.0,port=1,id=kbd
-# 	-device usb-mouse,bus=ehci.0,port=2,id=mouse
-# QEMU_NETWORK= -netdev user,id=net0,hostfwd=tcp::1234-:1234\
-#   -device e1000,netdev=net0
-QEMU_NETWORK=-netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
--device e1000e,netdev=net0
-# QEMU_NETWORK=-netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
-# -device e1000-82544gc,netdev=net0
-ISO=naya.iso
-HDD=barebones.hdd
-BIOS_OVMF=ovmf-x64/OVMF.fd
-ROOT:=$(realpath .)
-export ROOT
+ROOT := $(shell pwd)
+include scripts/vars.mk
 
-.PHONY: defconfig all modules all-hdd rust kernel lib iso sbin
+.PHONY: all modules all-hdd kernel iso sbin musl
 
-all: defconfig lib kernel lib modules iso sbin
+all: kernel musl modules sbin iso
+
+MUSL_CONFIGURED := ./musl/.configured
+
+musl: $(MUSL_CONFIGURED)
+	@mkdir -p $(ISO_DIR)
+	$(MAKE) -C musl install DESTDIR=$(ISO_DIR)
+
+$(MUSL_CONFIGURED):
+	cd musl && ./configure \
+		--prefix=/usr \
+		--syslibdir=/lib \
+		--enable-static \
+		--enable-shared \
+		--target=x86_64-voxia
+	$(MAKE) -C musl
+	touch $@
 
 modules:
 	@mkdir -p ./initrd/modules
@@ -30,12 +32,11 @@ modules:
 # 	$(MAKE) -C ./modules/runtimeinit all
 
 sbin:
-	@mkdir -p ./root/sbin
-	$(MAKE) -C ./sbin/term
+	$(MAKE) -C $(ROOT_DIR)/sbin/hello
 
-sbin-clean: sbin
-	@rm -rf /root/sbin
-	$(MAKE) -C ./sbin/term clean
+sbin-clean:
+	@rm -rf $(ISO_DIR)/root/sbin
+	$(MAKE) -C $(ROOT_DIR)/sbin/hello clean
 
 all-hdd: $(HDD)
 
@@ -151,19 +152,15 @@ kernel:
 	mkdir -p build/kernel
 	$(MAKE) -C kernel	
 
-# Build ISO
-iso: limine 
-	rm -rf iso_root
-	mkdir -p iso_root
-# 	cp -r build/modules ./initrd
-	cd initrd; tar -F ustar -cvf ../iso_root/initrd.tar *; cd ..
-	cp -r root/* ./iso_root/
-	cp build/kernel.elf limine.cfg limine/limine.sys limine/limine-cd.bin limine/limine-eltorito-efi.bin iso_root/
+iso: kernel musl modules sbin limine $(MUSL_CONFIGURED)
+	mkdir -p $(ISO_DIR)
+	cd $(INITRD_DIR) && tar -F ustar -cvf $(realpath $(ISO_DIR))/initrd.tar *
+	cp $(KERNEL_ELF) limine.cfg limine/limine.sys limine/limine-cd.bin limine/limine-eltorito-efi.bin $(ISO_DIR)/
 	xorriso -as mkisofs -b limine-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
 		--efi-boot limine-eltorito-efi.bin \
 		-efi-boot-part --efi-boot-image --protective-msdos-label \
-		iso_root -o $(ISO)
+		$(ISO_DIR) -o $(ISO)
 	limine/limine-install $(ISO)
 
 # Build HDD image
@@ -179,7 +176,7 @@ $(HDD):
 	mkdir -p img_mount
 	sudo mount `cat loopback_dev`p1 img_mount
 	sudo mkdir -p img_mount/EFI/BOOT
-	sudo cp -v build/kernel.elf limine.cfg limine/limine.sys img_mount/
+	sudo cp -v $(KERNEL_ELF) limine.cfg limine/limine.sys img_mount/
 	sudo cp -v limine/BOOTX64.EFI img_mount/EFI/BOOT/
 	sync
 	sudo umount img_mount
@@ -200,7 +197,7 @@ flashdisk:
 	sudo mount /dev/sdb1 usb_mount
 	cd initrd; tar -F ustar -cvf ../usb_mount/initrd.tar *; cd ..
 	sudo mkdir -p usb_mount/EFI/BOOT
-	sudo cp -v build/kernel.elf limine.cfg limine/limine.sys usb_mount/
+	sudo cp -v $(KERNEL_ELF) limine.cfg limine/limine.sys usb_mount/
 	sudo cp -v limine/BOOTX64.EFI usb_mount/EFI/BOOT/
 	sync
 	sudo umount usb_mount
@@ -213,7 +210,7 @@ run-flashdisk:
 # Cleanup
 .PHONY: clean distclean sbin-clean
 clean:
-	rm -rf iso_root $(ISO) build
+	rm -rf $(ISO_DIR) $(ISO) $(BUILD_DIR) $(SYSROOT)
 	$(MAKE) -C kernel clean	
 	$(MAKE) -C modules/ehci clean
 	$(MAKE) -C modules/usb-hid clean
@@ -222,10 +219,13 @@ clean:
 	$(MAKE) -C modules/ahci clean
 	$(MAKE) -C modules/atapi clean
 
+musl-clean:
+	-$(MAKE) -C musl clean
 
 distclean: clean
 	rm -rf limine ovmf-x64
 	$(MAKE) -C kernel distclean
+	-$(MAKE) -C musl distclean
 
 defconfig:
 	yes "" | kconfig-conf --oldconfig Kconfig > .config

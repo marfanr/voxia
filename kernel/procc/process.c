@@ -177,8 +177,6 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 			char* interp_path = (char*)(file_buffer + p->p_offset);
 
 			auto interp_path_ = str(interp_path);
-			interp_path_ =
-			    str_concat_prefix(interp_path_, "/sysroot");
 			serial2_printf("found interp %s\n",
 			               interp_path_->c_str);
 			if (resolve_dentry(interp_path_->c_str, 0,
