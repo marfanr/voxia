@@ -208,7 +208,7 @@ run-flashdisk:
 	$(QEMU) $(QEMU_FLAGS) -hda /dev/sdb $(QEMU_USB) -vga std -device virtio-serial-pci
 
 # Cleanup
-.PHONY: clean distclean sbin-clean
+.PHONY: clean distclean sbin-clean doc-clean
 clean:
 	rm -rf $(ISO_DIR) $(ISO) $(BUILD_DIR) $(SYSROOT)
 	$(MAKE) -C kernel clean	
@@ -222,7 +222,7 @@ clean:
 musl-clean:
 	-$(MAKE) -C musl clean
 
-distclean: clean
+distclean: clean doc-clean
 	rm -rf limine ovmf-x64
 	$(MAKE) -C kernel distclean
 	-$(MAKE) -C musl distclean
@@ -256,6 +256,10 @@ $(DOXYGEN_BIN):
 
 .PHONY: doc
 doc: $(DOXYGEN_BIN)
+	@echo "[DOC] Ensuring theme files..."
+	@if [ ! -f tools/docs/doxygen-awesome.css ]; then \
+		curl -sSL https://raw.githubusercontent.com/jothepro/doxygen-awesome-css/main/doxygen-awesome.css -o tools/docs/doxygen-awesome.css; \
+	fi
 	@echo "[DOC] Generating documentation..."
 	@ROOT=$(ROOT) $(DOXYGEN_BIN) docs/Doxyfile
 	@echo "[DOC] Done. Open docs/html/index.html in your browser."
