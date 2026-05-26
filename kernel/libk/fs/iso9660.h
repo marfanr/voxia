@@ -116,11 +116,16 @@ struct iso9660_dir {
 } __attribute__((packed));
 
 #define iOS9660_DIR_FLAG (1 << 1)
+#define iOS9660_ASSOCIATED_FILE_FLAG (1 << 2)
+
+fs_operations_t* iso9660_fs_operations(void);
+vops_file_t* iso9660_file_operations(void);
+vops_lnk_t* iso9660_lnk_operations(void);
+
 
 int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
                    dentry_ptr* out);
-fs_operations_t* iso9660_fs_operations(void);
-vops_file_t* iso9660_file_operations(void);
 int iso9660_read(vnode_t* vnode, void* buf, size_t len, size_t offset);
+int iso9660_readlink(vnode_t* vnode, char* buf, size_t len);
 
 #endif // __FS__ISO9660_H__

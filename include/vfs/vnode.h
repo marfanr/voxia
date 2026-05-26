@@ -31,6 +31,11 @@ typedef struct {
 	long (*write)(vnode_t* vnode, void* buf, size_t len, size_t offset);
 } vops_file_t;
 
+typedef struct {
+	int (*readlink)(vnode_t* vnode, char* buf, size_t bufsize);
+} vops_lnk_t;
+
+
 typedef struct thread thread_t;
 typedef struct vops_blk {
 	int (*ioctl)(vnode_t* vnode, uint32_t req, void* arg);
