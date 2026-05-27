@@ -142,7 +142,7 @@ rust:
 
 ovmf-x64:
 	mkdir -p ovmf-x64
-	cd ovmf-x64 && curl -o OVMF-X64.zip https://efi.akeo.ie/OVMF/OVMF-X64.zip && 7z x OVMF-X64.zip
+	cd ovmf-x64 && curl --fail -o OVMF-X64.zip https://efi.akeo.ie/OVMF/OVMF-X64.zip && 7z x OVMF-X64.zip
 
 limine:
 	git clone https://github.com/limine-bootloader/limine.git --branch=v2.0-branch-binary --depth=1
@@ -247,6 +247,7 @@ config: .config
 # Documentation
 DOXYGEN_VER := 1.13.2
 DOXYGEN_BIN := tools/docs/doxygen-$(DOXYGEN_VER)/bin/doxygen
+THEME_CSS := tools/docs/doxygen-awesome.css
 
 $(DOXYGEN_BIN):
 	@echo "[DOC] Downloading Doxygen $(DOXYGEN_VER)..."
@@ -254,15 +255,16 @@ $(DOXYGEN_BIN):
 	@curl -sSL https://www.doxygen.nl/files/doxygen-$(DOXYGEN_VER).linux.bin.tar.gz | tar -xz -C tools/docs/
 	@touch $@
 
+$(THEME_CSS):
+	@echo "[DOC] Downloading theme..."
+	@mkdir -p tools/docs
+	@curl -sSL --fail https://raw.githubusercontent.com/jothepro/doxygen-awesome-css/main/doxygen-awesome.css -o $@
+
 .PHONY: doc
-doc: $(DOXYGEN_BIN)
-	@echo "[DOC] Ensuring theme files..."
-	@if [ ! -f tools/docs/doxygen-awesome.css ]; then \
-		curl -sSL https://raw.githubusercontent.com/jothepro/doxygen-awesome-css/main/doxygen-awesome.css -o tools/docs/doxygen-awesome.css; \
-	fi
+doc: $(DOXYGEN_BIN) $(THEME_CSS)
 	@echo "[DOC] Generating documentation..."
 	@ROOT=$(ROOT) $(DOXYGEN_BIN) docs/Doxyfile
 	@echo "[DOC] Done. Open docs/html/index.html in your browser."
 
 doc-clean:
-	rm -rf docs/html docs/latex tools/docs/doxygen-*
+	rm -rf docs/html docs/latex tools/docs/doxygen-* $(THEME_CSS)
