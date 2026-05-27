@@ -261,7 +261,7 @@ $(THEME_CSS):
 	@curl -sSL --fail https://raw.githubusercontent.com/jothepro/doxygen-awesome-css/main/doxygen-awesome.css -o $@
 
 .PHONY: doc
-doc: $(DOXYGEN_BIN) $(THEME_CSS)
+doc: $(DOXYGEN_BIN) $(THEME_CSS) docs/custom.css
 	@echo "[DOC] Generating documentation..."
 	@ROOT=$(ROOT) $(DOXYGEN_BIN) docs/Doxyfile
 	@echo "[DOC] Done. Open docs/html/index.html in your browser."

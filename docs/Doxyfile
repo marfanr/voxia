@@ -1,6 +1,6 @@
 PROJECT_NAME           = "Voxia OS"
-PROJECT_NUMBER         = "v1.0.0"
-PROJECT_BRIEF          = "A modular x86_64 kernel designed for simplicity and elegance."
+PROJECT_NUMBER         = "v0.0.1"
+PROJECT_BRIEF          = "Hobby Project Operating System Targeting x86-64"
 OUTPUT_DIRECTORY       = docs
 CREATE_SUBDIRS         = NO
 OUTPUT_LANGUAGE        = English
@@ -110,7 +110,7 @@ HTML_FILE_EXTENSION    = .html
 HTML_HEADER            = 
 HTML_FOOTER            = 
 HTML_STYLESHEET       = 
-HTML_EXTRA_STYLESHEET  = tools/docs/doxygen-awesome.css
+HTML_EXTRA_STYLESHEET  = tools/docs/doxygen-awesome.css docs/custom.css
 HTML_EXTRA_FILES       = 
 HTML_COLORSTYLE_HUE    = 220
 HTML_COLORSTYLE_SAT    = 100

@@ -1,33 +1,47 @@
-# Voxia OS Documentation
+# Voxia OS Technical Reference
 
-Welcome to the official developer documentation for **Voxia OS**.
+<div class="header-container">
+  <h1>Voxia OS</h1>
+  <p class="subtitle">A modular x86_64 kernel designed for simplicity and elegance.</p>
+</div>
 
-## 🚀 Overview
+<div class="card-grid">
+  <div class="card">
+    <h3>🏗️ HAL</h3>
+    <p>Hardware Abstraction Layer for x86_64, including APIC, ACPI, and low-level CPU primitives.</p>
+    <a href="modules.html">Explore HAL →</a>
+  </div>
+  
+  <div class="card">
+    <h3>🧠 Memory</h3>
+    <p>Physical and Virtual memory management, featuring a robust slab allocator and paging logic.</p>
+    <a href="modules.html">Explore Memory →</a>
+  </div>
+  
+  <div class="card">
+    <h3>📂 VFS</h3>
+    <p>Virtual File System layer providing high-level abstractions for filesystems and caching.</p>
+    <a href="modules.html">Explore VFS →</a>
+  </div>
+  
+  <div class="card">
+    <h3>🌐 Network</h3>
+    <p>Integrated network stack with support for modern NICs and protocol handling.</p>
+    <a href="modules.html">Explore Network →</a>
+  </div>
+</div>
 
-Voxia OS is a simple, modular x86_64 kernel designed with elegance and performance in mind. This documentation is automatically generated from the source code and providing a detailed view of the kernel's internal architecture.
+## 🔍 Navigation
 
-## 🏗️ Core Architecture
-
-The kernel is divided into several key subsystems:
-
-- **Hardware Abstraction Layer (HAL)**: Low-level architecture-specific code (APIC, ACPI, GDT, IDT).
-- **Memory Management**: Physical and virtual memory managers, including a slab allocator.
-- **Process & Thread Management**: Multi-core scheduler and thread primitives.
-- **Virtual File System (VFS)**: A flexible layer for filesystem abstraction.
-- **Networking**: Integrated network stack with support for modern NICs.
-
-## 📂 Navigation
-
-- [Files](files.html): Browse the source tree.
-- [Modules](modules.html): High-level grouping of kernel logic.
-- [Data Structures](annotated.html): Overview of types and structures.
-
-## 🛠️ Contributing
-
-To update this documentation:
-1.  Edit the source code comments (using Doxygen style `/** ... */`).
-2.  Run `make doc` from the project root.
-3.  Refresh your browser.
+<div class="quick-links">
+  <ul>
+    <li><a href="files.html"><b>File Browser</b> - Search the complete source tree.</a></li>
+    <li><a href="annotated.html"><b>Data Structures</b> - View kernel structs and unions.</a></li>
+    <li><a href="globals.html"><b>API Index</b> - List of all functions and macros.</a></li>
+  </ul>
+</div>
 
 ---
-Developed with ❤️ by the Voxia Team.
+<div class="footer-note">
+  Generated directly from the source code. Contribute by adding Doxygen comments to your PRs.
+</div>
