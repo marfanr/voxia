@@ -6,7 +6,7 @@
 #include <sys/fd.h>
 #include <sys/syscall.h>
 
-long syscall_readv(int fd, const struct iovec* iov, int iovcnt) {
+long syscall_writev(int fd, const struct iovec* iov, int iovcnt) {
 	UNUSED(fd);
 	UNUSED(iov);
 	UNUSED(iovcnt);

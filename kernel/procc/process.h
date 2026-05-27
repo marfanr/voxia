@@ -1,6 +1,7 @@
 #ifndef __PROCC__PROCESS_H__
 #define __PROCC__PROCESS_H__
 
+#include "memory/vm_manager.h"
 #include "spinlock.h"
 #include <type.h>
 
@@ -37,6 +38,7 @@ typedef struct process {
 	uintptr_t heap_start;
 	uintptr_t heap_end;
 	spinlock_t vm_lock;
+	struct virtual_memory_page* vm_page;
 
 	// linked list
 	struct process* next;

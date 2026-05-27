@@ -68,12 +68,11 @@ struct virtual_memory_page {
 
 void vma_register(struct virtual_memory_page* page, uintptr_t phys_address,
                   uintptr_t virt_addr, size_t size);
-virtual_memory_t* vma_find(uintptr_t virt_addr);
+virtual_memory_t* vma_find(struct virtual_memory_page* page, uintptr_t virt_addr);
 void vma_unregister(struct virtual_memory_page* page, uintptr_t virt_addr);
-void vma_tree_add(mem_vma_region region, uintptr_t start_address,
-                  uintptr_t end_address);
 uintptr_t vma_lookup_free_vaddr(struct virtual_memory_page* page,
                                 mem_vma_region region, size_t size);
 struct virtual_memory_page* get_kernel_vmm_page();
+struct virtual_memory_page* create_vmm_page();
 
 #endif // __MEMORY_VM_MANAGER_H__

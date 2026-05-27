@@ -298,7 +298,7 @@ KERNEL_API void kfree(void* ptr, size_t size) {
 		size_t total_size = size + metadata_overhead;
 		memset(meta, 0, total_size);
 
-		virtual_memory_t* v = vma_find((uintptr_t)meta);
+		virtual_memory_t* v = vma_find(get_kernel_vmm_page(), (uintptr_t)meta);
 		if (!v) {
 			unlock_irqrestore(&kalloc_global_lock, gflags);
 			return;
@@ -410,7 +410,7 @@ KERNEL_API void kfree2(void* ptr) {
 		size_t total_size = size + metadata_overhead;
 		memset(meta, 0, total_size);
 
-		virtual_memory_t* v = vma_find((uintptr_t)meta);
+		virtual_memory_t* v = vma_find(get_kernel_vmm_page(), (uintptr_t)meta);
 		if (!v) {
 			unlock_irqrestore(&kalloc_global_lock, gflags);
 			return;

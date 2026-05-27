@@ -241,6 +241,11 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 			asm volatile("mov %%cr2, %0" : "=r"(cr2));
 			KDEBUG(DEBUG_LEVEL_ERROR, "page fault 0x%x\n", cr2);
 			serial2_printf("page fault 0x%x\n", cr2);
+			auto err = rsp->err_code;
+			serial2_printf(
+			    "  err bits: present=%d write=%d user=%d nx=%d\n",
+			    err & 1, (err >> 1) & 1, (err >> 2) & 1,
+			    (err >> 4) & 1);
 		}
 
 		serial2_printf("\n\n[EXCEPTION] %s (vector %d)\n",

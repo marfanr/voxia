@@ -213,6 +213,19 @@ void elf_section_map_all(uint8_t* data, elf_section_map* map) {
 	}
 }
 
+static uint64_t elf_pflags_to_page_flags(uint64_t p_flags) {
+	uint64_t flags = PAGE_USER; // selalu user-accessible
+
+	if (p_flags & PF_R)
+		flags |= PAGE_PRESENT;
+	if (p_flags & PF_W)
+		flags |= PAGE_WRITABLE | PAGE_PRESENT;
+	if (!(p_flags & PF_X))
+		flags |= PAGE_NO_EXECUTE; // NX jika bukan executable segment
+
+	return flags;
+}
+
 void elf_mmap_got(volatile uintptr_t* page, elf_section_map* map,
                   uintptr_t base) {
 	if (!map->gotplt)
@@ -231,8 +244,10 @@ void elf_mmap_got(volatile uintptr_t* page, elf_section_map* map,
 	          base + aligned_start, offset_aligned, total_aligned);
 
 	uintptr_t phys_addr = (uintptr_t)phys_base_alloc(total_aligned);
+	uint64_t got_flags =
+	    PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER | PAGE_NO_EXECUTE;
 	vxMultipleMmap(page, base + aligned_start, phys_addr, total_aligned,
-	               0b111);
+	               got_flags);
 }
 
 uintptr_t elf_get_entry(uint8_t* data, uintptr_t base) {
@@ -274,19 +289,21 @@ size_t elf_load(volatile uintptr_t* page, uint8_t* data,
 		auto kernel_page = paging_get_highest_page_map();
 
 		auto temporary_addr = base;
+		auto mmap_flags = elf_pflags_to_page_flags(p->p_flags);
 		if (kernel_page != page) {
-			temporary_addr =
-			    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_B, sz);
+			temporary_addr = vma_lookup_free_vaddr(
+			    get_kernel_vmm_page(), VMA_REGION_B, sz);
 
 			vxMultipleMmap(kernel_page,
 			               temporary_addr + aligned_vaddr,
-			               phys_alloc, sz, 0b111);
+			               phys_alloc, sz, 0b11);
 		}
 		vxMultipleMmap(page, base + aligned_vaddr, phys_alloc, sz,
-		               0b111);
+		               mmap_flags);
 
-		LOG2_INFO("ELF", "vaddr 0x%x, type %d  %x %x", p->p_vaddr,
-		          p->p_type, temporary_addr, base + aligned_vaddr);
+		LOG2_INFO("ELF", "vaddr 0x%x, type %d  %x %x, flags %b",
+		          p->p_vaddr, p->p_type, temporary_addr,
+		          base + aligned_vaddr, mmap_flags);
 
 		/* save temporary mapping data */
 		if (table) {
@@ -347,7 +364,8 @@ static uint64_t* elf_roffset_to_kernel_ptr(uintptr_t r_offset,
 	}
 
 	/* r_offset not in any mapped segment; fall back and let caller fault */
-	// LOG2_WARN("ELF", "r_offset 0x%x not in any mapped segment", r_offset);
+	// LOG2_WARN("ELF", "r_offset 0x%x not in any mapped segment",
+	// r_offset);
 	return (uint64_t*)(fallback_base + r_offset);
 }
 

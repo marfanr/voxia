@@ -229,7 +229,7 @@ void vxMmap(page_t page_dir, uint64_t virt, uint64_t phys, uint64_t flags) {
 	uint64_t index1 = (virt >> 12) & 0x1ff;
 
 	uint64_t inter_flags =
-	    (flags & ~PAGE_INTER_STRIP) | PAGE_PRESENT | PAGE_WRITABLE;
+	    (flags & ~PAGE_INTER_STRIP) | PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER;
 
 	uint64_t phys_clean = phys & PAGE_PHYS_MASK;
 

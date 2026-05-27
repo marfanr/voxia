@@ -12,13 +12,11 @@
 #include "procc/scheduler.h"
 #include "procc/thread.h"
 #include "string.h"
-#include "sys/err_no.h"
 #include "sys/fd.h"
 #include "tty/tty.h"
 #include "type.h"
 #include "vfs/dentry.h"
 #include "vfs/enum.h"
-#include "vfs/vfs.h"
 #include "vfs/vnode.h"
 #include <str.h>
 #include <sys/syscall.h>
@@ -131,8 +129,8 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	         loaded_size / 1024);
 	size_t size_4k = ALIGN_UP(1 + loaded_size, BLOCK_SIZE) / BLOCK_SIZE;
 
-	uintptr_t base_addr =
-	    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_PROCESS, size_4k);
+	uintptr_t base_addr = vma_lookup_free_vaddr(
+	    get_kernel_vmm_page(), VMA_REGION_PROCESS, size_4k);
 	LOG_INFO("PROCESS", "executable %s has base addr at 0x%x", path,
 	         base_addr);
 
@@ -147,9 +145,6 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 
 	elf_section_map sh_map = {0};
 	elf_section_map_all(file_buffer, &sh_map);
-
-	if (ehdr.e_type == ET_DYN)
-		elf_mmap_got(page, &sh_map, base_addr);
 
 	LOG2_INFO("ELF", "version : %d, ph num : %d", ehdr.e_version,
 	          ehdr.e_phnum);
@@ -210,8 +205,8 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	uintptr_t heap_start = 0;
 	{
 		for (uint64_t i = 0; i < ehdr.e_phnum; i++) {
-			Elf64_Phdr* p = ELF_PTR(Elf64_Phdr, phdr,
-			                       i * ehdr.e_phentsize);
+			Elf64_Phdr* p =
+			    ELF_PTR(Elf64_Phdr, phdr, i * ehdr.e_phentsize);
 			if (p->p_type == PT_LOAD) {
 				auto end = base_addr + p->p_vaddr + p->p_memsz;
 				if (end > heap_start)
@@ -219,7 +214,7 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 			}
 		}
 		heap_start = ALIGN_UP(heap_start, 0x1000);
-		
+
 		serial2_printf("heap start at 0x%x\n", heap_start);
 	}
 
@@ -257,6 +252,9 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	// TODO: will be refactor
 	uintptr_t interp_base_addr = 0;
 	uintptr_t interp_entry_addr = 0;
+	Elf64_Ehdr interp_ehdr;
+
+	struct elf_load_mmap_table* interp_mmap_table = 0;
 
 	if (interp_dentry) {
 		// handle interp
@@ -303,25 +301,21 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 		serial2_printf("interp file size %d kb\n",
 		               (uint32_t)ld_so_size / 1024);
 
-		Elf64_Ehdr interp_ehdr;
 		memcopy(&interp_ehdr, (void*)ld_so_buffer, sizeof(Elf64_Ehdr));
 
 		size_t ld_so_size_4k =
 		    ALIGN_UP(1 + ld_so_size, BLOCK_SIZE) / BLOCK_SIZE;
 
-		interp_base_addr =
-		    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_PROCESS, ld_so_size_4k);
+		interp_base_addr = vma_lookup_free_vaddr(
+		    get_kernel_vmm_page(), VMA_REGION_PROCESS, ld_so_size_4k);
 		LOG_INFO("PROCESS", "interp %s has base addr at 0x%x",
 		         interp_dentry->name->c_str, interp_base_addr);
 
-		//
-		struct elf_load_mmap_table* lod_so_mmap_table =
-		    (struct elf_load_mmap_table*)kalloc(
-		        sizeof(struct elf_load_mmap_table) *
-		        interp_ehdr.e_phnum);
+		interp_mmap_table = (struct elf_load_mmap_table*)kalloc(
+		    sizeof(struct elf_load_mmap_table) * interp_ehdr.e_phnum);
 
 		auto ll = elf_load(page, ld_so_buffer, interp_base_addr,
-		                   interp_base_addr, lod_so_mmap_table);
+		                   interp_base_addr, interp_mmap_table);
 		serial2_printf("ld.so loaded size %d kb\n", ll / 1024);
 
 		interp_entry_addr = interp_base_addr + interp_ehdr.e_entry;
@@ -329,7 +323,8 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 
 	// Stack setup
 	auto stack_phys = (uintptr_t)phys_base_alloc(1);
-	auto stack_vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, 1);
+	auto stack_vaddr =
+	    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, 1);
 	vxMultipleMmap(page, USER_STACK_VADDR, stack_phys, 1, 0b111);
 	vxMultipleMmap(paging_get_highest_page_map(), stack_vaddr, stack_phys,
 	               1, 0b111);
@@ -406,6 +401,35 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	procc->heap_start = heap_start;
 	procc->heap_end = procc->heap_start;
 	procc->vm_lock.next_ticket = procc->vm_lock.now_serving = 0;
+
+	procc->vm_page = create_vmm_page();
+	for (int i = 0; i < ehdr.e_phnum; i++) {
+		auto mm = &mmap_table[i];
+		if (mm->mapped) {
+			serial2_printf(
+			    "process: added to vma aligned base 0x%x\n",
+			    base_addr + mm->alligned);
+			vma_register(procc->vm_page, mm->paddr,
+			             base_addr + mm->alligned, mm->size);
+		}
+	}
+
+	if (interp_base_addr && interp_mmap_table) {
+		serial2_printf("interp base addr 0x%x\n", interp_base_addr);
+		for (int i = 0; i < interp_ehdr.e_phnum; i++) {
+			auto mm = &interp_mmap_table[i];
+
+			if (mm->mapped) {
+				serial_printf("process: added interp to vma "
+				              "aligned base 0x%x\n",
+				              interp_base_addr + mm->alligned);
+
+				vma_register(procc->vm_page, mm->paddr,
+				             interp_base_addr + mm->alligned,
+				             mm->size);
+			}
+		}
+	}
 
 	print_dentry_tree(get_root_dentry(), 0);
 

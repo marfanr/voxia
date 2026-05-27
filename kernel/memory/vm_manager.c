@@ -70,7 +70,7 @@ static void vma_tree_add_locked(struct virtual_memory_page* page,
 	}
 }
 
-static struct virtual_memory_page* create_vmm_page() {
+struct virtual_memory_page* create_vmm_page() {
 	auto p = (struct virtual_memory_page*)vxSlabAlloc(vma_page);
 	memset(p, 0, sizeof(struct virtual_memory_page));
 	p->tree = VMA_RBT_NIL;
@@ -98,7 +98,8 @@ INIT(vma) {
 	serial_trace("ok\n");
 }
 
-void vma_register(struct virtual_memory_page* page, uintptr_t phys_address, uintptr_t virt_addr, size_t size) {
+void vma_register(struct virtual_memory_page* page, uintptr_t phys_address,
+                  uintptr_t virt_addr, size_t size) {
 	spin_acquire(&page->lock);
 	virtual_memory_t* node = (virtual_memory_t*)vxSlabAlloc(vma_cache);
 	node->start_address = virt_addr;
@@ -113,8 +114,7 @@ void vma_register(struct virtual_memory_page* page, uintptr_t phys_address, uint
 	spin_release(&page->lock);
 }
 
-virtual_memory_t* vma_find(uintptr_t virt_addr) {
-	auto page = kernel_vmm_page;
+virtual_memory_t* vma_find(struct virtual_memory_page* page, uintptr_t virt_addr) {
 	spin_acquire(&page->lock);
 	struct rbt_node* n =
 	    rbt_search_node(page->tree, virt_addr, VMA_RBT_NIL);
@@ -197,7 +197,7 @@ uintptr_t vma_lookup_free_vaddr(struct virtual_memory_page* page,
 	spin_release(&page->lock);
 	return result;
 }
-
+__attribute__((always_inline))
 struct virtual_memory_page* get_kernel_vmm_page() { return kernel_vmm_page; }
 
 #undef RBT_ID_NAME

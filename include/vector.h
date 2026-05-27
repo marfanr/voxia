@@ -1,12 +1,10 @@
 #ifndef __LIBK__VECTOR_H_
 #define __LIBK__VECTOR_H_
 
+// C Only Vector
+
 #include <type.h>
 #include <memory/kalloc.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #define VECTOR_MINIMUM_ITEM 5
 
@@ -80,9 +78,5 @@ typedef struct {
 			   // before resizing
 	size_t alloc_size; // Size of each element in bytes
 } vector_T;
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif // __LIBK__VECTOR_H_
