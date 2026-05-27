@@ -33,10 +33,12 @@ modules:
 
 sbin:
 	$(MAKE) -C $(ROOT_DIR)/sbin/hello
+	$(MAKE) -C $(ROOT_DIR)/sbin/term
 
 sbin-clean:
 	@rm -rf $(ISO_DIR)/root/sbin
 	$(MAKE) -C $(ROOT_DIR)/sbin/hello clean
+	$(MAKE) -C $(ROOT_DIR)/sbin/term clean
 
 all-hdd: $(HDD)
 
@@ -220,7 +222,8 @@ clean:
 	$(MAKE) -C modules/atapi clean
 
 musl-clean:
-	-$(MAKE) -C musl clean
+	rm -f $(MUSL_CONFIGURED)
+	$(MAKE) -C musl clean
 
 distclean: clean doc-clean
 	rm -rf limine ovmf-x64

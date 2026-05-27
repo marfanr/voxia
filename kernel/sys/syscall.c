@@ -29,7 +29,7 @@ void syscall_init(void) {
 
 extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 	// #DEBUG
-	if (rsp->rax != SYSCALL_EXIT && rsp->rax != SYSCALL_WRITEV)
+	if (rsp->rax != SYSCALL_EXIT)
 		LOG2_DEBUG("syscall", "called %d (%s) 0x%x 0x%x %d", rsp->rax,
 		           get_syscall_name((int)rsp->rax), rsp->rdi, rsp->rsi,
 		           rsp->rdx);

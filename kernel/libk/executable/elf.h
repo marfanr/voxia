@@ -5,19 +5,19 @@
 #include <type.h>
 #include <vector.h>
 
-#define EI_MAG0		0
-#define ELFMAG0		0x7f
+#define EI_MAG0 0
+#define ELFMAG0 0x7f
 
-#define EI_MAG1		1
-#define ELFMAG1		'E'
+#define EI_MAG1 1
+#define ELFMAG1 'E'
 
-#define EI_MAG2		2
-#define ELFMAG2		'L'
+#define EI_MAG2 2
+#define ELFMAG2 'L'
 
-#define EI_MAG3		3
-#define ELFMAG3		'F'
+#define EI_MAG3 3
+#define ELFMAG3 'F'
 
-#define	ELFMAG		"\177ELF"
+#define ELFMAG "\177ELF"
 
 typedef struct Elf64_Ehdr {
 	uint8_t e_ident[16];  /* ELF identification */
@@ -254,6 +254,10 @@ enum Elf64_RelType {
 	R_X86_64_RELATIVE64 = 38
 };
 
+#define PF_X 0x1 // Execute
+#define PF_W 0x2 // Write
+#define PF_R 0x4 // Read
+
 Elf64_Dyn* elf_get_phdr_dynamic(uint8_t* data);
 define_vector(uint64_t);
 
@@ -284,6 +288,9 @@ uintptr_t elf_find_base_addr(uint8_t* data);
 uint8_t* elf_dyn_find(Elf64_Dyn* dyn, uint8_t* data, uint64_t tag);
 void elf_dyn_map_all(Elf64_Dyn* dyn, uint8_t* data, elf_dynamic_map* map);
 void elf_section_map_all(uint8_t* data, elf_section_map* map);
+
+// not needed , because already mapped by PT_LOAD
+DEPRECATED
 void elf_mmap_got(volatile uintptr_t* page, elf_section_map* map,
                   uintptr_t base);
 
@@ -321,7 +328,7 @@ void elf_relocate_dyn(elf_dynamic_map* map, uintptr_t base,
                       GnuHashHeader* gnu_hash,
                       symbols_ptr_vector_t* external_syms,
                       struct elf_load_mmap_table* table, int table_count);
-					  
+
 void elf_get_symbol(const char* sym_name, uintptr_t base, elf_section_map* map,
                     uint8_t* data, symbols_ptr_vector_t* syms,
                     boolean_t skip_empty_val);

@@ -68,7 +68,6 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 	elf_section_map_all(data, &sh_map);
 
 	auto kernel_page = paging_get_highest_page_map();
-	elf_mmap_got(kernel_page, &sh_map, base_addr);
 
 	struct elf_load_mmap_table* mmap_table =
 	    (struct elf_load_mmap_table*)kalloc(
