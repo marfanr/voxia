@@ -30,7 +30,7 @@ void syscall_init(void) {
 extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 	// #DEBUG
 	if (rsp->rax != SYSCALL_EXIT && rsp->rax != SYSCALL_WRITEV)
-		LOG2_DEBUG("syscall", "called %d (%s) %d 0x%x %d", rsp->rax,
+		LOG2_DEBUG("syscall", "called %d (%s) 0x%x 0x%x %d", rsp->rax,
 		           get_syscall_name((int)rsp->rax), rsp->rdi, rsp->rsi,
 		           rsp->rdx);
 
@@ -84,7 +84,7 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 		break;
 	}
 	case SYSCALL_WRITEV: {
-		rsp->rax = (uint64_t)syscall_readv(
+		rsp->rax = (uint64_t)syscall_writev(
 		    (int)rsp->rdi, (const struct iovec*)rsp->rsi,
 		    (int)rsp->rdx);
 		break;
@@ -97,6 +97,11 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 		rsp->rax = (uint64_t)syscall_mmap(
 		    (void*)rsp->rdi, (size_t)rsp->rsi, (int)rsp->rdx, (int)rsp->r10,
 		    (int)rsp->r8, (int)rsp->r9);
+		break;
+	}
+	case SYSCALL_MPORTECT: {
+		rsp->rax = (uint64_t)syscall_mprotect(
+		    (void*)rsp->rdi, (size_t)rsp->rsi, (int)rsp->rdx);
 		break;
 	}
 	default:

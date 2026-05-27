@@ -19,6 +19,14 @@
 #define SYSCALL_EXIT_GROUP 0xE7
 #define SYSCALL_BRK 0x0C
 #define SYSCALL_MMAP 0x9
+#define SYSCALL_MPORTECT 0x0A
+
+#define PROT_NONE 0
+#define PROT_READ 1
+#define PROT_WRITE 2
+#define PROT_EXEC 4
+#define PROT_GROWSDOWN 0x01000000
+#define PROT_GROWSUP 0x02000000
 
 void syscall_init(void);
 int syscall_read(int fd, void* buf, long count);
@@ -27,14 +35,15 @@ int syscall_open(const char* path, int flags, int mode);
 int syscall_arch_prctl(int code, unsigned long addr);
 pid_t syscall_set_tid(uint32_t tid);
 int syscall_ioctl(int fd, uint32_t req, void* arg);
-intptr_t syscall_brk(void *addr);
-void* syscall_mmap(void *addr, size_t len, int prot, int flags, int fd, long off);
-
+intptr_t syscall_brk(void* addr);
+void* syscall_mmap(void* addr, size_t len, int prot, int flags, int fd,
+                   long off);
+int syscall_mprotect(void* addr, size_t len, int prot);
 struct iovec {
 	void* iov_base;
 	int iov_len;
 };
 
-long syscall_readv(int fd, const struct iovec* iov, int iovcnt);
+long syscall_writev(int fd, const struct iovec* iov, int iovcnt);
 
 #endif // __SYS__SYSCALL_H__
