@@ -48,13 +48,6 @@
 
 void* syscall_mmap(void* addr, size_t len, int prot, int flags, int fd,
                    long off) {
-	(void)addr;
-	(void)len;
-	(void)prot;
-	(void)flags;
-	(void)fd;
-	(void)off;
-
 	auto thr = get_current_core_data()->active_thread;
 	auto procc = thr->process;
 	if (!thr || !procc) {
