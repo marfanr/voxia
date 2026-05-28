@@ -141,8 +141,8 @@ void HIDKeyboard::parse_report(const uint8_t* data, size_t len) {
 			if (code != KEY_NONE) {
 				input_report_key(&instance->dev_->controller->service,
 				                 code, 1);
-				// Immediately report release for simplicity in
-				// this stub
+		// 		// Immediately report release for simplicity in
+		// 		// this stub
 				input_report_key(&instance->dev_->controller->service,
 				                 code, 0);
 			}
@@ -157,9 +157,6 @@ void HIDKeyboard::fireHandler(const uint8_t* data, size_t len) {
 	if (!instance) {
 		return;
 	}
-
-	(void)data;
-	(void)len;
 
 	// parse report
 	instance->parse_report(data, len);
