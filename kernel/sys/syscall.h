@@ -45,5 +45,6 @@ struct iovec {
 };
 
 long syscall_writev(int fd, const struct iovec* iov, int iovcnt);
+void syscall_exit_group(int status);
 
 #endif // __SYS__SYSCALL_H__

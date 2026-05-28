@@ -324,8 +324,8 @@ Elf64_Sym* elf_gnu_lookup(const char* name, GnuHashHeader* gh,
 void elf_gnu_hash_parse(GnuHashHeader* gnu_hash, Elf64_Shdr* gnu_hash_sym,
                         uint8_t* data);
 
-void elf_relocate_dyn(elf_dynamic_map* map, uintptr_t base,
-                      GnuHashHeader* gnu_hash,
+void elf_relocate_dyn(elf_dynamic_map* map, uintptr_t kernel_base,
+                      uintptr_t user_base, GnuHashHeader* gnu_hash,
                       symbols_ptr_vector_t* external_syms,
                       struct elf_load_mmap_table* table, int table_count);
 

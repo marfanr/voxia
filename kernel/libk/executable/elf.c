@@ -221,7 +221,7 @@ static uint64_t elf_pflags_to_page_flags(uint64_t p_flags) {
 	if (p_flags & PF_W)
 		flags |= PAGE_WRITABLE | PAGE_PRESENT;
 	if (!(p_flags & PF_X))
-		flags |= PAGE_NO_EXECUTE; // NX jika bukan executable segment
+		flags |= PAGE_NO_EXECUTE; // NX
 
 	return flags;
 }
@@ -363,18 +363,14 @@ static uint64_t* elf_roffset_to_kernel_ptr(uintptr_t r_offset,
 		}
 	}
 
-	/* r_offset not in any mapped segment; fall back and let caller fault */
-	// LOG2_WARN("ELF", "r_offset 0x%x not in any mapped segment",
-	// r_offset);
 	return (uint64_t*)(fallback_base + r_offset);
 }
 
-static void elf_relocate_rel(Elf64_Rela* rel, uintptr_t base,
-                             uint64_t rela_count, uint8_t* strtab,
-                             Elf64_Sym* symbols, GnuHashHeader* gnu_hash,
-                             symbols_ptr_vector_t* external_syms,
-                             struct elf_load_mmap_table* table,
-                             int table_count) {
+static void
+elf_relocate_rel(Elf64_Rela* rel, uintptr_t kernel_base, uintptr_t user_base,
+                 uint64_t rela_count, uint8_t* strtab, Elf64_Sym* symbols,
+                 GnuHashHeader* gnu_hash, symbols_ptr_vector_t* external_syms,
+                 struct elf_load_mmap_table* table, int table_count) {
 
 	for (uint64_t i = 0; i < rela_count; i++) {
 		uint64_t sym_idx = ELF64_R_SYM(rel[i].r_info);
@@ -388,7 +384,7 @@ static void elf_relocate_rel(Elf64_Rela* rel, uintptr_t base,
 			symbol = lookup;
 
 		uint64_t* target = elf_roffset_to_kernel_ptr(
-		    rel[i].r_offset, table, table_count, base);
+		    rel[i].r_offset, table, table_count, kernel_base);
 
 		switch (type) {
 
@@ -404,11 +400,12 @@ static void elf_relocate_rel(Elf64_Rela* rel, uintptr_t base,
 			break;
 
 		case R_X86_64_RELATIVE:
-			*target = (uintptr_t)((intptr_t)base + rel[i].r_addend);
+		case R_X86_64_IRELATIVE:
+			*target = (uintptr_t)((intptr_t)user_base + rel[i].r_addend);
 			break;
 
 		case R_X86_64_64:
-			*target = (uintptr_t)((intptr_t)base +
+			*target = (uintptr_t)((intptr_t)user_base +
 			                      (intptr_t)symbol->st_value +
 			                      rel[i].r_addend);
 			break;
@@ -416,7 +413,7 @@ static void elf_relocate_rel(Elf64_Rela* rel, uintptr_t base,
 		case R_X86_64_COPY:
 			if (symbol->st_size) {
 				uint64_t* src = elf_roffset_to_kernel_ptr(
-				    symbol->st_value, table, table_count, base);
+				    symbol->st_value, table, table_count, user_base);
 				memcopy((void*)target, (void*)src,
 				        symbol->st_size);
 			}
@@ -427,7 +424,7 @@ static void elf_relocate_rel(Elf64_Rela* rel, uintptr_t base,
 			uintptr_t value = 0;
 
 			if (symbol->st_value) {
-				value = (uintptr_t)((intptr_t)base +
+				value = (uintptr_t)((intptr_t)user_base +
 				                    (intptr_t)symbol->st_value +
 				                    rel[i].r_addend);
 			} else {
@@ -450,7 +447,7 @@ static void elf_relocate_rel(Elf64_Rela* rel, uintptr_t base,
 		}
 
 		default:
-			*target = base + symbol->st_value;
+			*target = user_base + symbol->st_value;
 			LOG2_DEBUG("ELF",
 			           "unhandled reloc type %d at 0x%x -> 0x%x",
 			           type, rel[i].r_offset, *target);
@@ -463,31 +460,31 @@ static void elf_relocate_rel(Elf64_Rela* rel, uintptr_t base,
  * elf_relocate_dyn now takes the mmap_table and its count so that
  * elf_relocate_rel can resolve r_offset correctly per segment.
  */
-void elf_relocate_dyn(elf_dynamic_map* map, uintptr_t base,
-                      GnuHashHeader* gnu_hash,
+void elf_relocate_dyn(elf_dynamic_map* map, uintptr_t kernel_base,
+                      uintptr_t user_base, GnuHashHeader* gnu_hash,
                       symbols_ptr_vector_t* external_syms,
                       struct elf_load_mmap_table* table, int table_count) {
 	if (!map)
 		return;
 
-	serial2_printf("relocating with base = 0x%x\n", base);
+	serial2_printf("relocating with base = 0x%x\n", user_base);
 
 	if (map->rel && map->relasz && map->relaent) {
 		LOG2_INFO("VOXMO", "rela found at 0x%x", map->rel);
 		uint64_t count = map->relasz / map->relaent;
 		LOG2_INFO("VOXMO", "rela count %d", count);
-		elf_relocate_rel(map->rel, base, count, map->strtab,
-		                 map->symbols, gnu_hash, external_syms, table,
-		                 table_count);
+		elf_relocate_rel(map->rel, kernel_base, user_base, count,
+		                 map->strtab, map->symbols, gnu_hash,
+		                 external_syms, table, table_count);
 	}
 
 	if (map->jmprel && map->pltrelsz && map->relaent) {
 		LOG2_INFO("VOXMO", "jmprel found at 0x%x", map->jmprel);
 		uint64_t count = map->pltrelsz / map->relaent;
 		LOG2_INFO("VOXMO", "rela count %d", count);
-		elf_relocate_rel(map->jmprel, base, count, map->strtab,
-		                 map->symbols, gnu_hash, external_syms, table,
-		                 table_count);
+		elf_relocate_rel(map->jmprel, kernel_base, user_base, count,
+		                 map->strtab, map->symbols, gnu_hash,
+		                 external_syms, table, table_count);
 	}
 }
 

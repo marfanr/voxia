@@ -104,7 +104,7 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 		 * r_offset to the correct kernel VA per segment.
 		 * Relocation must complete before mmap_table is freed.
 		 */
-		elf_relocate_dyn(&dyn_map, base_addr, &gnu_hash,
+		elf_relocate_dyn(&dyn_map, base_addr, base_addr, &gnu_hash,
 		                 &voxmo_load_syms, mmap_table, ehdr.e_phnum);
 	}
 

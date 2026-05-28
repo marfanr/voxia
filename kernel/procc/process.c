@@ -238,7 +238,7 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 		elf_dyn_map_all(dyn, file_buffer, &dyn_map);
 		LOG_INFO("VOXMO", "strtab found at 0x%x", dyn_map.strtab);
 		LOG_INFO("VOXMO", "needed size %d", dyn_map.needed.size);
-		elf_relocate_dyn(&dyn_map, temporary_base, &gnu_hash, 0,
+		elf_relocate_dyn(&dyn_map, temporary_base, base_addr, &gnu_hash, 0,
 		                 mmap_table, ehdr.e_phnum);
 	}
 
