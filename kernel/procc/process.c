@@ -34,42 +34,35 @@ INIT(Process) {
 	vxnamei("/proc", &process_dentry);
 }
 
-/* * ELF Auxiliary Vector Types
- * (System V ABI / Linux Standard)
- */
-
 // --- Core Executable Info ---
-#define AT_NULL 0    /* Penanda akhir dari array auxv */
-#define AT_IGNORE 1  /* Entry ini harus diabaikan */
-#define AT_EXECFD 2  /* File descriptor dari program */
-#define AT_PHDR 3    /* Alamat Program Headers dari executable utama */
-#define AT_PHENT 4   /* Ukuran satu entry Program Header */
-#define AT_PHNUM 5   /* Jumlah Program Headers */
-#define AT_PAGESZ 6  /* Ukuran page sistem (biasanya 4096) */
+#define AT_NULL 0
+#define AT_IGNORE 1
+#define AT_EXECFD 2  /* File descriptor from program */
+#define AT_PHDR 3    /* Program Headers Address from main executable */
+#define AT_PHENT 4   /* program heder entry size */
+#define AT_PHNUM 5   /* Program Headers num*/
+#define AT_PAGESZ 6  /* page size (4096) */
 #define AT_BASE 7    /* Base address dari interpreter (ld.so) jika ada */
-#define AT_FLAGS 8   /* Flags eksekusi */
+#define AT_FLAGS 8   /* Flags */
 #define AT_ENTRY 9   /* Entry point dari executable utama */
-#define AT_NOTELF 10 /* Program bukan ELF */
+#define AT_NOTELF 10 /* Program not ELF */
 
-// --- User & Group ID (Dibutuhkan oleh libc POSIX) ---
 #define AT_UID 11  /* Real User ID */
 #define AT_EUID 12 /* Effective User ID */
 #define AT_GID 13  /* Real Group ID */
 #define AT_EGID 14 /* Effective Group ID */
 
 // --- Hardware & Platform ---
-#define AT_PLATFORM 15 /* String penanda CPU (misal: "x86_64") */
-#define AT_HWCAP 16    /* Bitmask kapabilitas CPU */
-#define AT_CLKTCK 17   /* Frekuensi clock untuk fungsi times() */
+#define AT_PLATFORM 15 /* String CPU format (ex: "x86_64") */
+#define AT_HWCAP 16    /* Bitmask CPU capability */
+#define AT_CLKTCK 17   /* clock freq, for times() */
 
-// --- Security & Extensions (Penting untuk musl tingkat lanjut) ---
 #define AT_SECURE                                                              \
-	23           /* Mode aman (boolean 1/0), dipakai untuk setuid/setgid   \
+	23           /* secure mode (boolean 1/0), used for setuid/setgid      \
 	              */
-#define AT_RANDOM 25 /* Pointer ke 16 byte random untuk stack canary/ASLR */
-#define AT_EXECFN 31 /* String path nama file executable */
-#define AT_SYSINFO_EHDR                                                        \
-	33 /* Alamat header ELF dari vDSO (jika OS mendukung vDSO) */
+#define AT_RANDOM 25 /* Pointer into 16 byte random for stack canary/ASLR */
+#define AT_EXECFN 31 /* String path name executbale file */
+#define AT_SYSINFO_EHDR 33
 
 int execve(const char* path, char* const* argv, char* const* envp) {
 	UNUSED(path);
@@ -238,8 +231,8 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 		elf_dyn_map_all(dyn, file_buffer, &dyn_map);
 		LOG_INFO("VOXMO", "strtab found at 0x%x", dyn_map.strtab);
 		LOG_INFO("VOXMO", "needed size %d", dyn_map.needed.size);
-		elf_relocate_dyn(&dyn_map, temporary_base, base_addr, &gnu_hash, 0,
-		                 mmap_table, ehdr.e_phnum);
+		elf_relocate_dyn(&dyn_map, temporary_base, base_addr, &gnu_hash,
+		                 0, mmap_table, ehdr.e_phnum);
 	}
 
 	serial2_printf("base vaddr %x %x\n", base_vaddr,
@@ -322,19 +315,20 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	}
 
 	// Stack setup
-	auto stack_phys = (uintptr_t)phys_base_alloc(1);
+	auto stack_phys = (uintptr_t)phys_base_alloc(256);
 	auto stack_vaddr =
-	    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, 1);
-	vxMultipleMmap(page, USER_STACK_VADDR, stack_phys, 1, 0b111);
+	    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, 256);
+	vxMultipleMmap(page, USER_STACK_VADDR - (BLOCK_SIZE * 256) + BLOCK_SIZE,
+	               stack_phys, 256, 0b111);
 	vxMultipleMmap(paging_get_highest_page_map(), stack_vaddr, stack_phys,
-	               1, 0b111);
+	               256, 0b111);
 
 	uintptr_t phdr_vaddr = (ehdr.e_type == ET_EXEC)
 	                           ? base_vaddr + ehdr.e_phoff
 	                           : base_addr + ehdr.e_phoff;
 
 	uint8_t* stack_base = (uint8_t*)stack_vaddr;
-	uint8_t* stack_top = stack_base + 4096;
+	uint8_t* stack_top = stack_base + 4096 * 256;
 
 	const char* progname = path;
 	size_t progname_len = strlen(progname) + 1;
