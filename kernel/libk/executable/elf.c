@@ -213,15 +213,17 @@ void elf_section_map_all(uint8_t* data, elf_section_map* map) {
 	}
 }
 
-static uint64_t elf_pflags_to_page_flags(uint64_t p_flags) {
+uint64_t elf_pflags_to_page_flags(uint64_t p_flags) {
 	uint64_t flags = PAGE_USER; // selalu user-accessible
 
 	if (p_flags & PF_R)
 		flags |= PAGE_PRESENT;
 	if (p_flags & PF_W)
 		flags |= PAGE_WRITABLE | PAGE_PRESENT;
-	if (!(p_flags & PF_X))
-		flags |= PAGE_NO_EXECUTE; // NX
+	if (p_flags & PF_X)
+		flags |= PAGE_PRESENT;
+	else
+		flags |= PAGE_NO_EXECUTE; // NX jika bukan executable segment
 
 	return flags;
 }
@@ -288,36 +290,36 @@ size_t elf_load(volatile uintptr_t* page, uint8_t* data,
 		uintptr_t phys_alloc = (uintptr_t)phys_base_alloc(sz);
 		auto kernel_page = paging_get_highest_page_map();
 
-		auto temporary_addr = base;
+		auto temporary_addr = base + aligned_vaddr;
 		auto mmap_flags = elf_pflags_to_page_flags(p->p_flags);
 		if (kernel_page != page) {
 			temporary_addr = vma_lookup_free_vaddr(
 			    get_kernel_vmm_page(), VMA_REGION_B, sz);
 
-			vxMultipleMmap(kernel_page,
-			               temporary_addr + aligned_vaddr,
-			               phys_alloc, sz, 0b11);
+			vxMultipleMmap(kernel_page, temporary_addr, phys_alloc,
+			               sz, 0b11);
 		}
 		vxMultipleMmap(page, base + aligned_vaddr, phys_alloc, sz,
 		               mmap_flags);
+		// vxMultipleMmap(page, base + aligned_vaddr, phys_alloc, sz,
+		//                mmap_flags);
 
 		LOG2_INFO("ELF", "vaddr 0x%x, type %d  %x %x, flags %b",
 		          p->p_vaddr, p->p_type, temporary_addr,
 		          base + aligned_vaddr, mmap_flags);
 
-		/* save temporary mapping data */
 		if (table) {
 			auto t = &table[i];
 			t->paddr = phys_alloc;
 			t->vaddr = temporary_addr;
 			t->alligned = aligned_vaddr;
 			t->size = sz;
-			t->mapped = kernel_page != page;
+			t->mapped = true;
 		}
 
-		memset((void*)(temporary_addr + p->p_vaddr), 0, p->p_memsz);
+		memset((void*)(temporary_addr + vaddr_offset), 0, p->p_memsz);
 		if (p->p_filesz > 0)
-			memcopy((void*)(temporary_addr + p->p_vaddr),
+			memcopy((void*)(temporary_addr + vaddr_offset),
 			        (void*)((uint8_t*)data + p->p_offset),
 			        p->p_filesz);
 	}
@@ -358,8 +360,9 @@ static uint64_t* elf_roffset_to_kernel_ptr(uintptr_t r_offset,
 		uintptr_t seg_vaddr_end =
 		    seg_vaddr_start + table[i].size * BLOCK_SIZE;
 		if (r_offset >= seg_vaddr_start && r_offset < seg_vaddr_end) {
-			uintptr_t kernel_base = table[i].vaddr;
-			return (uint64_t*)(kernel_base + r_offset);
+			uintptr_t kernel_segment_base = table[i].vaddr;
+			return (uint64_t*)(kernel_segment_base +
+			                   (r_offset - seg_vaddr_start));
 		}
 	}
 
@@ -400,9 +403,39 @@ elf_relocate_rel(Elf64_Rela* rel, uintptr_t kernel_base, uintptr_t user_base,
 			break;
 
 		case R_X86_64_RELATIVE:
-		case R_X86_64_IRELATIVE:
-			*target = (uintptr_t)((intptr_t)user_base + rel[i].r_addend);
+			*target =
+			    (uintptr_t)((intptr_t)user_base + rel[i].r_addend);
 			break;
+
+		case R_X86_64_IRELATIVE: {
+			uintptr_t resolver_kptr =
+			    (uintptr_t)elf_roffset_to_kernel_ptr(
+			        (uintptr_t)rel[i].r_addend, table, table_count,
+			        kernel_base);
+
+			if (!resolver_kptr) {
+				LOG2_WARN("ELF",
+				          "IRELATIVE: resolver not found for "
+				          "r_addend=0x%x",
+				          rel[i].r_addend);
+				break;
+			}
+
+			uintptr_t (*resolver)(void) =
+			    (uintptr_t(*)(void))resolver_kptr;
+			uintptr_t result = resolver();
+
+			if (user_base) {
+				result += user_base;
+			}
+
+			*target = result;
+
+			LOG2_DEBUG("ELF",
+			           "IRELATIVE r_offset=0x%x resolver_addr=0x%x",
+			           rel[i].r_offset, *target);
+			break;
+		}
 
 		case R_X86_64_64:
 			*target = (uintptr_t)((intptr_t)user_base +
@@ -410,37 +443,79 @@ elf_relocate_rel(Elf64_Rela* rel, uintptr_t kernel_base, uintptr_t user_base,
 			                      rel[i].r_addend);
 			break;
 
+		case R_X86_64_32: {
+			uint32_t value = (uint32_t)((intptr_t)user_base +
+			                            (intptr_t)symbol->st_value +
+			                            rel[i].r_addend);
+			*(uint32_t*)target = value;
+			break;
+		}
+
+		case R_X86_64_32S: {
+			int32_t value = (int32_t)((intptr_t)user_base +
+			                          (intptr_t)symbol->st_value +
+			                          rel[i].r_addend);
+			*(int32_t*)target = value;
+			break;
+		}
+
+		case R_X86_64_PC32: {
+			uintptr_t symbol_addr =
+			    (uintptr_t)((intptr_t)user_base +
+			                (intptr_t)symbol->st_value +
+			                rel[i].r_addend);
+			*(uint32_t*)target =
+			    (uint32_t)(symbol_addr -
+			               (user_base + rel[i].r_offset));
+			break;
+		}
+
 		case R_X86_64_COPY:
 			if (symbol->st_size) {
 				uint64_t* src = elf_roffset_to_kernel_ptr(
-				    symbol->st_value, table, table_count, user_base);
+				    symbol->st_value, table, table_count,
+				    kernel_base);
 				memcopy((void*)target, (void*)src,
 				        symbol->st_size);
 			}
 			break;
 
-		case R_X86_64_GLOB_DAT:
-		case R_X86_64_JUMP_SLOT: {
+		case R_X86_64_GLOB_DAT: {
+			// GLOB_DAT: addend selalu 0 per ABI, ignore r_addend
 			uintptr_t value = 0;
-
 			if (symbol->st_value) {
 				value = (uintptr_t)((intptr_t)user_base +
-				                    (intptr_t)symbol->st_value +
-				                    rel[i].r_addend);
+				                    (intptr_t)symbol->st_value);
 			} else {
-				LOG2_DEBUG("ELF",
-				           "resolving external symbol %s",
-				           name);
-
-				if (external_syms)
-					value = elf_resolve_external_symbol(
-					    external_syms, name);
-
+				value = elf_resolve_external_symbol(
+				    external_syms, name);
 				if (!value)
-					LOG2_WARN("ELF", "symbol %s not found",
-					          name);
+					LOG2_WARN(
+					    "ELF",
+					    "GLOB_DAT: symbol %s not found",
+					    name);
 			}
+			if (value)
+				*target = value;
+			break;
+		}
 
+		case R_X86_64_JUMP_SLOT: {
+			// JUMP_SLOT: lazy binding — set ke alamat PLT stub jika
+			// ada, atau langsung resolve
+			uintptr_t value = 0;
+			if (symbol->st_value) {
+				value = (uintptr_t)((intptr_t)user_base +
+				                    (intptr_t)symbol->st_value);
+			} else {
+				value = elf_resolve_external_symbol(
+				    external_syms, name);
+				if (!value)
+					LOG2_WARN(
+					    "ELF",
+					    "JUMP_SLOT: symbol %s not found",
+					    name);
+			}
 			if (value)
 				*target = value;
 			break;
@@ -456,10 +531,6 @@ elf_relocate_rel(Elf64_Rela* rel, uintptr_t kernel_base, uintptr_t user_base,
 	}
 }
 
-/*
- * elf_relocate_dyn now takes the mmap_table and its count so that
- * elf_relocate_rel can resolve r_offset correctly per segment.
- */
 void elf_relocate_dyn(elf_dynamic_map* map, uintptr_t kernel_base,
                       uintptr_t user_base, GnuHashHeader* gnu_hash,
                       symbols_ptr_vector_t* external_syms,
@@ -467,7 +538,8 @@ void elf_relocate_dyn(elf_dynamic_map* map, uintptr_t kernel_base,
 	if (!map)
 		return;
 
-	serial2_printf("relocating with base = 0x%x\n", user_base);
+	serial2_printf("relocating with kernel_base = 0x%x, user_base = 0x%x\n",
+	               kernel_base, user_base);
 
 	if (map->rel && map->relasz && map->relaent) {
 		LOG2_INFO("VOXMO", "rela found at 0x%x", map->rel);
@@ -531,6 +603,7 @@ Elf64_Sym* elf_gnu_lookup(const char* name, GnuHashHeader* gh,
 
 void elf_gnu_hash_parse(GnuHashHeader* gnu_hash, Elf64_Shdr* gnu_hash_sym,
                         uint8_t* data) {
+	memset(gnu_hash, 0, sizeof(GnuHashHeader));
 	if (!gnu_hash_sym)
 		return;
 
@@ -623,16 +696,35 @@ void elf_call_init_array(elf_section_map* map, uintptr_t base) {
 	}
 }
 
-void elf_call_init_array2(elf_section_map* map, uintptr_t base) {
-	if (!map->init_aray) {
+void elf_call_init_array_with_table(elf_section_map* map,
+                                    struct elf_load_mmap_table* table,
+                                    int table_count) {
+
+	(void)map;
+	(void)table;
+	(void)table_count;
+
+	if (!map->init_aray)
 		return;
+
+	size_t count = map->init_aray->sh_size / sizeof(void*);
+	serial2_printf("init array count %d\n", count);
+	for (size_t i = 0; i < count; i++) {
+		ctor_t* fn_ptr = (ctor_t*)elf_roffset_to_kernel_ptr(
+		    map->init_aray->sh_addr + i * sizeof(void*), table,
+		    table_count, 0);
+
+		serial2_printf("sh_addr 0x%x\n", map->init_aray->sh_addr);
+		serial2_printf("fn_ptr: 0x%x\n", fn_ptr);
+		serial2_printf("fn_ptr contain 0x%x\n", *fn_ptr);
+
+		if (fn_ptr && *fn_ptr) {
+			auto fn = (void*)elf_roffset_to_kernel_ptr(
+			    (uintptr_t)*fn_ptr, table, table_count, 0);
+			serial2_printf("mapped fn at 0x%x\n", fn);
+			((void(*)())fn)();
+		}
 	}
-
-	(void)base;
-
-	Elf64_Shdr* init_aray = map->init_aray;
-	size_t count = init_aray->sh_size / sizeof(void*);
-	LOG2_INFO("ELF", "lib init array count %d", count);
 }
 
 uintptr_t elf_find_symbol(const char* name, GnuHashHeader* gnuhash,
