@@ -1,9 +1,6 @@
-#include "console/console.h"
 #include "hal/cpu/core.h"
 #include "libk/serial.h"
-#include "memory/kalloc.h"
 #include "sys/err_no.h"
-#include "type.h"
 #include "vfs/vnode.h"
 #include <sys/fd.h>
 #include <sys/syscall.h>

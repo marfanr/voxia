@@ -1,7 +1,11 @@
 #include "tty.h"
+#include "hal/cpu/core.h"
 #include "hal/graphic/graphic.h"
 #include "init/init.h"
+#include "input.h"
 #include "libk/serial.h"
+#include "notify.h"
+#include "procc/scheduler.h"
 #include "procc/workqueue.h"
 #include "str.h"
 #include "string.h"
@@ -22,6 +26,7 @@ static void configure_tty(int tty);
 static int char_ioctl(vnode_t* vnode, uint32_t req, void* arg);
 static long char_write(vnode_t* vnode, void* buf, size_t len, size_t offset);
 static void do_scroll(struct tty_internal* priv);
+static int char_read(vnode_t* vnode, void* buf, size_t len, size_t offset);
 
 static dentry_ptr __tty_dentry[VOXIA_TTY_MAX_COUNT] = {0};
 static int __current_tty_active = 0;
@@ -41,13 +46,58 @@ static void do_scroll(struct tty_internal* priv) {
 	priv->cursorx = 0;
 }
 
+static void tty_input_handler(uint32_t event, void* data, void* ctx) {
+	(void)event;
+	(void)ctx;
+
+	if (!data)
+		return;
+
+	auto input = (struct input_event_data*)data;
+
+	if (data) {
+		// copy into input_buffer
+		auto dentry = get_active_tty_dentry();
+		if (!dentry)
+			return;
+
+		auto vnode = dentry->vnode;
+		if (!vnode)
+			return;
+
+		auto priv = (struct tty_internal*)vnode->vnode_private;
+		if (!priv)
+			return;
+
+		memcopy(priv->input_buffer + priv->line_buff_tail, &input->code,
+		        sizeof(uint16_t));
+
+		priv->line_buff_tail =
+		    (priv->line_buff_tail + sizeof(uint16_t)) & (1024 - 1);
+		serial2_printf("%x\n", input->code);
+	}
+}
+
 INIT(TTY) {
 	__tty_ops = (vops_file_t*)kalloc(sizeof(vops_file_t));
 	__tty_ops->ioctl = char_ioctl;
 	__tty_ops->write = char_write;
+	__tty_ops->read = char_read;
 
 	for (int i = 0; i < VOXIA_TTY_MAX_COUNT; i++) {
 		configure_tty(i);
+	}
+
+	// notify
+	{
+		auto n = (struct notifier*)kalloc(sizeof(struct notifier));
+		memset(n, 0, sizeof(struct notifier));
+		n->callback = tty_input_handler;
+		n->context = 0;
+		n->priority = NOTIFY_HIGHT;
+		n->flags = 0;
+
+		notify_register("/input/trigered", n);
 	}
 }
 
@@ -69,6 +119,55 @@ static int char_ioctl(vnode_t* vnode, uint32_t req, void* arg) {
 	}
 
 	return -ENOTTY;
+}
+
+static int char_read(vnode_t *vnode, void *buf, size_t len, size_t offset) {
+    (void)offset;
+
+    /* FIX #1: hapus (void)vnode dan (void)buf — keduanya dipakai */
+    if (!vnode || !buf)
+        return -EINVAL;
+
+    struct tty_internal *priv = (struct tty_internal *)vnode->vnode_private;
+    if (!priv)
+        return -ENOSYS;
+
+    uint8_t *out = (uint8_t *)buf;
+    size_t bytes_read = 0;
+
+    while (bytes_read < len) {
+        /* FIX #2: busy-wait dengan cpu_relax() agar tidak membakar CPU */
+        spin_acquire(&priv->input_lock);
+        int empty = (priv->head == priv->tail);
+        spin_release(&priv->input_lock);
+
+        if (empty) {
+            if (bytes_read > 0)
+                break;  /* sudah dapat sebagian data, return */
+            
+			{
+				serial2_printf("sleep...\n");
+				auto thr = get_current_core_data()->active_thread;
+				thr->in_kernel_sleep = true;
+				// schedule_yield();
+
+			}
+            continue;
+        }
+		serial2_printf("has data\n");
+
+        /* FIX #3 & #4: baca dari ring buffer dengan lock */
+        spin_acquire(&priv->input_lock);
+
+        while (bytes_read < len && priv->head != priv->tail) {
+            out[bytes_read++] = (uint8_t)priv->input_buffer[priv->head];
+            priv->head = (priv->head + 1) & (1024 - 1);
+        }
+
+        spin_release(&priv->input_lock);
+    }
+
+    return (int)bytes_read;
 }
 
 static long char_write(vnode_t* vnode, void* buf, size_t len, size_t offset) {
@@ -140,6 +239,8 @@ static void configure_tty(int tty) {
 	priv->rows = screen_rows();
 	priv->cursorx = 0;
 	priv->cursory = 0;
+	priv->line_buff_tail = 0;
+	priv->line_buff_head = 0;
 }
 
 void start_tty() {

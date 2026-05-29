@@ -1,6 +1,7 @@
 #ifndef __TTY_TTY_H__
 #define __TTY_TTY_H__
 
+#include "spinlock.h"
 #include "vfs/dentry.h"
 #include <autoconf.h>
 #include <type.h>
@@ -20,6 +21,10 @@ struct tty_internal {
 	uint32_t tail;
 
 	char line_buff[1024];
+	uint32_t line_buff_head;
+	uint32_t line_buff_tail;
+
+	spinlock_t input_lock;
 } __attribute__((aligned(64)));
 
 void change_active_tty(int tty);
