@@ -27,6 +27,8 @@ intptr_t syscall_brk(void* addr)
         uintptr_t old_page = ALIGN_UP(old_brk, PAGE_SIZE);
         uintptr_t new_page = ALIGN_UP(new_brk, PAGE_SIZE);
 
+        serial2_printf("brk: from %x to %x\n", old_page, new_page);
+
         for (uintptr_t v = old_page; v < new_page; v += PAGE_SIZE) {
 
             void* phys = phys_base_alloc(1);

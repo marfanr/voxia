@@ -7,9 +7,7 @@
 #include <sys/syscall.h>
 
 long syscall_writev(int fd, const struct iovec* iov, int iovcnt) {
-	UNUSED(fd);
-	UNUSED(iov);
-	UNUSED(iovcnt);
+	// TODO: handle is fd is not found
 
 	auto curr_procc = get_current_core_data()->active_thread->process;
 	auto fdt = (struct fdtable*)curr_procc->fdtable;
@@ -52,14 +50,15 @@ long syscall_writev(int fd, const struct iovec* iov, int iovcnt) {
 		if (!iov->iov_len || !iov->iov_base)
 			continue;
 
-		auto read_count =
+		serial2_printf("write: from 0x%x\n", iov_->iov_base);
+		auto write_count =
 		    ops->write(curr_fd->vnode, iov_->iov_base,
 		               (size_t)iov_->iov_len, (size_t)total_read);
 
-		if (read_count < 0)
+		if (write_count < 0)
 			return -1;
         
-        total_read += read_count;
+        total_read += write_count;
 	}
 	return total_read;
 }

@@ -53,6 +53,10 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 		                                  (int)rsp->rsi, (int)rsp->rdx);
 		break;
 	}
+	case SYSCALL_CLOSE: {
+		rsp->rax = 0;
+		break;
+	}
 	case SYSCALL_ARCH_PRCTL: {
 		rsp->rax = (uint64_t)syscall_arch_prctl(
 		    (int)rsp->rdi, (unsigned long)rsp->rsi);
