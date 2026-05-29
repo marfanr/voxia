@@ -148,7 +148,7 @@ INIT(graphic) {
 	KDEBUG(DEBUG_LEVEL_INFO, "graphic init done\n");
 }
 
-void vxPutc(char c, int col, int row, uint32_t fg, uint32_t bg) {
+void putc(char c, int col, int row, uint32_t fg, uint32_t bg) {
 	if (!ssfn_ready || !dst.ptr)
 		return;
 
