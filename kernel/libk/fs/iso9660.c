@@ -163,7 +163,6 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 	}
 
 	if (!parent) {
-
 		auto pvd =
 		    (struct iso9660_pvd*)kalloc(sizeof(struct iso9660_pvd));
 		if (!pvd) {
@@ -274,15 +273,26 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 	}
 
 	{
-		uintptr_t ptr = (uintptr_t)dir_buf;
-		uintptr_t end = ptr + iso_node->size;
+		uintptr_t base = (uintptr_t)dir_buf;
+		uintptr_t ptr = base;
+		uintptr_t end = base + iso_node->size;
 
 		while (ptr < end) {
 			auto entry = (struct iso9660_dir*)ptr;
 
 			if (entry->length == 0) {
+				uintptr_t offset = ptr - base;
+				uintptr_t next_sector =
+				    ((offset / 2048) + 1) * 2048;
+				if (next_sector >= iso_node->size)
+					break;
+				ptr = base + next_sector;
+				continue;
+			}
 
-				ptr = ((ptr / 2048) + 1) * 2048;
+			if (entry->name_len == 1 && (entry->name[0] == 0x00 ||
+			                             entry->name[0] == 0x01)) {
+				ptr += entry->length;
 				continue;
 			}
 
@@ -307,7 +317,7 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 
 				to_lowercase(name);
 			}
-
+			
 			if (strlen(name) == strlen(path) &&
 			    strncmp(name, path, strlen(path)) == 0) {
 
