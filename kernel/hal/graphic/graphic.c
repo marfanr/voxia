@@ -163,6 +163,32 @@ void putc(char c, int col, int row, uint32_t fg, uint32_t bg) {
 		serial2_printf("ssfn_render err: %d\n", r);
 }
 
+void putc_utf8(const char *s, int col, int row, uint32_t fg, uint32_t bg) {
+	if (!ssfn_ready || !dst.ptr)
+		return;
+
+	dst.fg = fg | 0xFF000000;
+	dst.bg = bg | 0xFF000000;
+	dst.x = col * (FONT_SIZE / 2);
+	dst.y = FONT_SIZE + row * FONT_SIZE;
+
+	int r = ssfn_render(&ssfn_ctx, &dst, s);
+	if (r < 0)
+		serial2_printf("ssfn_render err: %d\n", r);
+}
+
+int utf8_char_len(uint8_t c) {
+	if ((c & 0x80) == 0)
+		return 1;
+	if ((c & 0xE0) == 0xC0)
+		return 2;
+	if ((c & 0xF0) == 0xE0)
+		return 3;
+	if ((c & 0xF8) == 0xF0)
+		return 4;
+	return 1;
+}
+
 void put_pixel(int x, int y, uint32_t color) {
 	pixel_t* pixel = (pixel_t*)((uint8_t*)g__fb->framebuffer_addr +
 	                            y * g__fb->framebuffer_pitch + x * 4);

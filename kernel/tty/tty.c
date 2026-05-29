@@ -101,11 +101,11 @@ static long char_write(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 
 	priv->tail = (tail + len) & (VOXIA_TTY_INPUT_BUFFER_SIZE - 1);
 
-	if (memchr(buf, '\n', len)) {
-		priv->dirty = true;
-		vxAddWorkqueueTask((void (*)(void*))tty_check_and_flush, NULL,
-		                   NULL);
-	}
+	priv->dirty = true;
+	// if (memchr(buf, '\n', len)) {
+	// vxAddWorkqueueTask((void (*)(void*))tty_check_and_flush, NULL, NULL);
+	// }
+	tty_check_and_flush();
 
 	return (long)len;
 }
@@ -163,11 +163,43 @@ void tty_check_and_flush() {
 		return;
 
 	LOG2_INFO("TTY", "flushed into screen on tty %d", __current_tty_active);
-
 	priv->dirty = false;
 
 	while (priv->head != priv->tail) {
-		char c = priv->input_buffer[priv->head];
+		uint8_t c = (uint8_t)priv->input_buffer[priv->head];
+		int clen = utf8_char_len(c);
+
+		if (clen > 1) {
+			char seq[5] = {0};
+			uint32_t temp_head = priv->head;
+			boolean_t complete = true;
+			for (int i = 0; i < clen; i++) {
+				seq[i] = priv->input_buffer[temp_head];
+				temp_head = (temp_head + 1) &
+				            (VOXIA_TTY_INPUT_BUFFER_SIZE - 1);
+				if (temp_head == priv->tail && i < clen - 1) {
+					complete = false;
+					break;
+				}
+			}
+
+			if (complete) {
+				putc_utf8(seq, (int)priv->cursorx,
+				           (int)priv->cursory, 0xFFFFFF,
+				           0x000000);
+				uint32_t width = (clen >= 3) ? 2 : 1;
+				priv->cursorx += width;
+				if (priv->cursorx >= priv->cols) {
+					priv->cursorx = 0;
+					priv->cursory++;
+					if (priv->cursory >= priv->rows)
+						do_scroll(priv);
+				}
+				priv->head = temp_head;
+				continue;
+			}
+		}
+
 		priv->head =
 		    (priv->head + 1) & (VOXIA_TTY_INPUT_BUFFER_SIZE - 1);
 
@@ -183,11 +215,11 @@ void tty_check_and_flush() {
 		} else if (c == '\b') {
 			if (priv->cursorx > 0) {
 				priv->cursorx--;
-				vxPutc(' ', (int)priv->cursorx,
+				putc(' ', (int)priv->cursorx,
 				       (int)priv->cursory, 0xFFFFFF, 0x000000);
 			}
 		} else {
-			vxPutc(c, (int)priv->cursorx, (int)priv->cursory,
+			putc((char)c, (int)priv->cursorx, (int)priv->cursory,
 			       0xFFFFFF, 0x000000);
 			priv->cursorx++;
 
