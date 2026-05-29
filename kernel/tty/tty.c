@@ -84,11 +84,13 @@ static long char_write(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 	if (!len)
 		return 0;
 
-	auto tail = priv->tail;
-	size_t available = VOXIA_TTY_INPUT_BUFFER_SIZE - tail;
+	auto used =
+	    (priv->tail - priv->head) & (VOXIA_TTY_INPUT_BUFFER_SIZE - 1);
+	size_t available = VOXIA_TTY_INPUT_BUFFER_SIZE - 1 - used;
 	if (len > available)
 		return -ENOSPC;
 
+	auto tail = priv->tail;
 	size_t first_chunk = VOXIA_TTY_INPUT_BUFFER_SIZE - tail;
 
 	if (len <= first_chunk) {
@@ -185,8 +187,8 @@ void tty_check_and_flush() {
 
 			if (complete) {
 				putc_utf8(seq, (int)priv->cursorx,
-				           (int)priv->cursory, 0xFFFFFF,
-				           0x000000);
+				          (int)priv->cursory, 0xFFFFFF,
+				          0x000000);
 				uint32_t width = (clen >= 3) ? 2 : 1;
 				priv->cursorx += width;
 				if (priv->cursorx >= priv->cols) {
@@ -216,11 +218,11 @@ void tty_check_and_flush() {
 			if (priv->cursorx > 0) {
 				priv->cursorx--;
 				putc(' ', (int)priv->cursorx,
-				       (int)priv->cursory, 0xFFFFFF, 0x000000);
+				     (int)priv->cursory, 0xFFFFFF, 0x000000);
 			}
 		} else {
 			putc((char)c, (int)priv->cursorx, (int)priv->cursory,
-			       0xFFFFFF, 0x000000);
+			     0xFFFFFF, 0x000000);
 			priv->cursorx++;
 
 			if (priv->cursorx >= priv->cols) {
