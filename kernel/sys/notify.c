@@ -1,4 +1,5 @@
 #include "hal/acpi/hpet.h"
+#include "hal/cpu/irq_lock.h"
 #include "hal/timer/timer.h"
 #include "hash.h"
 #include "libk/serial.h"
@@ -50,6 +51,7 @@ void notify_dev_create(kstring name) {
 	n->chain.lock = (spinlock_t)SPINLOCK_INIT;
 	__atomic_store_n(&n->refcount.counter, 1, __ATOMIC_RELAXED);
 
+	uintptr_t flags = irq_save();
 	spin_acquire(&notify_table.lock);
 
 	auto existing = notify_table.buckets[h & NOTIFY_DEV_HASH_MASK];
@@ -59,6 +61,7 @@ void notify_dev_create(kstring name) {
 		    strncmp(existing->name->c_str, name->c_str, name_len) ==
 		        0) {
 			spin_release(&notify_table.lock);
+			irq_restore(flags);
 			kfree2(n);
 			return;
 		}
@@ -69,6 +72,7 @@ void notify_dev_create(kstring name) {
 	notify_table.buckets[h & NOTIFY_DEV_HASH_MASK] = n;
 
 	spin_release(&notify_table.lock);
+	irq_restore(flags);
 }
 
 int notify_register(char* name, struct notifier* n) {
