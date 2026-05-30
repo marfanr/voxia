@@ -21,6 +21,8 @@ void clear_screen(uint32_t color);
 uint32_t screen_cols(void);
 uint32_t screen_rows(void);
 
+void fill_rect(int x, int y, int w, int h, uint32_t color);
+
 #define FONT_SIZE 14
 
 #endif // __HAL__GRAPHIC__GRAPHIC_H__

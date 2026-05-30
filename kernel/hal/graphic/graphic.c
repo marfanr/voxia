@@ -336,3 +336,15 @@ uint32_t screen_rows(void) {
 		return 25;
 	return (h / FONT_SIZE);
 }
+
+void fill_rect(int x, int y, int w, int h, uint32_t color) {
+    if (!dst.ptr) return;
+
+    for (int row = y; row < y + h; row++) {
+        uint32_t *line = (uint32_t*)((uint8_t*)g__fb->framebuffer_addr
+                                     + row * g__fb->framebuffer_pitch);
+        for (int col = x; col < x + w; col++) {
+            line[col] = color;
+        }
+    }
+}

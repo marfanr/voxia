@@ -94,63 +94,103 @@ static const uint16_t hid_keymap[256] = {
 #pragma clang diagnostic pop
 
 void HIDKeyboard::parse_report(const uint8_t* data, size_t len) {
-	if (len < 8)
-		return;
+    if (len < 8)
+        return;
 
-	uint8_t modifier = data[0];
-	static uint8_t last_modifier = 0;
+    uint8_t modifier = data[0];
+    static uint8_t last_modifier = 0;
 
-	// Handle Modifiers (Check for bit changes)
-	uint16_t mod_keys[] = {
-	    LEFT_CTRL,  LEFT_SHIFT,  LEFT_ALT,  LEFT_GUI,
-	    RIGHT_CTRL, RIGHT_SHIFT, RIGHT_ALT, RIGHT_GUI,
-	};
+    uint16_t mod_keys[] = {
+        LEFT_CTRL,  LEFT_SHIFT,  LEFT_ALT,  LEFT_GUI,
+        RIGHT_CTRL, RIGHT_SHIFT, RIGHT_ALT, RIGHT_GUI,
+    };
+    for (int i = 0; i < 8; i++) {
+        bool current = (modifier >> i) & 1;
+        bool last    = (last_modifier >> i) & 1;
+        if (current != last)
+            input_report_key(&instance->dev_->controller->service,
+                             mod_keys[i], current ? 1 : 0);
+    }
+    last_modifier = modifier;
 
-	for (int i = 0; i < 8; i++) {
-		bool current = (modifier >> i) & 1;
-		bool last = (last_modifier >> i) & 1;
-		if (current != last) {
-			input_report_key(&instance->dev_->controller->service,
-			                 mod_keys[i], current ? 1 : 0);
-		}
-	}
-	last_modifier = modifier;
+    static uint8_t prev_keys[6] = {0};
+    static uint32_t held_count  = 0;
 
-	// Tracking previous keys to detect new presses (simplified)
-	static uint8_t prev_keys[6] = {0};
-	uint8_t current_keys[6];
-	for (int i = 0; i < 6; i++)
-		current_keys[i] = data[i + 2];
+    uint8_t current_keys[6];
+    for (int i = 0; i < 6; i++)
+        current_keys[i] = data[i + 2];
 
-	for (int i = 0; i < 6; i++) {
-		uint8_t key = current_keys[i];
-		if (key == 0)
-			continue;
+    /* Key release */
+    for (int i = 0; i < 6; i++) {
+        uint8_t key = prev_keys[i];
+        if (key == 0) continue;
 
-		// Check if it's a new press
-		bool is_new = true;
-		for (int j = 0; j < 6; j++) {
-			if (key == prev_keys[j]) {
-				is_new = false;
-				break;
-			}
-		}
+        bool still_held = false;
+        for (int j = 0; j < 6; j++) {
+            if (key == current_keys[j]) { still_held = true; break; }
+        }
+        if (!still_held) {
+            uint16_t code = hid_keymap[key];
+            if (code != KEY_NONE)
+                input_report_key(&instance->dev_->controller->service,
+                                 code, 0);
+        }
+    }
 
-		if (is_new) {
-			uint16_t code = hid_keymap[key];
-			if (code != KEY_NONE) {
-				input_report_key(&instance->dev_->controller->service,
-				                 code, 1);
-		// 		// Immediately report release for simplicity in
-		// 		// this stub
-				input_report_key(&instance->dev_->controller->service,
-				                 code, 0);
-			}
-		}
-	}
+    bool any_new = false;
+    bool any_held = false;
+    for (int i = 0; i < 6; i++) {
+        uint8_t key = current_keys[i];
+        if (key == 0) continue;
 
-	for (int i = 0; i < 6; i++)
-		prev_keys[i] = current_keys[i];
+        bool is_new = true;
+        for (int j = 0; j < 6; j++) {
+            if (key == prev_keys[j]) { is_new = false; break; }
+        }
+
+        uint16_t code = hid_keymap[key];
+        if (code == KEY_NONE) continue;
+
+        if (is_new) {
+            any_new = true;
+            held_count = 0;
+            input_report_key(&instance->dev_->controller->service, code, 1);
+        } else {
+            any_held = true;
+        }
+    }
+
+    if (!any_new && any_held) {
+        held_count++;
+
+        static constexpr uint32_t REPEAT_DELAY  = 5;
+        static constexpr uint32_t REPEAT_PERIOD = 3;
+
+        bool do_repeat = false;
+        if (held_count == REPEAT_DELAY)
+            do_repeat = true;
+        else if (held_count > REPEAT_DELAY &&
+                 (held_count - REPEAT_DELAY) % REPEAT_PERIOD == 0)
+            do_repeat = true;
+
+        if (do_repeat) {
+            for (int i = 0; i < 6; i++) {
+                uint8_t key = current_keys[i];
+                if (key == 0) continue;
+                uint16_t code = hid_keymap[key];
+                if (code != KEY_NONE)
+                    input_report_key(&instance->dev_->controller->service,
+                                     code, 1);
+            }
+        }
+    } else if (any_new) {
+        held_count = 0;
+    } else if (!any_held) {
+        held_count = 0;
+    }
+
+    for (int i = 0; i < 6; i++)
+        prev_keys[i] = current_keys[i];
 }
 
 void HIDKeyboard::fireHandler(const uint8_t* data, size_t len) {
