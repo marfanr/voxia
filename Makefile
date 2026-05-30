@@ -33,12 +33,12 @@ modules:
 
 sbin:
 	$(MAKE) -C $(ROOT_DIR)/sbin/hello
-	$(MAKE) -C $(ROOT_DIR)/sbin/term
+	$(MAKE) -C $(ROOT_DIR)/sbin/init
 
 sbin-clean:
 	@rm -rf $(ISO_DIR)/root/sbin
 	$(MAKE) -C $(ROOT_DIR)/sbin/hello clean
-	$(MAKE) -C $(ROOT_DIR)/sbin/term clean
+	$(MAKE) -C $(ROOT_DIR)/sbin/init clean
 
 all-hdd: $(HDD)
 
@@ -70,7 +70,7 @@ debug:
 
 run-gpu2:
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) $(QEMU_NETWORK) \
-	-display gtk,gl=on,full-screen=on \
+	-display gtk,gl=on,full-screen=off \
 	-device virtio-gpu-gl-pci,xres=1920,yres=1080,id=gpu \
 	-monitor stdio -serial file:qemu.log -d trace:*virtio* -D aqemu.log -s
 

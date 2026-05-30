@@ -31,12 +31,6 @@ _start(struct stivale2_struct* stivale2_struct) {
 	build_context_from_stivale2(stivale2_struct, &ctx);
 	run_all_init_calls(&ctx);
 
-	// for logger
-	auto irq = irq_alloc_entry(0);
-	irq_register(0, irq, (void*)serial2_flush, true, 0x28, 0,
-	             INTERRUPT_ATTR_KERNEL);
-	vxAPICCreateTimer(APIC_TIMER_PERIOD, 100, irq);
-
 	wait_until_receive_notify("/vfs/root", 5000);
 
 	void* test_ptr = kalloc(256);
@@ -73,14 +67,8 @@ _start(struct stivale2_struct* stivale2_struct) {
 	pmm_log_usage();
 	start_tty();
 
+	execve("/sbin/init.elf", 0, 0);
 	execve("/sbin/hello.elf", 0, 0);
-	// execve("/sbin/term.elf", 0, 0);
-	// execve("/sysroot/usr/bin/vim.", 0, 0);
-	
-	// KDEBUG(DEBUG_LEVEL_INFO, "Boot complete, entering idle loop...\n");
-	
-	
-	// print_dentry_tree(get_root_dentry(), 0);
 	
 	INFLOOP;
 }
