@@ -1,12 +1,11 @@
 #include "procc/thread.h"
 #include "autoconf.h"
 #include "init/init.h"
-#include "libk/atomic.h"
 #include "libk/serial.h"
 #include "memory/slab.h"
 #include "scheduler.h"
-#include "type.h"
 #include <hal/cpu/core.h>
+#include <str.h>
 
 static struct slab_cache* thread_cache = nullptr;
 static thread_bucket_t bucket = {0};
@@ -33,11 +32,6 @@ static thread_t* thrCreateInstance() {
 	return (thread_t*)vxSlabAlloc(thread_cache);
 }
 
-// TODO: unused
-// static thread_t* thrGetById(const thread_id id) {
-// 	const uint32_t idx = THREAD_GET_ID(id);
-// 	return bucket.slot[idx].thread;
-// }
 
 static void vxUpdateThreadSlot(const thread_id id, thread_t* thr) {
 	const uint32_t idx = THREAD_GET_ID(id);
@@ -48,6 +42,10 @@ thread_t* create_thread(volatile uintptr_t* page, uintptr_t entry,
                         uintptr_t stack, uint16_t core_affinity,
                         uint8_t priority, uint16_t flags) {
 	thread_t* thr = thrCreateInstance();
+	if (!thr)
+		return nullptr;
+	memset(thr, 0, sizeof(thread_t));
+
 	serial2_printf("created thread at 0x%x \n", thr);
 	thr->id = thrAcquireNewSlot();
 	thr->entry_addr = entry;
@@ -57,6 +55,12 @@ thread_t* create_thread(volatile uintptr_t* page, uintptr_t entry,
 	thr->stack = stack;
 	thr->state = THREAD_STATE_CREATE;
 	thr->page = page;
+
+	// kernel stack
+	void* kstack = kalloc(0x4000);
+	thr->kernel_stack_base = (uintptr_t)kstack;
+	thr->kernel_stack_top = (uintptr_t)kstack + 0x4000;
+	thr->kernel_rsp = (thr->kernel_stack_top & ~(uintptr_t)0xF) - 8;
 
 	vxUpdateThreadSlot(thr->id, thr);
 	LOG2_DEBUG("THREAD", "created thread %d", thr->id);
