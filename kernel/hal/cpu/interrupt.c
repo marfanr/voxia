@@ -107,7 +107,7 @@ void irq_register(uint8_t core, int n, void* handler, boolean_t use_default_isr,
 }
 
 uint16_t irq_alloc_entry(uint8_t core) {
-	for (uint16_t i = 32; i < MAX_INTERRUPTS; i++) {
+	for (uint16_t i = 0x50; i < MAX_INTERRUPTS; i++) {
 		irq_entry_t* entry =
 		    &interrupt_per_core_data[core].irq_entries[i];
 
