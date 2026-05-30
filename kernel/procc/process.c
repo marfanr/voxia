@@ -18,6 +18,7 @@
 #include "vfs/dentry.h"
 #include "vfs/enum.h"
 #include "vfs/vnode.h"
+#include <hal/cpu/core.h>
 #include <str.h>
 #include <sys/syscall.h>
 
@@ -34,7 +35,6 @@ INIT(Process) {
 	vxnamei("/proc", &process_dentry);
 }
 
-// --- Core Executable Info ---
 #define AT_NULL 0
 #define AT_IGNORE 1
 #define AT_EXECFD 2  /* File descriptor from program */
@@ -157,14 +157,6 @@ static uintptr_t elf_prepare_stack(uintptr_t stack_top_kernel,
 
 	*(--sp) = (uint64_t)argc;
 
-	serial2_printf("=== STACK & EXEC DEBUG ===\n");
-	serial2_printf("user_rsp     = 0x%x\n", stack_top_user);
-	serial2_printf("argc         = %d\n", *(uint64_t*)sp);
-	serial2_printf("argv[0]      = 0x%x\n", *((uint64_t*)sp + 1));
-	serial2_printf("main_entry   = 0x%x\n", entry_addr);
-	serial2_printf("interp_entry = 0x%x\n", interp_base_addr);
-	serial2_printf("==========================\n");
-
 	kfree2(envp_user);
 	kfree2(argv_user);
 
@@ -242,13 +234,13 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	}
 
 	size_t loaded_size = elf_count_load_size(file_buffer);
-	LOG_INFO("PROCESS", "loaded size %d (%d kb)", loaded_size,
+	LOG2_INFO("PROCESS", "loaded size %d (%d kb)", loaded_size,
 	         loaded_size / 1024);
 	size_t size_4k = ALIGN_UP(1 + loaded_size, BLOCK_SIZE) / BLOCK_SIZE;
 
 	uintptr_t base_addr = vma_lookup_free_vaddr(
 	    get_kernel_vmm_page(), VMA_REGION_PROCESS, size_4k);
-	LOG_INFO("PROCESS", "executable %s has base addr at 0x%x", path,
+	LOG2_INFO("PROCESS", "executable %s has base addr at 0x%x", path,
 	         base_addr);
 
 	LOG2_INFO("PROCESS", "found executable type is %d", ehdr.e_type);
@@ -266,7 +258,7 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	LOG2_INFO("ELF", "version : %d, ph num : %d", ehdr.e_version,
 	          ehdr.e_phnum);
 	LOG2_INFO("ELF", "entry : 0x%x", ehdr.e_entry);
-	serial_trace("phdr count %d\n", ehdr.e_phnum);
+	serial2_printf("phdr count %d\n", ehdr.e_phnum);
 
 	uintptr_t base_vaddr = 0;
 	Elf64_Phdr* phdr = ELF_PTR(Elf64_Phdr, file_buffer, ehdr.e_phoff);
@@ -350,11 +342,11 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 
 	Elf64_Dyn* dyn = elf_get_phdr_dynamic(file_buffer);
 	if (dyn && !interp_dentry) {
-		LOG_INFO("VOXMO", "dynamic section found at 0x%x", dyn);
+		LOG2_INFO("VOXMO", "dynamic section found at 0x%x", dyn);
 		elf_dynamic_map dyn_map = {0};
 		elf_dyn_map_all(dyn, file_buffer, &dyn_map);
-		LOG_INFO("VOXMO", "strtab found at 0x%x", dyn_map.strtab);
-		LOG_INFO("VOXMO", "needed size %d", dyn_map.needed.size);
+		LOG2_INFO("VOXMO", "strtab found at 0x%x", dyn_map.strtab);
+		LOG2_INFO("VOXMO", "needed size %d", dyn_map.needed.size);
 		elf_relocate_dyn(&dyn_map, temporary_base, base_addr, &gnu_hash,
 		                 0, mmap_table, ehdr.e_phnum);
 	}
@@ -425,7 +417,7 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 
 		interp_base_addr = vma_lookup_free_vaddr(
 		    get_kernel_vmm_page(), VMA_REGION_PROCESS, ld_so_size_4k);
-		LOG_INFO("PROCESS", "interp %s has base addr at 0x%x",
+		LOG2_INFO("PROCESS", "interp %s has base addr at 0x%x",
 		         interp_dentry->name->c_str, interp_base_addr);
 
 		interp_mmap_table = (struct elf_load_mmap_table*)kalloc(
@@ -474,9 +466,7 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	paging_unmap_page(paging_get_highest_page_map(), stack_vaddr);
 	vma_unregister(get_kernel_vmm_page(), stack_vaddr);
 
-	// end
-
-	auto thr = create_thread(page, entr, user_rsp, 1, 2, THREAD_USER);
+	auto thr = create_thread(page, entr, user_rsp, (uint16_t)-1, 2, THREAD_USER);
 	auto procc = create_process(loaded_file_dentry->name->c_str, thr);
 	procc->heap_start = heap_start;
 	procc->heap_end = procc->heap_start;
@@ -520,13 +510,13 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	attach_to_scheduler(thr);
 
 	kfree2(mmap_table);
+	if (interp_mmap_table)
+		kfree2(interp_mmap_table);
+
 	dentry_put(loaded_file_dentry);
 	return VFS_OK;
 }
 
-/*
- * Internal functions
- */
 pid_t alloc_pid(void) {
 	for (size_t i = 0; i < MAX_PID_ALLOWED / 8; i++) {
 		uint8_t byte = pid_bitmap[i];
