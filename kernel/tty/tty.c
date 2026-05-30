@@ -1,11 +1,13 @@
 #include "tty.h"
 #include "hal/cpu/core.h"
+#include "hal/cpu/irq_lock.h"
 #include "hal/graphic/graphic.h"
 #include "init/init.h"
 #include "input.h"
 #include "libk/serial.h"
 #include "notify.h"
 #include "procc/scheduler.h"
+#include "procc/thread.h"
 #include "procc/workqueue.h"
 #include "str.h"
 #include "string.h"
@@ -27,18 +29,11 @@ static int char_ioctl(vnode_t* vnode, uint32_t req, void* arg);
 static long char_write(vnode_t* vnode, void* buf, size_t len, size_t offset);
 static void do_scroll(struct tty_internal* priv);
 static int char_read(vnode_t* vnode, void* buf, size_t len, size_t offset);
+static void tty_do_flush(struct tty_internal* priv);
 
 static dentry_ptr __tty_dentry[VOXIA_TTY_MAX_COUNT] = {0};
 static int __current_tty_active = 0;
 static vops_file_t* __tty_ops = 0;
-
-// TODO: will be moved
-struct win_size {
-	uint16_t ws_row;
-	uint16_t ws_col;
-	uint16_t ws_xpixel;
-	uint16_t ws_ypixel;
-};
 
 static void do_scroll(struct tty_internal* priv) {
 	vxScroll(FONT_SIZE);
@@ -53,29 +48,85 @@ static void tty_input_handler(uint32_t event, void* data, void* ctx) {
 	if (!data)
 		return;
 
-	auto input = (struct input_event_data*)data;
+	struct input_event_data* input = (struct input_event_data*)data;
 
-	if (data) {
-		// copy into input_buffer
-		auto dentry = get_active_tty_dentry();
-		if (!dentry)
-			return;
+	struct dentry* dentry = get_active_tty_dentry();
+	if (!dentry)
+		return;
 
-		auto vnode = dentry->vnode;
-		if (!vnode)
-			return;
+	struct vnode* vnode = dentry->vnode;
+	if (!vnode)
+		return;
 
-		auto priv = (struct tty_internal*)vnode->vnode_private;
-		if (!priv)
-			return;
+	struct tty_internal* priv = (struct tty_internal*)vnode->vnode_private;
+	if (!priv)
+		return;
 
-		memcopy(priv->input_buffer + priv->line_buff_tail, &input->code,
-		        sizeof(uint16_t));
+	uint8_t c = (uint8_t)input->code;
 
-		priv->line_buff_tail =
-		    (priv->line_buff_tail + sizeof(uint16_t)) & (1024 - 1);
-		serial2_printf("%x\n", input->code);
+	uintptr_t flags = irq_save();
+	spin_acquire(&priv->output_lock);
+	spin_acquire(&priv->input_lock);
+
+	if (c == '\b' || c == 0x7F) {
+		if (priv->line_buff_tail != priv->line_buff_head) {
+
+			priv->line_buff_tail =
+			    (priv->line_buff_tail - 1) & (1024 - 1);
+
+			if (priv->cursorx > 0) {
+				priv->cursorx--;
+			} else if (priv->cursory > 0) {
+				priv->cursory--;
+				priv->cursorx = priv->cols - 1;
+			}
+
+			int px_x = (int)priv->cursorx * (FONT_SIZE / 2);
+			int px_y = (int)priv->cursory * FONT_SIZE;
+			fill_rect(px_x, px_y, FONT_SIZE / 2, FONT_SIZE + 5,
+			          0x000000);
+		}
+		spin_release(&priv->input_lock);
+		spin_release(&priv->output_lock);
+		irq_restore(flags);
+		return;
 	}
+
+	// handle new line
+	if (c == '\r' || c == '\n') {
+		priv->cursorx = 0;
+		priv->cursory++;
+		if (priv->cursory >= priv->rows)
+			do_scroll(priv);
+
+		/* Simpan \n ke line_buff lalu wake char_read */
+		priv->line_buff[priv->line_buff_tail] = '\n';
+		priv->line_buff_tail = (priv->line_buff_tail + 1) & (1024 - 1);
+
+		if (priv->waiter) {
+			vxThreadWake(priv->waiter);
+			priv->waiter = NULL;
+		}
+
+		// print into latest cursor position
+	} else if (c >= 0x20 && c < 0x7F) {
+		putc((char)c, (int)priv->cursorx, (int)priv->cursory, 0xFFFFFF,
+		     0x000000);
+		priv->cursorx++;
+		if (priv->cursorx >= priv->cols) {
+			priv->cursorx = 0;
+			priv->cursory++;
+			if (priv->cursory >= priv->rows)
+				do_scroll(priv);
+		}
+
+		priv->line_buff[priv->line_buff_tail] = (char)c;
+		priv->line_buff_tail = (priv->line_buff_tail + 1) & (1024 - 1);
+	}
+
+	spin_release(&priv->input_lock);
+	spin_release(&priv->output_lock);
+	irq_restore(flags);
 }
 
 INIT(TTY) {
@@ -90,7 +141,8 @@ INIT(TTY) {
 
 	// notify
 	{
-		auto n = (struct notifier*)kalloc(sizeof(struct notifier));
+		struct notifier* n =
+		    (struct notifier*)kalloc(sizeof(struct notifier));
 		memset(n, 0, sizeof(struct notifier));
 		n->callback = tty_input_handler;
 		n->context = 0;
@@ -109,7 +161,8 @@ static int char_ioctl(vnode_t* vnode, uint32_t req, void* arg) {
 		if (!ws)
 			return -EBADF;
 
-		auto priv = (struct tty_internal*)vnode->vnode_private;
+		struct tty_internal* priv =
+		    (struct tty_internal*)vnode->vnode_private;
 		ws->ws_row = priv ? (uint16_t)priv->rows : 24;
 		ws->ws_col = priv ? (uint16_t)priv->cols : 80;
 		ws->ws_xpixel = (uint16_t)vxGetWidth();
@@ -121,99 +174,135 @@ static int char_ioctl(vnode_t* vnode, uint32_t req, void* arg) {
 	return -ENOTTY;
 }
 
-static int char_read(vnode_t *vnode, void *buf, size_t len, size_t offset) {
-    (void)offset;
+static int char_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
+	(void)offset;
 
-    /* FIX #1: hapus (void)vnode dan (void)buf — keduanya dipakai */
-    if (!vnode || !buf)
-        return -EINVAL;
+	if (!vnode || !buf)
+		return -EINVAL;
 
-    struct tty_internal *priv = (struct tty_internal *)vnode->vnode_private;
-    if (!priv)
-        return -ENOSYS;
+	struct tty_internal* priv = (struct tty_internal*)vnode->vnode_private;
+	if (!priv)
+		return -ENOSYS;
 
-    uint8_t *out = (uint8_t *)buf;
-    size_t bytes_read = 0;
+	uint8_t* out = (uint8_t*)buf;
+	size_t bytes_read = 0;
 
-    while (bytes_read < len) {
-        /* FIX #2: busy-wait dengan cpu_relax() agar tidak membakar CPU */
-        spin_acquire(&priv->input_lock);
-        int empty = (priv->head == priv->tail);
-        spin_release(&priv->input_lock);
+	/*
+	 * wait until newline exist on line_buffer
+	 */
+	while (1) {
+		uintptr_t flags = irq_save();
+		spin_acquire(&priv->input_lock);
 
-        if (empty) {
-            if (bytes_read > 0)
-                break;  /* sudah dapat sebagian data, return */
-            
-			{
-				serial2_printf("sleep...\n");
-				auto thr = get_current_core_data()->active_thread;
-				thr->in_kernel_sleep = true;
-				// schedule_yield();
-
+		boolean_t has_newline = false;
+		uint32_t scan = priv->line_buff_head;
+		while (scan != priv->line_buff_tail) {
+			if (priv->line_buff[scan] == '\n' ||
+			    priv->line_buff[scan] == '\r') {
+				has_newline = true;
+				break;
 			}
-            continue;
-        }
-		serial2_printf("has data\n");
+			scan = (scan + 1) & (1024 - 1);
+		}
 
-        /* FIX #3 & #4: baca dari ring buffer dengan lock */
-        spin_acquire(&priv->input_lock);
+		if (!has_newline) {
+			priv->waiter = get_current_core_data()->active_thread;
+			spin_release(&priv->input_lock);
+			irq_restore(flags);
 
-        while (bytes_read < len && priv->head != priv->tail) {
-            out[bytes_read++] = (uint8_t)priv->input_buffer[priv->head];
-            priv->head = (priv->head + 1) & (1024 - 1);
-        }
+			thread_block();
+			continue;
+		}
 
-        spin_release(&priv->input_lock);
-    }
+		/* read until new line */
+		while (bytes_read < len &&
+		       priv->line_buff_head != priv->line_buff_tail) {
+			uint8_t ch =
+			    (uint8_t)priv->line_buff[priv->line_buff_head];
+			priv->line_buff_head =
+			    (priv->line_buff_head + 1) & (1024 - 1);
 
-    return (int)bytes_read;
+			if (ch == '\r')
+				ch = '\n';
+
+			out[bytes_read++] = ch;
+
+			if (ch == '\n')
+				break;
+		}
+
+		spin_release(&priv->input_lock);
+		irq_restore(flags);
+		break;
+	}
+
+	return (int)bytes_read;
 }
 
 static long char_write(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 	UNUSED(offset);
 
-	auto priv = (struct tty_internal*)vnode->vnode_private;
-	if (!priv)
-		return -ENOENT;
-
-	if (!priv->enable)
+	struct tty_internal* priv = (struct tty_internal*)vnode->vnode_private;
+	if (!priv || !priv->enable)
 		return -ENOENT;
 
 	if (!len)
 		return 0;
 
-	auto used =
-	    (priv->tail - priv->head) & (VOXIA_TTY_INPUT_BUFFER_SIZE - 1);
-	size_t available = VOXIA_TTY_INPUT_BUFFER_SIZE - 1 - used;
-	if (len > available)
-		return -ENOSPC;
+	uintptr_t flags = irq_save();
+	spin_acquire(&priv->output_lock);
 
-	auto tail = priv->tail;
-	size_t first_chunk = VOXIA_TTY_INPUT_BUFFER_SIZE - tail;
+	size_t remaining = len;
+	uint8_t* p = (uint8_t*)buf;
 
-	if (len <= first_chunk) {
-		memcopy((uint8_t*)priv->input_buffer + tail, buf, len);
-	} else {
-		memcopy((uint8_t*)priv->input_buffer + tail, buf, first_chunk);
-		memcopy((uint8_t*)priv->input_buffer,
-		        (uint8_t*)buf + first_chunk, len - first_chunk);
+	while (remaining > 0) {
+		size_t used = (priv->tail - priv->head) &
+		              (VOXIA_TTY_INPUT_BUFFER_SIZE - 1);
+		size_t available = VOXIA_TTY_INPUT_BUFFER_SIZE - 1 - used;
+
+		if (available == 0) {
+			priv->dirty = true;
+			tty_do_flush(priv);
+			used = (priv->tail - priv->head) &
+			       (VOXIA_TTY_INPUT_BUFFER_SIZE - 1);
+			available = VOXIA_TTY_INPUT_BUFFER_SIZE - 1 - used;
+			if (available == 0)
+				break;
+		}
+
+		size_t to_copy =
+		    (remaining < available) ? remaining : available;
+		size_t tail = priv->tail;
+		size_t first_chunk = VOXIA_TTY_INPUT_BUFFER_SIZE - tail;
+
+		if (to_copy <= first_chunk) {
+			memcopy((uint8_t*)priv->input_buffer + tail, p,
+			        to_copy);
+		} else {
+			memcopy((uint8_t*)priv->input_buffer + tail, p,
+			        first_chunk);
+			memcopy((uint8_t*)priv->input_buffer, p + first_chunk,
+			        to_copy - first_chunk);
+		}
+
+		priv->tail =
+		    (tail + to_copy) & (VOXIA_TTY_INPUT_BUFFER_SIZE - 1);
+		p += to_copy;
+		remaining -= to_copy;
+
+		priv->dirty = true;
+		tty_do_flush(priv);
 	}
 
-	priv->tail = (tail + len) & (VOXIA_TTY_INPUT_BUFFER_SIZE - 1);
+	spin_release(&priv->output_lock);
+	irq_restore(flags);
 
-	priv->dirty = true;
-	// if (memchr(buf, '\n', len)) {
-	// vxAddWorkqueueTask((void (*)(void*))tty_check_and_flush, NULL, NULL);
-	// }
-	tty_check_and_flush();
-
-	return (long)len;
+	return (long)(len - remaining);
 }
 
 static void configure_tty(int tty) {
-	auto curr_dentry = &__tty_dentry[tty];
-	auto path_name = str_concat(str("/dev/tty"), itoa(tty, 10));
+	dentry_ptr* curr_dentry = &__tty_dentry[tty];
+	kstring path_name = str_concat(str("/dev/tty"), itoa(tty, 10));
 	vxnamei(path_name->c_str, curr_dentry);
 	str_release(path_name);
 
@@ -229,7 +318,8 @@ static void configure_tty(int tty) {
 	(*curr_dentry)->vnode->device.minor = dev->minor;
 	(*curr_dentry)->vnode->mountedhere = dev;
 
-	auto priv = (struct tty_internal*)kalloc(sizeof(struct tty_internal));
+	struct tty_internal* priv =
+	    (struct tty_internal*)kalloc(sizeof(struct tty_internal));
 	memset(priv, 0, sizeof(struct tty_internal));
 	(*curr_dentry)->vnode->vnode_private = priv;
 
@@ -241,31 +331,29 @@ static void configure_tty(int tty) {
 	priv->cursory = 0;
 	priv->line_buff_tail = 0;
 	priv->line_buff_head = 0;
+	priv->waiter = NULL;
+	priv->writer_waiter = NULL;
+	priv->input_lock = (spinlock_t)SPINLOCK_INIT;
+	priv->output_lock = (spinlock_t)SPINLOCK_INIT;
 }
 
-void start_tty() {
+void start_tty(void) {
 	console_set_pos(0, 0);
 	clear_screen(0x000000);
 }
 
 void change_active_tty(int tty) { __current_tty_active = tty; }
 
-int get_active_tty() { return __current_tty_active; }
+int get_active_tty(void) { return __current_tty_active; }
 
-dentry_ptr get_active_tty_dentry() {
+dentry_ptr get_active_tty_dentry(void) {
 	return __tty_dentry[__current_tty_active];
 }
 
-void tty_check_and_flush() {
-	auto dentry = get_active_tty_dentry();
-	if (!dentry)
-		return;
-
-	auto priv = (struct tty_internal*)dentry->vnode->vnode_private;
+static void tty_do_flush(struct tty_internal* priv) {
 	if (!priv || !priv->dirty)
 		return;
 
-	LOG2_INFO("TTY", "flushed into screen on tty %d", __current_tty_active);
 	priv->dirty = false;
 
 	while (priv->head != priv->tail) {
@@ -334,6 +422,21 @@ void tty_check_and_flush() {
 			}
 		}
 	}
+}
+
+void tty_check_and_flush(void) {
+	dentry_ptr dentry = get_active_tty_dentry();
+	if (!dentry)
+		return;
+
+	struct tty_internal* priv =
+	    (struct tty_internal*)dentry->vnode->vnode_private;
+
+	uintptr_t flags = irq_save();
+	spin_acquire(&priv->output_lock);
+	tty_do_flush(priv);
+	spin_release(&priv->output_lock);
+	irq_restore(flags);
 }
 
 dentry_ptr get_tty_dentry(int tty) { return __tty_dentry[tty]; }

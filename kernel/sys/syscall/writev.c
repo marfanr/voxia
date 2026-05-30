@@ -44,13 +44,13 @@ long syscall_writev(int fd, const struct iovec* iov, int iovcnt) {
                                       (size_t)iov_->iov_len,
                                       (size_t)total_written);
         if (write_count < 0) {
-            // kfree(iovec_);
+            kfree2(iovec_);
             return write_count;
         }
 
         total_written += write_count;
     }
 
-    // kfree(iovec_);
+    kfree2(iovec_);
     return total_written;
 }
