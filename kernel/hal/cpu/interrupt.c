@@ -266,7 +266,6 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 			           queue->thread->id, rsp->rip, cr2);
 			queue->thread->state = THREAD_STATE_TERMINATED;
 			sch_restore_to_next_thread(rsp, cpu_id);
-			// INFLOOP;
 		} else {
 
 			INFLOOP;
