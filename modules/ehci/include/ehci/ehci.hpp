@@ -5,6 +5,7 @@
 #include "ioforge/ioforge_usb.h"
 #include <type.h>
 #include <ioforge/ioforge_int_pipe.hpp>
+#include <spinlock.h>
 
 #define EHCI_VENDOR_ID 0x8086
 #define EHCI_DEVICE_ID 0x24cd
@@ -241,6 +242,7 @@ class EHCIModule : public IOforgePCI {
 
 	uintptr_t qh1_paddr, qh2_paddr;
 	uint32_t* framelist;
+	spinlock_t schedule_lock;
 
 	// qh utils
 	void push_to_qh(ehci_queue_head_node_t* qh_node);
