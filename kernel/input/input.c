@@ -5,12 +5,13 @@
 #include "type.h"
 #include <input.h>
 #include <ioforge/ioforge.h>
+#include <str.h>
 
 static struct input_event_data* __event_data_ascii = 0;
 static boolean_t capslock = false;
 
 INIT(Input) {
-	notify_dev_create(str("/input/trigered"));
+	notify_dev_create(str("/input/triggered"));
 	__event_data_ascii =
 	    (struct input_event_data*)kalloc(sizeof(struct input_event_data));
 }
@@ -35,19 +36,31 @@ void input_report_key(struct ioforge_device* dev, uint16_t code, int value) {
 	if (value != 1)
 		return;
 
-	uint16_t ascii = 0;
-	if (code < LEFT_CTRL && code > 0)
-		ascii = scancode_to_ascii(code, shift ^ capslock);
+	const char* ascii = 0;
+	if (code > 0)
+		ascii = keycode_to_sequence(code, shift ^ capslock);
 
-	serial2_printf("input: capslock %d code=%x ascii=%x\n",
-	               shift || capslock, code, ascii);
+	if (ascii == 0) {
+		__atomic_store_n(&__event_data_ascii->type,
+						 INPUT_EVENT_KEY, __ATOMIC_RELAXED);
+		__atomic_store_n(&__event_data_ascii->key.keycode, code,
+						 __ATOMIC_RELAXED);
+		__atomic_store_n(&__event_data_ascii->key.pressed,
+						 (uint8_t)value, __ATOMIC_RELAXED);
 
-	if (ascii == 0)
+		serial2_printf("input key:  mod 0 key %x value %d\n", code,
+		               value);
+		notify_call("/input/triggered", 0, __event_data_ascii);
 		return;
+	}
 
-	__atomic_store_n(&__event_data_ascii->code, ascii, __ATOMIC_RELAXED);
-	__atomic_store_n(&__event_data_ascii->input_active, 1,
+	__atomic_store_n(&__event_data_ascii->text.codepoint, ascii,
+	                 __ATOMIC_RELAXED);
+	__atomic_store_n(&__event_data_ascii->type, INPUT_EVENT_TEXT,
 	                 __ATOMIC_RELAXED);
 
-	notify_call("/input/trigered", 0, __event_data_ascii);
+	serial2_printf("input: capslock %d code=%x ascii=%s (%d)\n",
+	               shift || capslock, code, ascii, strlen(ascii));
+
+	notify_call("/input/triggered", 0, __event_data_ascii);
 }
