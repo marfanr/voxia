@@ -651,8 +651,6 @@ void EHCIModule::fireHandler() {
 	if (!handled)
 		return;
 
-	serial2_printf("fired\n");
-
 	module->ehci_op->usbsts = handled;
 	__sync_synchronize();
 
