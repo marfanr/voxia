@@ -155,9 +155,26 @@ enum INPUT_KEY : uint16_t {
 struct ioforge_device;
 void input_report_key(struct ioforge_device* dev, uint16_t code, int value);
 
+
+enum {
+    INPUT_EVENT_KEY,
+    INPUT_EVENT_TEXT,
+};
+
 struct input_event_data {
-    int input_active;
-	uint16_t code;
+    uint16_t type;
+
+    union {
+        struct {
+            uint16_t keycode;
+            uint16_t modifiers;
+            uint8_t pressed;
+        } key;
+
+        struct {
+            const char* codepoint;
+        } text;
+    };
 };
 
 #ifdef __cplusplus
