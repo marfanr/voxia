@@ -277,31 +277,26 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 		goto end;
 	}
 
-	// paging_reload(paging_get_highest_page_map());
-
 	{
 
 		irq_entry_t* irq =
 		    &interrupt_per_core_data[cpu_id].irq_entries[int_number];
 
 		if (__atomic_load_n(&irq->configured, __ATOMIC_ACQUIRE)) {
-			if (irq->use_default_isr) {
-				uint8_t m = __atomic_load_n(&irq->mask,
-				                            __ATOMIC_ACQUIRE);
-				while (m) {
-					int i = __builtin_ctz(m);
-					void* h = __atomic_load_n(
-					    &irq->handler[i], __ATOMIC_ACQUIRE);
-					if (h)
-						((void (*)(
-						    interrupt_stack_frame_t*))
-						     h)(rsp);
-					m &= (m - 1);
-				}
+			uint8_t m =
+			    __atomic_load_n(&irq->mask, __ATOMIC_ACQUIRE);
+			while (m) {
+				int i = __builtin_ctz(m);
+				void* h = __atomic_load_n(&irq->handler[i],
+				                          __ATOMIC_ACQUIRE);
+				if (h)
+					((void (*)(interrupt_stack_frame_t*))h)(
+					    rsp);
+				m &= (m - 1);
 			}
 		}
 	}
 
-end:
-	apic_eoi();
-}
+	end:
+		apic_eoi();
+	}
