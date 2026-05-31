@@ -5,7 +5,9 @@
 
 IoForgeModuleConstructor(EHCIModule);
 
-EHCIModule::EHCIModule() : IOforgePCI("EHCI") {}
+EHCIModule::EHCIModule() : IOforgePCI("EHCI") {
+	schedule_lock = (spinlock_t)SPINLOCK_INIT;
+}
 
 EHCIModule* EHCIModule::getInstance() { return &instance; }
 

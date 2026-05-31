@@ -576,7 +576,7 @@ void EHCIModule::send_async_with_response(uint8_t addr, uint8_t endpoint,
 	if (!done)
 		log(mod, "send_async: TIMEOUT");
 
-	/* Detach QH dari async schedule */
+	/* Detach QH from async schedule */
 	spin_acquire(&schedule_lock);
 	auto* mq = main_async_qh->head;
 	__sync_synchronize();
@@ -612,7 +612,7 @@ void EHCIModule::call_completion_callback(ioforge_device* dev) {
 				uint32_t tok = qtd->token;
 
 				if (tok & EHCI_QTD_TOKEN_STATUS_ACTIVE)
-					goto next; /* masih jalan, skip */
+					goto next;
 
 				bool is_error = false;
 				if (tok & (1 << 6)) {
