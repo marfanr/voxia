@@ -17,8 +17,9 @@ enum {
 	THREAD_STATE_CREATE = 0,
 	THREAD_STATE_READY = 1,
 	THREAD_STATE_RUNNING = 2,
-	THREAD_STATE_TERMINATED = 3,
-	THREAD_STATE_HAL = 4,
+	THREAD_STATE_BLOCKED = 3,
+	THREAD_STATE_TERMINATED = 4,
+	THREAD_STATE_HAL = 5,
 };
 
 typedef struct thread thread_t;
@@ -43,6 +44,12 @@ struct thread {
 	uint64_t gs_base;
 	uint8_t _pad[12];
 	// 1 cache line
+
+	uintptr_t  kernel_rsp;      /* RSP saat switch keluar */
+    uintptr_t  kernel_stack_base;
+    uintptr_t  kernel_stack_top;
+    bool       in_kernel_sleep;
+    bool       wake_pending;
 
 	cpu_register_t reg;
 } __attribute__((aligned(64)));

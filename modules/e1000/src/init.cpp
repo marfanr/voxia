@@ -31,9 +31,7 @@ void E1000Module::load() {
 
 	uint32_t ctrl = read(0x0000);    // CTRL
 	write(0x0000, ctrl | (1 << 26)); // set RST bit
-	// tunggu reset selesai
-	for (volatile int i = 0; i < 10000; i++)
-		;
+	
 	while (read(0x0000) & (1 << 26))
 		;
 

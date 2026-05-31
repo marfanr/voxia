@@ -8,6 +8,7 @@
 #define SYSCALL_READ 0X0
 #define SYSCALL_WRITE 0X1
 #define SYSCALL_OPEN 0X2
+#define SYSCALL_CLOSE 0x3
 #define SYSCALL_FSTAT 0X4
 #define SYSCALL_ALLOC 0x8
 #define SYSCALL_ARCH_PRCTL 158
@@ -45,5 +46,6 @@ struct iovec {
 };
 
 long syscall_writev(int fd, const struct iovec* iov, int iovcnt);
+void syscall_exit_group(int status);
 
 #endif // __SYS__SYSCALL_H__

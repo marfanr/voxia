@@ -88,6 +88,7 @@ enum Elf_Ptype : uint32_t {
 	PT_NOTE = 4,
 	PT_SHLIB = 5,
 	PT_PHDR = 6,
+	PT_TLS = 7,
 	PT_LOPROC = 0x70000000,
 	PT_HIPROC = 0x7fffffff
 };
@@ -324,8 +325,8 @@ Elf64_Sym* elf_gnu_lookup(const char* name, GnuHashHeader* gh,
 void elf_gnu_hash_parse(GnuHashHeader* gnu_hash, Elf64_Shdr* gnu_hash_sym,
                         uint8_t* data);
 
-void elf_relocate_dyn(elf_dynamic_map* map, uintptr_t base,
-                      GnuHashHeader* gnu_hash,
+void elf_relocate_dyn(elf_dynamic_map* map, uintptr_t kernel_base,
+                      uintptr_t user_base, GnuHashHeader* gnu_hash,
                       symbols_ptr_vector_t* external_syms,
                       struct elf_load_mmap_table* table, int table_count);
 
@@ -345,7 +346,14 @@ uintptr_t elf_count_load_size(uint8_t* data);
 #define ELF_PTR(type, base, off)                                               \
 	((type*)ASSUME_ALIGNED(PTR_ADD((base), (off)), alignof(type)))
 
-// debug
-void elf_call_init_array2(elf_section_map* map, uintptr_t base);
+void elf_call_init_array_with_table(elf_section_map* map,
+                                    struct elf_load_mmap_table* table,
+                                    int table_count);
+
+uint64_t elf_pflags_to_page_flags(uint64_t p_flags);
+
+struct tcb {
+    void* self;
+};
 
 #endif

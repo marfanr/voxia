@@ -259,6 +259,7 @@ INIT(Core) {
 	}
 
 	LOG_INFO("core", "active core count %d", active_core_count);
+	vxStartScheduler();
 }
 
 uint8_t vxGetActiveCoreCount() { return active_core_count; }

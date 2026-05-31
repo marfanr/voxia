@@ -75,6 +75,7 @@ SECTIONS
         KEEP(*(.init_early.ioforge))
         KEEP(*(.init_early.Virtio))
         KEEP(*(.init_early.KernelReader))
+        KEEP(*(.init_early.Input))
         KEEP(*(.init_early.TTY))
         KEEP(*(.init_early.Scheduler))
         KEEP(*(.init_early.Thread))

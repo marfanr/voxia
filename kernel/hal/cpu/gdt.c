@@ -64,6 +64,11 @@ __attribute__((no_stack_protector)) void setup_gdt(int core) {
 	reloadGDT(0x28, 0x30);
 }
 
+void set_tss_stack(uint16_t core, uintptr_t stack_top) {
+	lm_tss_t* _tss = &__gdt_entries[core].tss;
+	_tss->rsp[0] = stack_top;
+}
+
 INIT(Gdt) {
 	setup_gdt(0);
 }

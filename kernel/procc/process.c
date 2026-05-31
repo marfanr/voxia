@@ -18,6 +18,7 @@
 #include "vfs/dentry.h"
 #include "vfs/enum.h"
 #include "vfs/vnode.h"
+#include <hal/cpu/core.h>
 #include <str.h>
 #include <sys/syscall.h>
 
@@ -34,48 +35,135 @@ INIT(Process) {
 	vxnamei("/proc", &process_dentry);
 }
 
-/* * ELF Auxiliary Vector Types
- * (System V ABI / Linux Standard)
- */
-
-// --- Core Executable Info ---
-#define AT_NULL 0    /* Penanda akhir dari array auxv */
-#define AT_IGNORE 1  /* Entry ini harus diabaikan */
-#define AT_EXECFD 2  /* File descriptor dari program */
-#define AT_PHDR 3    /* Alamat Program Headers dari executable utama */
-#define AT_PHENT 4   /* Ukuran satu entry Program Header */
-#define AT_PHNUM 5   /* Jumlah Program Headers */
-#define AT_PAGESZ 6  /* Ukuran page sistem (biasanya 4096) */
+#define AT_NULL 0
+#define AT_IGNORE 1
+#define AT_EXECFD 2  /* File descriptor from program */
+#define AT_PHDR 3    /* Program Headers Address from main executable */
+#define AT_PHENT 4   /* program heder entry size */
+#define AT_PHNUM 5   /* Program Headers num*/
+#define AT_PAGESZ 6  /* page size (4096) */
 #define AT_BASE 7    /* Base address dari interpreter (ld.so) jika ada */
-#define AT_FLAGS 8   /* Flags eksekusi */
+#define AT_FLAGS 8   /* Flags */
 #define AT_ENTRY 9   /* Entry point dari executable utama */
-#define AT_NOTELF 10 /* Program bukan ELF */
+#define AT_NOTELF 10 /* Program not ELF */
 
-// --- User & Group ID (Dibutuhkan oleh libc POSIX) ---
 #define AT_UID 11  /* Real User ID */
 #define AT_EUID 12 /* Effective User ID */
 #define AT_GID 13  /* Real Group ID */
 #define AT_EGID 14 /* Effective Group ID */
 
 // --- Hardware & Platform ---
-#define AT_PLATFORM 15 /* String penanda CPU (misal: "x86_64") */
-#define AT_HWCAP 16    /* Bitmask kapabilitas CPU */
-#define AT_CLKTCK 17   /* Frekuensi clock untuk fungsi times() */
+#define AT_PLATFORM 15 /* String CPU format (ex: "x86_64") */
+#define AT_HWCAP 16    /* Bitmask CPU capability */
+#define AT_CLKTCK 17   /* clock freq, for times() */
 
-// --- Security & Extensions (Penting untuk musl tingkat lanjut) ---
 #define AT_SECURE                                                              \
-	23           /* Mode aman (boolean 1/0), dipakai untuk setuid/setgid   \
+	23           /* secure mode (boolean 1/0), used for setuid/setgid      \
 	              */
-#define AT_RANDOM 25 /* Pointer ke 16 byte random untuk stack canary/ASLR */
-#define AT_EXECFN 31 /* String path nama file executable */
-#define AT_SYSINFO_EHDR                                                        \
-	33 /* Alamat header ELF dari vDSO (jika OS mendukung vDSO) */
+#define AT_RANDOM 25 /* Pointer into 16 byte random for stack canary/ASLR */
+#define AT_EXECFN 31 /* String path name executbale file */
+#define AT_SYSINFO_EHDR 33
+
+#define USER_STACK_PAGES 256
+#define USER_STACK_SIZE (USER_STACK_PAGES * 4096)
+
+static uintptr_t elf_prepare_stack(uintptr_t stack_top_kernel,
+                                   uintptr_t stack_top_user, int argc,
+                                   char* const* argv, char* const* envp,
+                                   Elf64_Ehdr* ehdr, uintptr_t entry_addr,
+                                   uintptr_t phdr_vaddr,
+                                   uintptr_t interp_base_addr) {
+	uint8_t* stack_top = (uint8_t*)stack_top_kernel;
+	uint8_t* sp_ptr = stack_top;
+
+	int envc = 0;
+	if (envp) {
+		while (envp[envc])
+			envc++;
+	}
+
+	uintptr_t* envp_user =
+	    (uintptr_t*)kalloc(sizeof(uintptr_t) * (size_t)(envc + 1));
+	for (int i = envc - 1; i >= 0; i--) {
+		size_t len = strlen(envp[i]) + 1;
+		sp_ptr -= len;
+		memcopy(sp_ptr, (void*)envp[i], len);
+		envp_user[i] = stack_top_user - (uintptr_t)(stack_top - sp_ptr);
+	}
+	envp_user[envc] = 0;
+
+	uintptr_t* argv_user =
+	    (uintptr_t*)kalloc(sizeof(uintptr_t) * (size_t)(argc + 1));
+	for (int i = argc - 1; i >= 0; i--) {
+		size_t len = strlen(argv[i]) + 1;
+		sp_ptr -= len;
+		memcopy(sp_ptr, (void*)argv[i], len);
+		argv_user[i] = stack_top_user - (uintptr_t)(stack_top - sp_ptr);
+	}
+	argv_user[argc] = 0;
+
+	uint8_t random_bytes[16] = {0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE,
+	                            0xBA, 0xBE, 0x12, 0x34, 0x56, 0x78,
+	                            0x9A, 0xBC, 0xDE, 0xF0};
+	sp_ptr -= 16;
+	memcopy(sp_ptr, random_bytes, 16);
+	uintptr_t random_user_addr =
+	    stack_top_user - (uintptr_t)(stack_top - sp_ptr);
+
+	uint64_t* sp = (uint64_t*)((uintptr_t)sp_ptr & ~(uintptr_t)15);
+
+	*(--sp) = 0;
+	*(--sp) = AT_NULL;
+	*(--sp) = entry_addr;
+	*(--sp) = AT_ENTRY;
+	*(--sp) = random_user_addr;
+	*(--sp) = AT_RANDOM;
+	*(--sp) = 0;
+	*(--sp) = AT_HWCAP;
+	*(--sp) = 0;
+	*(--sp) = AT_SECURE;
+	*(--sp) = 1000;
+	*(--sp) = AT_UID;
+	*(--sp) = 1000;
+	*(--sp) = AT_GID;
+	*(--sp) = 1000;
+	*(--sp) = AT_EGID;
+	*(--sp) = 1000;
+	*(--sp) = AT_EUID;
+
+	if (interp_base_addr) {
+		*(--sp) = interp_base_addr;
+		*(--sp) = AT_BASE;
+	}
+
+	*(--sp) = 0x1000;
+	*(--sp) = AT_PAGESZ;
+	*(--sp) = ehdr->e_phnum;
+	*(--sp) = AT_PHNUM;
+	*(--sp) = ehdr->e_phentsize;
+	*(--sp) = AT_PHENT;
+	*(--sp) = phdr_vaddr;
+	*(--sp) = AT_PHDR;
+
+	*(--sp) = 0;
+	for (int i = envc - 1; i >= 0; i--) {
+		*(--sp) = envp_user[i];
+	}
+
+	*(--sp) = 0;
+	for (int i = argc - 1; i >= 0; i--) {
+		*(--sp) = argv_user[i];
+	}
+
+	*(--sp) = (uint64_t)argc;
+
+	kfree2(envp_user);
+	kfree2(argv_user);
+
+	return stack_top_user - (uintptr_t)(stack_top - (uint8_t*)sp);
+}
 
 int execve(const char* path, char* const* argv, char* const* envp) {
-	UNUSED(path);
-	UNUSED(argv);
-	UNUSED(envp);
-
 	serial2_printf("exec proccess %s ... \n", path);
 
 	dentry_ptr loaded_file_dentry;
@@ -94,23 +182,44 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	paging_setup(page);
 	serial2_printf("new page pml4 %p\n", (uintptr_t)page);
 
-	auto size = loaded_file_dentry->vnode->size;
-	uint8_t* file_buffer = (uint8_t*)kalloc(size);
-	if (!file_buffer) {
-		LOG2_ERROR("PROCESS", "unable to alloc %d kb", size / 1024);
+	size_t size = 0;
+	uint8_t* file_buffer = 0;
+	if (loaded_file_dentry->vnode->type == VNODE_TYPE_FILE) {
+		size = loaded_file_dentry->vnode->size;
+		file_buffer = (uint8_t*)kalloc(size);
+		if (!file_buffer) {
+			dentry_put(loaded_file_dentry);
+			return -1;
+		}
+
+		auto ops = (vops_file_t*)loaded_file_dentry->vnode->ops;
+		ops->read(loaded_file_dentry->vnode, file_buffer, size, 0);
+	} else if (loaded_file_dentry->vnode->type == VNODE_TYPE_LNK) {
+		char link_path[255];
+		auto link_ops = (vops_lnk_t*)loaded_file_dentry->vnode->ops;
+		link_ops->readlink(loaded_file_dentry->vnode, link_path, 255);
+
+		if (resolve_dentry(link_path, loaded_file_dentry->parent,
+		                   &loaded_file_dentry, 0) != VFS_OK) {
+			dentry_put(loaded_file_dentry);
+			return -1;
+		}
+
+		size = loaded_file_dentry->vnode->size;
+		file_buffer = (uint8_t*)kalloc(size);
+		if (!file_buffer) {
+			dentry_put(loaded_file_dentry);
+			return -1;
+		}
+
+		auto ops = (vops_file_t*)loaded_file_dentry->vnode->ops;
+		ops->read(loaded_file_dentry->vnode, file_buffer, size, 0);
+
+	} else {
+		LOG2_ERROR("PROCESS", "unsupported file type");
 		dentry_put(loaded_file_dentry);
 		return -1;
 	}
-
-	auto ops = (vops_file_t*)loaded_file_dentry->vnode->ops;
-	if (!ops) {
-		LOG_ERROR("PROCESS", "ops is null");
-		kfree2(file_buffer);
-		dentry_put(loaded_file_dentry);
-		return -1;
-	}
-
-	ops->read(loaded_file_dentry->vnode, file_buffer, size, 0);
 
 	Elf64_Ehdr ehdr;
 	memcopy(&ehdr, (void*)file_buffer, sizeof(Elf64_Ehdr));
@@ -125,13 +234,13 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	}
 
 	size_t loaded_size = elf_count_load_size(file_buffer);
-	LOG_INFO("PROCESS", "loaded size %d (%d kb)", loaded_size,
+	LOG2_INFO("PROCESS", "loaded size %d (%d kb)", loaded_size,
 	         loaded_size / 1024);
 	size_t size_4k = ALIGN_UP(1 + loaded_size, BLOCK_SIZE) / BLOCK_SIZE;
 
 	uintptr_t base_addr = vma_lookup_free_vaddr(
 	    get_kernel_vmm_page(), VMA_REGION_PROCESS, size_4k);
-	LOG_INFO("PROCESS", "executable %s has base addr at 0x%x", path,
+	LOG2_INFO("PROCESS", "executable %s has base addr at 0x%x", path,
 	         base_addr);
 
 	LOG2_INFO("PROCESS", "found executable type is %d", ehdr.e_type);
@@ -149,7 +258,7 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	LOG2_INFO("ELF", "version : %d, ph num : %d", ehdr.e_version,
 	          ehdr.e_phnum);
 	LOG2_INFO("ELF", "entry : 0x%x", ehdr.e_entry);
-	serial_trace("phdr count %d\n", ehdr.e_phnum);
+	serial2_printf("phdr count %d\n", ehdr.e_phnum);
 
 	uintptr_t base_vaddr = 0;
 	Elf64_Phdr* phdr = ELF_PTR(Elf64_Phdr, file_buffer, ehdr.e_phoff);
@@ -232,14 +341,14 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	elf_gnu_hash_parse(&gnu_hash, gnu_hash_sym, file_buffer);
 
 	Elf64_Dyn* dyn = elf_get_phdr_dynamic(file_buffer);
-	if (dyn) {
-		LOG_INFO("VOXMO", "dynamic section found at 0x%x", dyn);
+	if (dyn && !interp_dentry) {
+		LOG2_INFO("VOXMO", "dynamic section found at 0x%x", dyn);
 		elf_dynamic_map dyn_map = {0};
 		elf_dyn_map_all(dyn, file_buffer, &dyn_map);
-		LOG_INFO("VOXMO", "strtab found at 0x%x", dyn_map.strtab);
-		LOG_INFO("VOXMO", "needed size %d", dyn_map.needed.size);
-		elf_relocate_dyn(&dyn_map, temporary_base, &gnu_hash, 0,
-		                 mmap_table, ehdr.e_phnum);
+		LOG2_INFO("VOXMO", "strtab found at 0x%x", dyn_map.strtab);
+		LOG2_INFO("VOXMO", "needed size %d", dyn_map.needed.size);
+		elf_relocate_dyn(&dyn_map, temporary_base, base_addr, &gnu_hash,
+		                 0, mmap_table, ehdr.e_phnum);
 	}
 
 	serial2_printf("base vaddr %x %x\n", base_vaddr,
@@ -308,7 +417,7 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 
 		interp_base_addr = vma_lookup_free_vaddr(
 		    get_kernel_vmm_page(), VMA_REGION_PROCESS, ld_so_size_4k);
-		LOG_INFO("PROCESS", "interp %s has base addr at 0x%x",
+		LOG2_INFO("PROCESS", "interp %s has base addr at 0x%x",
 		         interp_dentry->name->c_str, interp_base_addr);
 
 		interp_mmap_table = (struct elf_load_mmap_table*)kalloc(
@@ -322,81 +431,42 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	}
 
 	// Stack setup
-	auto stack_phys = (uintptr_t)phys_base_alloc(1);
-	auto stack_vaddr =
-	    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, 1);
-	vxMultipleMmap(page, USER_STACK_VADDR, stack_phys, 1, 0b111);
+	auto stack_phys = (uintptr_t)phys_base_alloc(USER_STACK_PAGES);
+	auto stack_vaddr = vma_lookup_free_vaddr(
+	    get_kernel_vmm_page(), VMA_REGION_A, USER_STACK_PAGES);
+	vxMultipleMmap(page, USER_STACK_VADDR - USER_STACK_SIZE + 4096,
+	               stack_phys, USER_STACK_PAGES, 0b111);
 	vxMultipleMmap(paging_get_highest_page_map(), stack_vaddr, stack_phys,
-	               1, 0b111);
+	               USER_STACK_PAGES, 0b111);
 
 	uintptr_t phdr_vaddr = (ehdr.e_type == ET_EXEC)
 	                           ? base_vaddr + ehdr.e_phoff
 	                           : base_addr + ehdr.e_phoff;
 
-	uint8_t* stack_base = (uint8_t*)stack_vaddr;
-	uint8_t* stack_top = stack_base + 4096;
-
-	const char* progname = path;
-	size_t progname_len = strlen(progname) + 1;
-	uint8_t* name_dst = stack_top - progname_len;
-	memcopy(name_dst, (void*)progname, progname_len);
-
-	uintptr_t argv0_user = USER_STACK_VADDR + 4096 - progname_len;
-	uint64_t* sp = (uint64_t*)((uintptr_t)name_dst & ~(uintptr_t)7);
-
-	// --- auxv ---
-	*(--sp) = 0;       // AT_NULL value
-	*(--sp) = AT_NULL; // AT_NULL tag
-
-	*(--sp) = entry_addr;
-	*(--sp) = AT_ENTRY; // AT_ENTRY tag
-
-	if (interp_base_addr) {
-		*(--sp) = interp_base_addr;
-		*(--sp) = AT_BASE;
+	int argc = 0;
+	if (argv) {
+		while (argv[argc])
+			argc++;
 	}
 
-	*(--sp) = 0x1000;           // AT_PAGESZ value
-	*(--sp) = AT_PAGESZ;        // AT_PAGESZ tag
-	*(--sp) = ehdr.e_phnum;     // AT_PHNUM value
-	*(--sp) = AT_PHNUM;         // AT_PHNUM tag
-	*(--sp) = ehdr.e_phentsize; // AT_PHENT value
-	*(--sp) = AT_PHENT;         // AT_PHENT tag
-	*(--sp) = phdr_vaddr;       // AT_PHDR value
-	*(--sp) = AT_PHDR;          // AT_PHDR tag
+	const char* fallback_argv[] = {path, NULL};
+	if (argc == 0) {
+		argv = (char* const*)fallback_argv;
+		argc = 1;
+	}
 
-	// --- envp ---
-	*(--sp) = 0; // envp null terminator (tidak ada env)
-
-	// --- argv ---
-	*(--sp) = 0;          // argv null terminator
-	*(--sp) = argv0_user; // argv[0] → name program
-
-	// --- argc ---
-	*(--sp) = 1;
-
-	uintptr_t offset = (uintptr_t)stack_top - (uintptr_t)sp;
-	uintptr_t user_rsp = USER_STACK_VADDR + 4096 - offset;
+	uintptr_t user_rsp = elf_prepare_stack(
+	    stack_vaddr + USER_STACK_SIZE, USER_STACK_VADDR + 4096, argc, argv,
+	    envp, &ehdr, entry_addr, phdr_vaddr, interp_base_addr);
 
 	auto entr = entry_addr;
 	if (interp_base_addr)
 		entr = interp_entry_addr;
 
-	serial2_printf("=== STACK & EXEC DEBUG ===\n");
-	serial2_printf("user_rsp     = 0x%x\n", user_rsp);
-	serial2_printf("argc         = %d\n", *(uint64_t*)sp);
-	serial2_printf("argv[0]      = 0x%x\n", *((uint64_t*)sp + 1));
-	serial2_printf("main_entry   = 0x%x\n", entry_addr);
-	serial2_printf("interp_entry = 0x%x\n", interp_entry_addr);
-	serial2_printf("final_entry  = 0x%x\n", entr);
-	serial2_printf("==========================\n");
-
 	paging_unmap_page(paging_get_highest_page_map(), stack_vaddr);
 	vma_unregister(get_kernel_vmm_page(), stack_vaddr);
 
-	// end
-
-	auto thr = create_thread(page, entr, user_rsp, 1, 2, THREAD_USER);
+	auto thr = create_thread(page, entr, user_rsp, (uint16_t)-1, 2, THREAD_USER);
 	auto procc = create_process(loaded_file_dentry->name->c_str, thr);
 	procc->heap_start = heap_start;
 	procc->heap_end = procc->heap_start;
@@ -440,13 +510,13 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	attach_to_scheduler(thr);
 
 	kfree2(mmap_table);
+	if (interp_mmap_table)
+		kfree2(interp_mmap_table);
+
 	dentry_put(loaded_file_dentry);
 	return VFS_OK;
 }
 
-/*
- * Internal functions
- */
 pid_t alloc_pid(void) {
 	for (size_t i = 0; i < MAX_PID_ALLOWED / 8; i++) {
 		uint8_t byte = pid_bitmap[i];
@@ -515,13 +585,19 @@ process_t* create_process(char* name, thread_t* main_thread) {
 	resolve_dentry("fd", current_proc, &current_proc_fd,
 	               CREATE_MISSING_ENTRY);
 
-	// fd0 → stdin (placeholder)
+	auto tty_dentry = get_tty_dentry(0);
+	auto tty_vnode = tty_dentry->vnode;
+	// fd0 -> stdin (placeholder)
 	{
-		dentry_ptr fd;
+		dentry_ptr fd_dentry;
 		auto next_fd = p->fdtable->next_fd++;
-		resolve_dentry(itoa(next_fd, 10), current_proc_fd, &fd,
+		resolve_dentry(itoa(next_fd, 10), current_proc_fd, &fd_dentry,
 		               CREATE_MISSING_ENTRY);
+		fd_dentry->vnode = tty_vnode;
+
 		auto fd0 = alloc_fd();
+		fd0->vnode = tty_vnode;
+		fd0->ops = tty_vnode->ops;
 		p->fdtable->fds[next_fd] = fd0;
 	}
 	// fd1 → stdout (/dev/tty0)
@@ -530,9 +606,6 @@ process_t* create_process(char* name, thread_t* main_thread) {
 		auto next_fd = p->fdtable->next_fd++;
 		resolve_dentry(itoa(next_fd, 10), current_proc_fd, &fd_dentry,
 		               CREATE_MISSING_ENTRY);
-
-		auto tty_dentry = get_tty_dentry(0);
-		auto tty_vnode = tty_dentry->vnode;
 		fd_dentry->vnode = tty_vnode;
 
 		auto fd1 = alloc_fd();
@@ -541,5 +614,17 @@ process_t* create_process(char* name, thread_t* main_thread) {
 		p->fdtable->fds[next_fd] = fd1;
 	}
 	// fd2 → stderr (TODO)
+	{
+		dentry_ptr fd_dentry;
+		auto next_fd = p->fdtable->next_fd++;
+		resolve_dentry(itoa(next_fd, 10), current_proc_fd, &fd_dentry,
+		               CREATE_MISSING_ENTRY);
+		fd_dentry->vnode = tty_vnode;
+
+		auto fd2 = alloc_fd();
+		fd2->vnode = tty_vnode;
+		fd2->ops = tty_vnode->ops;
+		p->fdtable->fds[next_fd] = fd2;
+	}
 	return p;
 }

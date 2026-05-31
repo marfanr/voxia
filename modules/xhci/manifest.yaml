@@ -8,7 +8,7 @@ device:
   pci:
     - 6966:13 # QEMU XHCI (1b36:000d)
 
-main: xci.elf
+main: xhci.elf
 
 capability:
   - pci

@@ -1,5 +1,5 @@
-#ifndef __USB_HID__HID_HPP__
-#define __USB_HID__HID_HPP__
+#ifndef __USB_E1000__E1000_HPP__
+#define __USB_E1000__E1000_HPP__
 
 #include "ioforge/ioforge_nic.h"
 #include "ioforge/ioforge_pci.hpp"
@@ -79,4 +79,4 @@ class E1000Module : public IOforgePCI {
 	ioforge_nic_service* nic = 0;
 };
 
-#endif //__USB_HID__HID_HPP__
+#endif //__USB_E1000__E1000_HPP__

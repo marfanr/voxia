@@ -36,15 +36,6 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 
 	auto int_no = rsp->rax;
 
-	// test
-	// uint64_t cr3 = 0;
-	// asm volatile("mov %%cr3, %0" : "=r"(cr3));
-
-	// if (cr3 == (uint64_t)paging_get_highest_page_map()) {
-	// 	serial2_printf("ini page kernel\n");
-	// } else {
-	// 	serial2_printf("ini page user\n");
-	// }
 
 	// TODO: refactor this using array of linker section
 	switch (int_no) {
@@ -60,6 +51,10 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 	case SYSCALL_OPEN: {
 		rsp->rax = (uint64_t)syscall_open((const char*)rsp->rdi,
 		                                  (int)rsp->rsi, (int)rsp->rdx);
+		break;
+	}
+	case SYSCALL_CLOSE: {
+		rsp->rax = 0;
 		break;
 	}
 	case SYSCALL_ARCH_PRCTL: {
@@ -102,6 +97,10 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 	case SYSCALL_MPORTECT: {
 		rsp->rax = (uint64_t)syscall_mprotect(
 		    (void*)rsp->rdi, (size_t)rsp->rsi, (int)rsp->rdx);
+		break;
+	}
+	case SYSCALL_EXIT_GROUP: {
+		syscall_exit_group((int)rsp->rdi);
 		break;
 	}
 	default:

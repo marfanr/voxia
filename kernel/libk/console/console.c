@@ -69,7 +69,7 @@ static void put_char_raw(char c, uint32_t color) {
 			advance_cursor();
 		return;
 	}
-	vxPutc(c, pos_x, pos_y, color, BLACK);
+	putc(c, pos_x, pos_y, color, BLACK);
 	advance_cursor();
 }
 

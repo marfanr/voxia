@@ -40,5 +40,6 @@ gdt_make_entry(uint32_t base, uint16_t limit, uint8_t access, uint8_t flags);
 void gdt_flush(gdt_ptr_t gdt_ptr);
 
 __attribute__((no_stack_protector)) void setup_gdt(int core);
+void set_tss_stack(uint16_t core, uintptr_t stack_top);
 
 #endif // __HAL_CPU_GDT_H__

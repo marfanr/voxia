@@ -1,5 +1,6 @@
 #include "./interrupt.h"
 #include "autoconf.h"
+#include "console/console.h"
 #include "hal/apic/apic.h"
 #include "hal/cpu/paging.h"
 #include "init/init.h"
@@ -106,7 +107,7 @@ void irq_register(uint8_t core, int n, void* handler, boolean_t use_default_isr,
 }
 
 uint16_t irq_alloc_entry(uint8_t core) {
-	for (uint16_t i = 32; i < MAX_INTERRUPTS; i++) {
+	for (uint16_t i = 0x50; i < MAX_INTERRUPTS; i++) {
 		irq_entry_t* entry =
 		    &interrupt_per_core_data[core].irq_entries[i];
 
@@ -230,16 +231,9 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 	if (int_number < 32) {
 		uintptr_t cr2 = 0;
 
-		// serial_printf("\n\n[EXCEPTION] %s (vector %d)\n",
-		// 	      exception_messages[int_number], int_number);
-		// serial_printf("  rip=0x%lx  rsp=0x%lx  err=0x%lx
-		// cr2=0x%lx\n", 	      rsp->rip, rsp->rsp, rsp->err_code,
-		// cr2); serial_printf("  rax=0x%lx  rbx=0x%lx  rcx=0x%lx
-		// rdx=0x%lx\n", 	      rsp->rax, rsp->rbx, rsp->rcx,
-		// rsp->rdx);
 		if (int_number == PAGE_FAULT) {
 			asm volatile("mov %%cr2, %0" : "=r"(cr2));
-			KDEBUG(DEBUG_LEVEL_ERROR, "page fault 0x%x\n", cr2);
+			// KDEBUG(DEBUG_LEVEL_ERROR, "page fault 0x%x\n", cr2);
 			serial2_printf("page fault 0x%x\n", cr2);
 			auto err = rsp->err_code;
 			serial2_printf(
@@ -255,11 +249,16 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 		serial2_printf("  rax=0x%x  rbp=0x%x  rcx=0x%x  rdx=0x%x\n",
 		               rsp->rax, rsp->rbp, rsp->rcx, rsp->rdx);
 
+		// console_printf("\n\n[EXCEPTION] %s (vector %d)\n",
+		//                exception_messages[int_number], int_number);
+		// console_printf("  rip=0x%x  rsp=0x%x  err=0x%x  cr2=0x%x\n",
+		//                rsp->rip, rsp->rsp, rsp->err_code, cr2);
+		// console_printf("  rax=0x%x  rbp=0x%x  rcx=0x%x  rdx=0x%x\n",
+		//                rsp->rax, rsp->rbp, rsp->rcx, rsp->rdx);
+
 		const scheduler_queue_t* queue =
 		    vxSchedulerGetCurrentQueue(cpu_id);
 		if (queue && queue->thread) {
-			/* Ada thread aktif: tandai terminated, redirect ke
-			 * iddle, dan biarkan scheduler membersihkannya. */
 			LOG2_ERROR("INTERRUPT",
 			           "Exception %s on thread id %d at rip=0x%x "
 			           "cr2=0x%x",
@@ -267,7 +266,6 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 			           queue->thread->id, rsp->rip, cr2);
 			queue->thread->state = THREAD_STATE_TERMINATED;
 			sch_restore_to_next_thread(rsp, cpu_id);
-			// INFLOOP;
 		} else {
 
 			INFLOOP;
@@ -279,31 +277,26 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 		goto end;
 	}
 
-	// paging_reload(paging_get_highest_page_map());
-
 	{
 
 		irq_entry_t* irq =
 		    &interrupt_per_core_data[cpu_id].irq_entries[int_number];
 
 		if (__atomic_load_n(&irq->configured, __ATOMIC_ACQUIRE)) {
-			if (irq->use_default_isr) {
-				uint8_t m = __atomic_load_n(&irq->mask,
-				                            __ATOMIC_ACQUIRE);
-				while (m) {
-					int i = __builtin_ctz(m);
-					void* h = __atomic_load_n(
-					    &irq->handler[i], __ATOMIC_ACQUIRE);
-					if (h)
-						((void (*)(
-						    interrupt_stack_frame_t*))
-						     h)(rsp);
-					m &= (m - 1);
-				}
+			uint8_t m =
+			    __atomic_load_n(&irq->mask, __ATOMIC_ACQUIRE);
+			while (m) {
+				int i = __builtin_ctz(m);
+				void* h = __atomic_load_n(&irq->handler[i],
+				                          __ATOMIC_ACQUIRE);
+				if (h)
+					((void (*)(interrupt_stack_frame_t*))h)(
+					    rsp);
+				m &= (m - 1);
 			}
 		}
 	}
 
-end:
-	apic_eoi();
-}
+	end:
+		apic_eoi();
+	}

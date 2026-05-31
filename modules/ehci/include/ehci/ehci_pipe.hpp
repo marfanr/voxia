@@ -16,10 +16,10 @@ class EHCIPipe : USBInterruptPipe {
 
 	ehci_queue_head_node_t* qh_node_;
 	ehci_queue_task_descriptor_node_t* data_node_;
+	USBInterruptPipeDesc desc_;
 
       private:
 	EHCIModule* ehci_;
-	USBInterruptPipeDesc desc_;
 	InterruptCallback cb_;
 
 	uintptr_t response_;
