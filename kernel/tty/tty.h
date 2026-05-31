@@ -24,9 +24,9 @@ struct tty_internal {
 	char line_buff[1024];
 	uint32_t line_buff_head;
 	uint32_t line_buff_tail;
+	uint32_t line_buff_cursor;
 
-	spinlock_t input_lock;
-	spinlock_t output_lock;
+	spinlock_t tty_lock;
 	struct thread* waiter;
 	struct thread* writer_waiter;
 } __attribute__((aligned(64)));
