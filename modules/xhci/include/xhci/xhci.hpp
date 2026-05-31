@@ -129,7 +129,7 @@ public:
     static XHCIModule* getInstance();
     static void fireHandler();
 
-    void set_controller(ioforge_usb_controller_device* ctrl) { controller = ctrl; }
+    void set_controller(ioforge_usb_controller_service* ctrl) { controller = ctrl; }
 
     // Data Transfer API
     void send_async_with_response(uint8_t addr, uint8_t endpoint,
@@ -192,7 +192,7 @@ private:
     } __attribute__((packed))* erst;
     uintptr_t erst_phys;
 
-    ioforge_usb_controller_device* controller;
+    ioforge_usb_controller_service* controller;
 
     static XHCIModule instance;
 };

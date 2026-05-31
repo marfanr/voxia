@@ -5,7 +5,7 @@ ROOT        ?= $(realpath ../..)
 
 LIB_INCLUDE_DIR := $(ROOT)/include
 
-MODULE_NAME := xci
+MODULE_NAME := xhci
 OUT_ELF     := $(MODULE_NAME).elf
 OUT_VOXMO   := ../../initrd/modules/$(MODULE_NAME).voxmo
 
