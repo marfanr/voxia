@@ -10,6 +10,8 @@
 #include "type.h"
 #include "vfs/enum.h"
 #include <libk/serial.h>
+#include "hal/cpu/irq_lock.h"
+#include "spinlock.h"
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunknown-warning-option"
@@ -83,6 +85,7 @@ static ssfn_buf_t dst;
 static ssfn_t ssfn_ctx = {0};
 
 static boolean_t ssfn_ready = false;
+static spinlock_t gfx_lock = SPINLOCK_INIT;
 
 INIT(graphic) {
 	g__fb = &ctx->framebuffer;
@@ -109,12 +112,13 @@ INIT(graphic) {
 	for (uint64_t i = 0; i < ctx->memory.memory_entries; i++) {
 		memory_entry_t* entry = &ctx->memory.memory_map[i];
 		if (entry->type == ENTRY_MMAP_FRAMEBUFFER) {
-			vxMultipleMmap(paging_get_highest_page_map(),
-			               0xFFFFFA0000000000, entry->base,
-			               entry->length / PAGE_SIZE, 0b111);
-			vma_register(get_kernel_vmm_page(), entry->base, 0xFFFFFA0000000000,
-			             entry->length / PAGE_SIZE);
-			g__fb->framebuffer_addr = 0xFFFFFA0000000000;
+			auto size = entry->length / PAGE_SIZE;
+
+			auto vaddr = vma_lookup_free_vaddr(
+			    get_kernel_vmm_page(), VMA_REGION_A, size);
+			vxMultipleMmap(paging_get_highest_page_map(), vaddr,
+			               entry->base, size, 0b111);
+			g__fb->framebuffer_addr = vaddr;
 			break;
 		}
 	}
@@ -152,21 +156,27 @@ void putc(char c, int col, int row, uint32_t fg, uint32_t bg) {
 	if (!ssfn_ready || !dst.ptr)
 		return;
 
+	uintptr_t flags = irq_save();
+	spin_acquire(&gfx_lock);
 	dst.fg = fg | 0xFF000000;
 	dst.bg = bg | 0xFF000000;
 	dst.x = col * (FONT_SIZE / 2);
 	dst.y = FONT_SIZE + row * FONT_SIZE;
-
+	
 	char str[2] = {c, '\0'};
 	int r = ssfn_render(&ssfn_ctx, &dst, str);
 	if (r < 0)
 		serial2_printf("ssfn_render err: %d\n", r);
+	spin_release(&gfx_lock);
+	irq_restore(flags);
 }
 
-void putc_utf8(const char *s, int col, int row, uint32_t fg, uint32_t bg) {
+void putc_utf8(const char* s, int col, int row, uint32_t fg, uint32_t bg) {
 	if (!ssfn_ready || !dst.ptr)
 		return;
 
+	uintptr_t flags = irq_save();
+	spin_acquire(&gfx_lock);
 	dst.fg = fg | 0xFF000000;
 	dst.bg = bg | 0xFF000000;
 	dst.x = col * (FONT_SIZE / 2);
@@ -175,6 +185,8 @@ void putc_utf8(const char *s, int col, int row, uint32_t fg, uint32_t bg) {
 	int r = ssfn_render(&ssfn_ctx, &dst, s);
 	if (r < 0)
 		serial2_printf("ssfn_render err: %d\n", r);
+	spin_release(&gfx_lock);
+	irq_restore(flags);
 }
 
 int utf8_char_len(uint8_t c) {
@@ -199,9 +211,7 @@ void put_pixel(int x, int y, uint32_t color) {
 }
 
 static inline uint8_t blend(uint8_t src, uint8_t d, uint8_t a) {
-	// Gunakan multiply+shift yang lebih akurat
 	return ((src * a) + (d * (255 - a)) + 128) >> 8;
-	// +128 untuk rounding yang lebih baik
 }
 
 void put_pixel_alpha(int x, int y, pixel_t src) {
@@ -288,41 +298,28 @@ void put_pixel_alpha_fast(int x, int y, pixel_t src) {
 }
 
 void clear_screen(uint32_t color) {
-	memset((void *)g__fb->framebuffer_addr, color,
+	uintptr_t flags = irq_save();
+	spin_acquire(&gfx_lock);
+	memset((void*)g__fb->framebuffer_addr, color,
 	       g__fb->framebuffer_pitch * g__fb->framebuffer_height);
-}
-
-__attribute__((unused)) static void scroll_up(int lines, uint32_t bg_color) {
-	int line_height = 15; // Asumsi tinggi karakter 15px
-	int scroll_amount = lines * line_height;
-
-	// Geser framebuffer ke atas
-	memcopy((void*)g__fb->framebuffer_addr,
-	        (void*)(g__fb->framebuffer_addr +
-	                (uint64_t)scroll_amount * g__fb->framebuffer_pitch),
-	        (size_t)((g__fb->framebuffer_height - lines) *
-	                 g__fb->framebuffer_pitch));
-
-	// Bersihkan area kosong di bawah
-	for (int y = g__fb->framebuffer_height - scroll_amount;
-	     y < g__fb->framebuffer_height; y++) {
-		for (int x = 0; x < g__fb->framebuffer_width; x++) {
-			put_pixel(x, y, bg_color);
-		}
-	}
+	spin_release(&gfx_lock);
+	irq_restore(flags);
 }
 
 uint32_t vxGetWidth(void) { return dst.w; }
 uint32_t vxGetHeight(void) { return dst.h; }
 
 void vxScroll(int px) {
+	uintptr_t flags = irq_save();
+	spin_acquire(&gfx_lock);
 	uint32_t row_bytes = dst.p;
 	uint32_t total = row_bytes * (dst.h - px);
 	ssfn_memcpy(dst.ptr, dst.ptr + row_bytes * px, total);
 
 	ssfn_memset(dst.ptr + total, 0, row_bytes * px);
+	spin_release(&gfx_lock);
+	irq_restore(flags);
 }
-
 
 uint32_t screen_cols(void) {
 	uint32_t w = vxGetWidth();
@@ -338,13 +335,18 @@ uint32_t screen_rows(void) {
 }
 
 void fill_rect(int x, int y, int w, int h, uint32_t color) {
-    if (!dst.ptr) return;
+	if (!dst.ptr)
+		return;
 
-    for (int row = y; row < y + h; row++) {
-        uint32_t *line = (uint32_t*)((uint8_t*)g__fb->framebuffer_addr
-                                     + row * g__fb->framebuffer_pitch);
-        for (int col = x; col < x + w; col++) {
-            line[col] = color;
-        }
-    }
+	uintptr_t flags = irq_save();
+	spin_acquire(&gfx_lock);
+	for (int row = y; row < y + h; row++) {
+		uint32_t* line = (uint32_t*)((uint8_t*)g__fb->framebuffer_addr +
+		                             row * g__fb->framebuffer_pitch);
+		for (int col = x; col < x + w; col++) {
+			line[col] = color;
+		}
+	}
+	spin_release(&gfx_lock);
+	irq_restore(flags);
 }
