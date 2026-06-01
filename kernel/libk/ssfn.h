@@ -958,7 +958,8 @@ familyfound:
 int ssfn_render(ssfn_t *ctx, ssfn_buf_t *dst, const char *str)
 {
     ssfn_font_t **fl;
-    uint8_t *ptr = NULL, *frg, *end, *tmp, color, ci = 0, cb = 0, cs, dec[65536];
+    uint8_t *ptr = NULL, *frg, *end, *tmp, color, ci = 0, cb = 0, cs;
+    static uint8_t dec[65536]; /* static: 64KB too large for kernel stack, safe under gfx_lock serialization */
     uint16_t r[640];
     uint32_t unicode, P, O, *Op, *Ol, sR, sG, sB, sA, bA;
     int ret = 0, i, j, k, l, p, m, n, o, s, x, y, w, h, H, a, A, b, B, nr, uix, uax;
