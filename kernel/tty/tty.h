@@ -10,24 +10,21 @@ struct thread;
 struct tty_internal {
 	boolean_t enable;
 	boolean_t dirty;
-
 	uint32_t cols;
 	uint32_t rows;
-
 	uint32_t cursorx;
 	uint32_t cursory;
-
-	char input_buffer[VOXIA_TTY_INPUT_BUFFER_SIZE];
 	uint32_t head;
 	uint32_t tail;
-
-	char line_buff[1024];
 	uint32_t line_buff_head;
 	uint32_t line_buff_tail;
 	uint32_t line_buff_cursor;
-
 	spinlock_t tty_lock;
 	struct thread* waiter;
+	uint8_t _pad[8];
+
+	char line_buff[1024];
+	char input_buffer[VOXIA_TTY_INPUT_BUFFER_SIZE];
 } __attribute__((aligned(64)));
 
 void change_active_tty(int tty);
