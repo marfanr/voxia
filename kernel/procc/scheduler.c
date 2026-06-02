@@ -383,6 +383,21 @@ void schedule_yield() {
 	irq_restore(flags);
 }
 
+static void scheduler_resume_switch(thread_t* next_thread,
+                                    each_core_data* current_core) {
+	set_tss_stack(next_thread->current_core_id,
+	              next_thread->kernel_stack_top);
+	current_core->active_thread = next_thread;
+	current_core->next_is_user = (next_thread->flags & THREAD_USER) ? 1 : 0;
+
+	msrSetFSBase(next_thread->fs_base);
+	msrSetKernelGSBase(next_thread->gs_base);
+
+	volatile uintptr_t* reload_page = next_thread->page;
+	if (reload_page)
+		paging_reload(reload_page);
+}
+
 __attribute__((noreturn)) void scheduler_resume_point(void) {
 	uint16_t core_id = get_current_core_cpuid();
 	// each_core_data* current_core = get_current_core_data();
@@ -421,41 +436,13 @@ __attribute__((noreturn)) void scheduler_resume_point(void) {
 
 		thread_t* next = found->thread;
 
+		auto current_core = get_current_core_data();
+		scheduler_resume_switch(next, current_core);
+
 		if (next->in_kernel_sleep) {
-			volatile uintptr_t* reload_page = next->page;
-			set_tss_stack(core_id, next->kernel_stack_top);
-
-			auto core_data_ = get_current_core_data();
-			next->current_core_id = core_id;
-			core_data_->active_thread = next;
-			core_data_->next_is_user =
-			    (next->flags & THREAD_USER) ? 1 : 0;
-
-			msrSetFSBase(next->fs_base);
-			msrSetKernelGSBase(next->gs_base);
-
-			if (reload_page)
-				paging_reload(reload_page);
-
 			kernel_context_restore(next->kernel_rsp);
 			__builtin_unreachable();
-
 		} else {
-			auto core_data_ = get_current_core_data();
-			set_tss_stack(core_id, next->kernel_stack_top);
-			next->current_core_id = core_id;
-			core_data_->active_thread = next;
-			core_data_->next_is_user =
-			    (next->flags & THREAD_USER) ? 1 : 0;
-
-			msrSetFSBase(next->fs_base);
-			msrSetKernelGSBase(next->gs_base);
-
-			volatile uintptr_t* reload_page = next->page;
-
-			if (reload_page)
-				paging_reload(reload_page);
-
 			/*
 			 * Non-kernel-sleep thread
 			 * Just re-enable interrupts and spin, the timer ISR
