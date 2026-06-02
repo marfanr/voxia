@@ -79,15 +79,12 @@ static void tty_draw_cursor(struct tty_internal* priv) {
 	fill_rect(px_x, px_y, 2, FONT_SIZE + 1, 0xEEEEEE);
 }
 
-__attribute__((unused))
-static void tty_redraw_from(struct tty_internal* priv, uint32_t buff_pos,
-                            uint32_t snap_tail, int screen_x, int screen_y) {
+__attribute__((unused)) static void
+tty_redraw_from(struct tty_internal* priv, uint32_t buff_pos,
+                uint32_t snap_tail, int screen_x, int screen_y) {
 	int rx = screen_x;
 	int ry = screen_y;
-	(void)rx;
-	(void)ry;
-	(void)priv;
-	serial2_printf("tty_redraw_from: priv=0x%x, buff_pos=%d, snap_tail=%d\n", priv, buff_pos, snap_tail);
+
 	int h = FONT_SIZE + 1;
 
 	int clear_w = ((int)priv->cols - rx) * (FONT_SIZE / 2);
@@ -99,7 +96,8 @@ static void tty_redraw_from(struct tty_internal* priv, uint32_t buff_pos,
 	while (scan != snap_tail) {
 		char temp[3] = {0};
 		int char_len = utf8_char_len((uint8_t)priv->line_buff[scan]);
-		memcopy(temp, (uint8_t*)priv->line_buff + scan, (size_t)char_len);
+		memcopy(temp, (uint8_t*)priv->line_buff + scan,
+		        (size_t)char_len);
 		putc_utf8(temp, rx, ry, 0xFFFFFF, 0x000000);
 		rx++;
 		if (rx >= (int)priv->cols) {
@@ -270,8 +268,8 @@ static uint32_t utf8_prev_codepoint(struct tty_internal* priv, uint32_t pos) {
 	return p;
 }
 
-__attribute__((unused))
-static uint32_t utf8_display_width(const char* codepoint) {
+__attribute__((unused)) static uint32_t
+utf8_display_width(const char* codepoint) {
 	size_t len = strlen(codepoint);
 
 	if (len >= 3)
@@ -325,6 +323,12 @@ static void tty_input_handler(uint32_t event, void* data, void* ctx) {
 
 	uintptr_t flags = irq_save();
 	spin_acquire(&priv->tty_lock);
+
+	if (!__atomic_load_n(&priv->waiter, __ATOMIC_ACQUIRE)) {
+		spin_release(&priv->tty_lock);
+		irq_restore(flags);
+		return;
+	}
 
 	old_cx = (int)priv->cursorx;
 	old_cy = (int)priv->cursory;
@@ -508,10 +512,10 @@ static void tty_input_handler(uint32_t event, void* data, void* ctx) {
 	}
 
 done_input:
-	/* Render while holding the lock to protect priv->line_buff from races */
+	/* Render while holding the lock to protect priv->line_buff from races
+	 */
 	if (do_redraw) {
 		tty_erase_cursor_at(priv, old_cx, old_cy, old_cursor_buff);
-		serial2_printf("redrawing from %d to %d (0x%x)\n", redraw_from, snap_tail, priv->line_buff);
 		serial2_flush();
 		tty_redraw_from(priv, redraw_from, snap_tail, rx, ry);
 		tty_draw_cursor(priv);
@@ -523,9 +527,9 @@ done_input:
 	spin_release(&priv->tty_lock);
 	irq_restore(flags);
 
-	if (wake_thread)
+	if (wake_thread) {
 		vxThreadWake(wake_thread);
-
+	}
 	if (do_newline) {
 		tty_erase_cursor(priv);
 		char_write(vnode, (void*)"\n", 1, 0);
@@ -650,7 +654,6 @@ static void configure_tty(int tty) {
 	priv->line_buff_head = 0;
 	priv->line_buff_cursor = 0;
 	priv->waiter = NULL;
-	priv->writer_waiter = NULL;
 	priv->tty_lock = (spinlock_t)SPINLOCK_INIT;
 }
 

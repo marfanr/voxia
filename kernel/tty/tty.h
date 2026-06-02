@@ -28,7 +28,6 @@ struct tty_internal {
 
 	spinlock_t tty_lock;
 	struct thread* waiter;
-	struct thread* writer_waiter;
 } __attribute__((aligned(64)));
 
 void change_active_tty(int tty);
