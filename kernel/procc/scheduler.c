@@ -238,6 +238,7 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 		               next_thread->id);
 		volatile uintptr_t* reload_page = next_thread->page;
 		set_tss_stack(core_id, next_thread->kernel_stack_top);
+		current_core->kernel_rsp = next_thread->kernel_stack_top;
 
 		next_thread->current_core_id = core_id;
 		current_core->active_thread = next_thread;
@@ -262,23 +263,11 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 	if (next_thread->state == THREAD_STATE_READY) {
 		next_thread->state = THREAD_STATE_RUNNING;
 		set_tss_stack(core_id, next_thread->kernel_stack_top);
+		current_core->kernel_rsp = next_thread->kernel_stack_top;
 
-		if (next_thread->flags & THREAD_USER) {
-			reg->rip = next_thread->entry_addr;
-			reg->rsp = next_thread->stack;
-			reg->cs = 0x48 | 3;
-			reg->ss = 0x40 | 3;
-			reg->rflags = 0x202;
-			reg->rbp = 0;
-		} else {
-			reg->rip = next_thread->entry_addr;
-			reg->rsp =
-			    ((next_thread->stack + 0x1000) & ~(uint64_t)0xF) -
-			    8;
-			reg->cs = 0x28;
-			reg->ss = 0x30;
-			reg->rflags = 0x202;
-			reg->rbp = 0;
+		vxRestoreRegister(reg, &next_thread->reg);
+
+		if ((next_thread->flags & THREAD_USER) == 0) {
 			next_thread->gs_base = (uint64_t)&core_data->canary;
 		}
 
@@ -305,6 +294,7 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 			msrSetFSBase(next_thread->fs_base);
 			msrSetKernelGSBase(next_thread->gs_base);
 			set_tss_stack(core_id, next_thread->kernel_stack_top);
+			current_core->kernel_rsp = next_thread->kernel_stack_top;
 
 			next_thread->current_core_id = core_id;
 			current_core->active_thread = next_thread;
@@ -387,6 +377,7 @@ static void scheduler_resume_switch(thread_t* next_thread,
                                     each_core_data* current_core) {
 	set_tss_stack(next_thread->current_core_id,
 	              next_thread->kernel_stack_top);
+	current_core->kernel_rsp = next_thread->kernel_stack_top;
 	current_core->active_thread = next_thread;
 	current_core->next_is_user = (next_thread->flags & THREAD_USER) ? 1 : 0;
 
@@ -602,7 +593,7 @@ void sch_restore_to_next_thread(volatile interrupt_stack_frame_t* rsp,
 		next->state = THREAD_STATE_RUNNING;
 		if (next->flags & THREAD_USER) {
 			rsp->rip = next->entry_addr;
-			rsp->rsp = next->stack;
+			rsp->rsp = next->stack_top;
 			rsp->cs = 0x48 | 3;
 			rsp->ss = 0x40 | 3;
 			rsp->rflags = 0x202;
@@ -610,7 +601,7 @@ void sch_restore_to_next_thread(volatile interrupt_stack_frame_t* rsp,
 		} else {
 			rsp->rip = next->entry_addr;
 			rsp->rsp =
-			    ((next->stack + 0x1000) & ~(uint64_t)0xF) - 8;
+			    ((next->stack_top + 0x1000) & ~(uint64_t)0xF) - 8;
 			rsp->cs = 0x28;
 			rsp->ss = 0x30;
 			rsp->rflags = 0x202;
