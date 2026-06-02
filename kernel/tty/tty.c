@@ -60,7 +60,7 @@ static void tty_erase_cursor_at(struct tty_internal* priv, int cx, int cy,
 	int px_x = cx * (FONT_SIZE / 2);
 	int px_y = cy * FONT_SIZE;
 
-	fill_rect(px_x, px_y, FONT_SIZE / 2, FONT_SIZE, 0x000000);
+	fill_rect(px_x, px_y, FONT_SIZE / 2, FONT_SIZE + 1, 0x000000);
 
 	if (buff_pos != priv->line_buff_tail &&
 	    (uint8_t)priv->line_buff[buff_pos] >= 0x20)
@@ -76,22 +76,29 @@ static void tty_erase_cursor(struct tty_internal* priv) {
 static void tty_draw_cursor(struct tty_internal* priv) {
 	int px_x = (int)priv->cursorx * (FONT_SIZE / 2);
 	int px_y = (int)priv->cursory * FONT_SIZE;
-	fill_rect(px_x, px_y, 2, FONT_SIZE, 0xFFFFFF);
+	fill_rect(px_x, px_y, 2, FONT_SIZE + 1, 0xEEEEEE);
 }
 
-static void tty_redraw_from(struct tty_internal* priv, uint32_t buff_pos,
-                            uint32_t snap_tail, int screen_x, int screen_y) {
+__attribute__((unused)) static void
+tty_redraw_from(struct tty_internal* priv, uint32_t buff_pos,
+                uint32_t snap_tail, int screen_x, int screen_y) {
 	int rx = screen_x;
 	int ry = screen_y;
 
+	int h = FONT_SIZE + 1;
+
 	int clear_w = ((int)priv->cols - rx) * (FONT_SIZE / 2);
 	if (clear_w > 0)
-		fill_rect(rx * (FONT_SIZE / 2), ry * FONT_SIZE, clear_w,
-		          FONT_SIZE, 0x000000);
+		fill_rect(rx * (FONT_SIZE / 2), ry * FONT_SIZE, clear_w, h,
+		          0x000000);
 
 	uint32_t scan = buff_pos;
 	while (scan != snap_tail) {
-		putc((char)priv->line_buff[scan], rx, ry, 0xFFFFFF, 0x000000);
+		char temp[3] = {0};
+		int char_len = utf8_char_len((uint8_t)priv->line_buff[scan]);
+		memcopy(temp, (uint8_t*)priv->line_buff + scan,
+		        (size_t)char_len);
+		putc_utf8(temp, rx, ry, 0xFFFFFF, 0x000000);
 		rx++;
 		if (rx >= (int)priv->cols) {
 			rx = 0;
@@ -99,8 +106,8 @@ static void tty_redraw_from(struct tty_internal* priv, uint32_t buff_pos,
 			if (ry >= (int)priv->rows)
 				break;
 
-			fill_rect(0, ry * FONT_SIZE + 5,
-			          (int)priv->cols * (FONT_SIZE / 2), FONT_SIZE,
+			fill_rect(0, ry * FONT_SIZE,
+			          (int)priv->cols * (FONT_SIZE / 2), h,
 			          0x000000);
 		}
 		scan = (scan + 1) & LINE_BUFF_MASK;
@@ -110,7 +117,7 @@ static void tty_redraw_from(struct tty_internal* priv, uint32_t buff_pos,
 		int tail_clear_w = ((int)priv->cols - rx) * (FONT_SIZE / 2);
 		if (tail_clear_w > 0)
 			fill_rect(rx * (FONT_SIZE / 2), ry * FONT_SIZE,
-			          tail_clear_w, FONT_SIZE, 0x000000);
+			          tail_clear_w, h, 0x000000);
 	}
 }
 
@@ -261,14 +268,14 @@ static uint32_t utf8_prev_codepoint(struct tty_internal* priv, uint32_t pos) {
 	return p;
 }
 
-static uint32_t utf8_display_width(const char* codepoint)
-{
-    size_t len = strlen(codepoint);
+__attribute__((unused)) static uint32_t
+utf8_display_width(const char* codepoint) {
+	size_t len = strlen(codepoint);
 
-    if (len >= 3)
-        return 2;
+	if (len >= 3)
+		return 2;
 
-    return 1;
+	return 1;
 }
 
 static void tty_input_handler(uint32_t event, void* data, void* ctx) {
@@ -298,6 +305,7 @@ static void tty_input_handler(uint32_t event, void* data, void* ctx) {
 	struct vnode* vnode = dentry->vnode;
 	if (!vnode)
 		return;
+
 	struct tty_internal* priv = (struct tty_internal*)vnode->vnode_private;
 	if (!priv)
 		return;
@@ -315,6 +323,12 @@ static void tty_input_handler(uint32_t event, void* data, void* ctx) {
 
 	uintptr_t flags = irq_save();
 	spin_acquire(&priv->tty_lock);
+
+	if (!__atomic_load_n(&priv->waiter, __ATOMIC_ACQUIRE)) {
+		spin_release(&priv->tty_lock);
+		irq_restore(flags);
+		return;
+	}
 
 	old_cx = (int)priv->cursorx;
 	old_cy = (int)priv->cursory;
@@ -433,8 +447,9 @@ static void tty_input_handler(uint32_t event, void* data, void* ctx) {
 			break;
 		case 'C': /* RIGHT */
 			if (priv->line_buff_cursor != priv->line_buff_tail) {
-				uint32_t cp_len = (uint32_t)utf8_codepoint_size_at(
-				    priv, priv->line_buff_cursor);
+				uint32_t cp_len =
+				    (uint32_t)utf8_codepoint_size_at(
+				        priv, priv->line_buff_cursor);
 
 				priv->line_buff_cursor =
 				    (priv->line_buff_cursor + cp_len) &
@@ -484,7 +499,8 @@ static void tty_input_handler(uint32_t event, void* data, void* ctx) {
 			priv->line_buff_cursor =
 			    (priv->line_buff_cursor + codepoint_len) &
 			    LINE_BUFF_MASK;
-			priv->cursorx += (uint32_t)utf8_display_width(codepoint);
+			priv->cursorx +=
+			    (uint32_t)utf8_display_width(codepoint);
 			if (priv->cursorx >= priv->cols) {
 				priv->cursorx = 0;
 				priv->cursory++;
@@ -496,22 +512,27 @@ static void tty_input_handler(uint32_t event, void* data, void* ctx) {
 	}
 
 done_input:
-	spin_release(&priv->tty_lock);
-	irq_restore(flags);
-
-	if (wake_thread)
-		vxThreadWake(wake_thread);
-
-	if (do_newline) {
-		tty_erase_cursor(priv);
-		char_write(vnode, (void*)"\n", 1, 0);
-	} else if (do_redraw) {
+	/* Render while holding the lock to protect priv->line_buff from races
+	 */
+	if (do_redraw) {
 		tty_erase_cursor_at(priv, old_cx, old_cy, old_cursor_buff);
+		serial2_flush();
 		tty_redraw_from(priv, redraw_from, snap_tail, rx, ry);
 		tty_draw_cursor(priv);
 	} else if (do_cursor_only) {
 		tty_erase_cursor_at(priv, old_cx, old_cy, old_cursor_buff);
 		tty_draw_cursor(priv);
+	}
+
+	spin_release(&priv->tty_lock);
+	irq_restore(flags);
+
+	if (wake_thread) {
+		vxThreadWake(wake_thread);
+	}
+	if (do_newline) {
+		tty_erase_cursor(priv);
+		char_write(vnode, (void*)"\n", 1, 0);
 	}
 }
 
@@ -633,7 +654,6 @@ static void configure_tty(int tty) {
 	priv->line_buff_head = 0;
 	priv->line_buff_cursor = 0;
 	priv->waiter = NULL;
-	priv->writer_waiter = NULL;
 	priv->tty_lock = (spinlock_t)SPINLOCK_INIT;
 }
 

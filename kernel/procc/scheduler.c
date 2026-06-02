@@ -152,10 +152,30 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 		thread->has_update_run_time = true;
 	}
 
+	if (current_core->active_thread != thread &&
+	    current_core->active_thread != nullptr) {
+		/* force context switch if active thread is different with
+		current thread in scheduler */
+		thread_t* preset = current_core->active_thread;
+		if (preset->state == THREAD_STATE_RUNNING ||
+		    preset->state == THREAD_STATE_READY) {
+			needs_context_switch = true;
+		}
+	}
+
+	bool from_scheduler = false;
+	if (reg->rsp >= scheduler[core_id].sched_stack &&
+	    reg->rsp < scheduler[core_id].sched_stack + SCHEDULER_STACK_SIZE) {
+		from_scheduler = true;
+		needs_context_switch = true;
+	}
+
 	if (thread->state == THREAD_STATE_RUNNING) {
-		vxSaveRegister(reg, &thread->reg);
-		thread->fs_base = msrReadFSBase();
-		thread->gs_base = msrReadKernelGSBase();
+		if (!from_scheduler) {
+			vxSaveRegister(reg, &thread->reg);
+			thread->fs_base = msrReadFSBase();
+			thread->gs_base = msrReadKernelGSBase();
+		}
 
 		uint64_t elapsed_ns =
 		    (current_tick - thread->last_run_time) * vxHPETMinTickNs();
@@ -201,10 +221,12 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 			} while (search != start);
 		}
 
-		if (found)
-			next_node = found;
-		else
-			next_node = start;
+		if (!found) {
+			spin_release(&scheduler[core_id].lock);
+			goto done_eoi;
+		}
+
+		next_node = found;
 
 		scheduler[core_id].current = next_node;
 	}
@@ -212,6 +234,8 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 	thread_t* next_thread = next_node->thread;
 
 	if (next_thread->in_kernel_sleep) {
+		serial2_printf("next thread %d in kernel sleep\n",
+		               next_thread->id);
 		volatile uintptr_t* reload_page = next_thread->page;
 		set_tss_stack(core_id, next_thread->kernel_stack_top);
 
@@ -219,6 +243,9 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 		current_core->active_thread = next_thread;
 		current_core->next_is_user =
 		    (next_thread->flags & THREAD_USER) ? 1 : 0;
+
+		msrSetFSBase(next_thread->fs_base);
+		msrSetKernelGSBase(next_thread->gs_base);
 
 		spin_release(&scheduler[core_id].lock);
 
@@ -252,16 +279,28 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 			reg->ss = 0x30;
 			reg->rflags = 0x202;
 			reg->rbp = 0;
+			next_thread->gs_base = (uint64_t)&core_data->canary;
 		}
+
+		serial2_printf("thread %d ready to running\n", next_thread->id);
 
 		next_thread->current_core_id = core_id;
 		current_core->active_thread = next_thread;
 		current_core->next_is_user =
 		    (next_thread->flags & THREAD_USER) ? 1 : 0;
 
-	/* running thread*/
+		msrSetFSBase(next_thread->fs_base);
+		msrSetKernelGSBase(next_thread->gs_base);
+
+		volatile uintptr_t* reload_page = next_thread->page;
+		if (reload_page)
+			paging_reload(reload_page);
+
+		spin_release(&scheduler[core_id].lock);
+		goto done_eoi;
 	} else if (next_thread->state == THREAD_STATE_RUNNING) {
-		if (needs_context_switch && next_thread != thread) {
+		if (needs_context_switch &&
+		    (next_thread != thread || from_scheduler)) {
 			vxRestoreRegister(reg, &next_thread->reg);
 			msrSetFSBase(next_thread->fs_base);
 			msrSetKernelGSBase(next_thread->gs_base);
@@ -271,6 +310,10 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 			current_core->active_thread = next_thread;
 			current_core->next_is_user =
 			    (next_thread->flags & THREAD_USER) ? 1 : 0;
+
+			volatile uintptr_t* reload_page = next_thread->page;
+			if (reload_page)
+				paging_reload(reload_page);
 		}
 	}
 
@@ -305,10 +348,16 @@ void thread_block() {
 
 	thread->state = THREAD_STATE_BLOCKED;
 
+	LOG2_DEBUG("scheduler", "thread block");
+
+	thread->fs_base = msrReadFSBase();
+	thread->gs_base = msrReadKernelGSBase();
+
 	extern void scheduler_resume_point(void);
 	kernel_context_save(&thread->kernel_rsp, scheduler[core_id].sched_rsp,
 	                    (uintptr_t)scheduler_resume_point);
 
+	serial2_printf("return from thread block\n");
 	thread->in_kernel_sleep = false;
 	thread->wake_pending = false;
 	thread->state = THREAD_STATE_RUNNING;
@@ -323,6 +372,9 @@ void schedule_yield() {
 	thread->in_kernel_sleep = true;
 	thread->state = THREAD_STATE_READY;
 
+	thread->fs_base = msrReadFSBase();
+	thread->gs_base = msrReadKernelGSBase();
+
 	kernel_context_save(&thread->kernel_rsp, scheduler[core_id].sched_rsp,
 	                    (uintptr_t)scheduler_resume_point);
 
@@ -331,11 +383,26 @@ void schedule_yield() {
 	irq_restore(flags);
 }
 
-void scheduler_resume_point(void) {
-	uint16_t core_id = get_current_core_cpuid();
+static void scheduler_resume_switch(thread_t* next_thread,
+                                    each_core_data* current_core) {
+	set_tss_stack(next_thread->current_core_id,
+	              next_thread->kernel_stack_top);
+	current_core->active_thread = next_thread;
+	current_core->next_is_user = (next_thread->flags & THREAD_USER) ? 1 : 0;
 
-	while (1) {
-		__asm__ volatile("sti\nnop\ncli" ::: "memory");
+	msrSetFSBase(next_thread->fs_base);
+	msrSetKernelGSBase(next_thread->gs_base);
+
+	volatile uintptr_t* reload_page = next_thread->page;
+	if (reload_page)
+		paging_reload(reload_page);
+}
+
+__attribute__((noreturn)) void scheduler_resume_point(void) {
+	uint16_t core_id = get_current_core_cpuid();
+	// each_core_data* current_core = get_current_core_data();
+
+	while (true) {
 		spin_acquire(&scheduler[core_id].lock);
 
 		scheduler_queue_t* start = scheduler[core_id].current;
@@ -369,25 +436,12 @@ void scheduler_resume_point(void) {
 
 		thread_t* next = found->thread;
 
+		auto current_core = get_current_core_data();
+		scheduler_resume_switch(next, current_core);
+
 		if (next->in_kernel_sleep) {
-			volatile uintptr_t* reload_page = next->page;
-			set_tss_stack(core_id, next->kernel_stack_top);
-
-			auto core_data_ = get_current_core_data();
-			next->current_core_id = core_id;
-			core_data_->active_thread = next;
-			core_data_->next_is_user =
-			    (next->flags & THREAD_USER) ? 1 : 0;
-
-			msrSetFSBase(next->fs_base);
-			msrSetKernelGSBase(next->gs_base);
-
-			if (reload_page)
-				paging_reload(reload_page);
-
 			kernel_context_restore(next->kernel_rsp);
 			__builtin_unreachable();
-
 		} else {
 			/*
 			 * Non-kernel-sleep thread
