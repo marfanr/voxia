@@ -234,7 +234,7 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 	thread_t* next_thread = next_node->thread;
 
 	if (next_thread->in_kernel_sleep) {
-		serial2_printf("next thread %d in kernel thr\n",
+		serial2_printf("next thread %d in kernel sleep\n",
 		               next_thread->id);
 		volatile uintptr_t* reload_page = next_thread->page;
 		set_tss_stack(core_id, next_thread->kernel_stack_top);
@@ -348,7 +348,7 @@ void thread_block() {
 
 	thread->state = THREAD_STATE_BLOCKED;
 
-	LOG2_DEBUG("scheduler", "thread block\n");
+	LOG2_DEBUG("scheduler", "thread block");
 
 	thread->fs_base = msrReadFSBase();
 	thread->gs_base = msrReadKernelGSBase();
@@ -447,11 +447,6 @@ __attribute__((noreturn)) void scheduler_resume_point(void) {
 			core_data_->active_thread = next;
 			core_data_->next_is_user =
 			    (next->flags & THREAD_USER) ? 1 : 0;
-
-			serial2_printf("next thread %d fs %x gs %x\n", next->id,
-			               next->fs_base, next->gs_base);
-			serial2_printf("next thread %d user %d\n", next->id,
-			               next->flags & THREAD_USER);
 
 			msrSetFSBase(next->fs_base);
 			msrSetKernelGSBase(next->gs_base);
