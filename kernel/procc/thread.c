@@ -121,7 +121,6 @@ thread_t* fork(thread_t* parent, uintptr_t entry) {
 
 	memcopy((void*)new_fs_base_vaddr, (void*)parent->fs_base, 4096);
 
-	// 4. Update self->tid di copy child
 	uintptr_t tid_off =
 	    (uintptr_t)parent->clear_child_tid - parent->fs_base;
 	serial2_printf("tid offset %x\n", tid_off);
@@ -144,7 +143,7 @@ thread_t* fork(thread_t* parent, uintptr_t entry) {
 	serial2_printf("forking from process %d with vma tree root 0x%x\n",
 	               parent->process->pid, parent_vma);
 
-	// Clone VMA and set up page table COW mappings
+	
 	if (vma_clone_cow(parent_vma, new_vma, (uintptr_t*)page, (uintptr_t*)parent->page) < 0) {
 		LOG_ERROR("FORK", "failed to clone user-space VMAs (COW)");
 		return nullptr;

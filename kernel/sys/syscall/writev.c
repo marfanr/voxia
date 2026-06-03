@@ -39,7 +39,7 @@ long syscall_writev(int fd, const struct iovec* iov, int iovcnt) {
 	for (int i = 0; i < iovcnt; i++) {
 		auto iov_ = &iovec_[i];
 		if (!iov_->iov_len ||
-		    !iov_->iov_base) /* <-- was: iov-> (bug) */
+		    !iov_->iov_base)
 			continue;
 
 	serial2_printf("write: from 0x%x (thread %d)\n", iov_->iov_base, get_current_core_data()->active_thread->id);

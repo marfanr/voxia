@@ -35,7 +35,7 @@ int syscall_wait4(pid_t pid, int* wstatus, int options, void* rusage) {
 
 	if (wstatus) {
 		/*
-		 * Hardcoded signaled status: assume a signal has been received (e.g. SIGKILL = 9).
+		 * assume a signal has been received (e.g. SIGKILL = 9) for now.
 		 * In POSIX, a process terminated by a signal has (status & 0x7f) equal to the signal number.
 		 * We hardcode it here as requested.
 		 */
