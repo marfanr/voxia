@@ -7,7 +7,7 @@ TARGET = x86_64-linux-musl
 
 CFLAGS = --config ./voxia.cfg
 
-TARGET_BIN = hello.elf
+TARGET_BIN = vshell.elf
 SRC = src/main.c
 
 all: $(TARGET_BIN)
