@@ -20,7 +20,6 @@
 #include <console/console.h>
 
 #define TIOCGWINSZ 0x5413
-#define FONT_SIZE 14
 #define LINE_BUFF_SIZE 1024
 #define LINE_BUFF_MASK (LINE_BUFF_SIZE - 1)
 
