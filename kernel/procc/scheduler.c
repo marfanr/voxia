@@ -72,7 +72,7 @@ static void vxDeatachFromScheduler(scheduler_queue_t* current,
 		spin_release(&scheduler[core_id].lock);
 }
 
-static void vxSaveRegister(volatile interrupt_stack_frame_t* stack,
+void vxSaveRegister(volatile interrupt_stack_frame_t* stack,
                            cpu_register_t* reg) {
 	reg->rip = stack->rip;
 	reg->cs = stack->cs;
@@ -96,7 +96,7 @@ static void vxSaveRegister(volatile interrupt_stack_frame_t* stack,
 	reg->r15 = stack->r15;
 }
 
-static void vxRestoreRegister(volatile interrupt_stack_frame_t* stack,
+void vxRestoreRegister(volatile interrupt_stack_frame_t* stack,
                               cpu_register_t* reg) {
 	stack->rip = reg->rip;
 	stack->cs = reg->cs;
@@ -192,6 +192,7 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 			thread->state = THREAD_STATE_HAL;
 			vxDeatachFromScheduler(current_node, true);
 		}
+		serial2_printf("thread blocked\n");
 		needs_context_switch = true;
 		if (!scheduler[core_id].run_queue_head) {
 			spin_release(&scheduler[core_id].lock);
@@ -338,7 +339,7 @@ void thread_block() {
 
 	thread->state = THREAD_STATE_BLOCKED;
 
-	LOG2_DEBUG("scheduler", "thread block");
+	LOG2_DEBUG("scheduler", "thread block on thread %d (%d)", thread->id, thread->process->pid);
 
 	thread->fs_base = msrReadFSBase();
 	thread->gs_base = msrReadKernelGSBase();
@@ -355,22 +356,28 @@ void thread_block() {
 }
 
 void schedule_yield() {
-	thread_t* thread = get_current_core_data()->active_thread;
-	uint16_t core_id = thread->current_core_id;
+    thread_t* thread = get_current_core_data()->active_thread;
+    uint16_t core_id = thread->current_core_id;
 
-	uintptr_t flags = irq_save();
-	thread->in_kernel_sleep = true;
-	thread->state = THREAD_STATE_READY;
+    uintptr_t flags = irq_save();
+    thread->in_kernel_sleep = true;
 
-	thread->fs_base = msrReadFSBase();
-	thread->gs_base = msrReadKernelGSBase();
+    if (thread->state != THREAD_STATE_TERMINATED) {
+        thread->state = THREAD_STATE_READY;
+    }
 
-	kernel_context_save(&thread->kernel_rsp, scheduler[core_id].sched_rsp,
-	                    (uintptr_t)scheduler_resume_point);
+    thread->fs_base = msrReadFSBase();
+    thread->gs_base = msrReadKernelGSBase();
 
-	thread->in_kernel_sleep = false;
-	thread->state = THREAD_STATE_RUNNING;
-	irq_restore(flags);
+    kernel_context_save(&thread->kernel_rsp, scheduler[core_id].sched_rsp,
+                        (uintptr_t)scheduler_resume_point);
+
+    if (thread->state != THREAD_STATE_TERMINATED && 
+        thread->state != THREAD_STATE_HAL) {
+        thread->in_kernel_sleep = false;
+        thread->state = THREAD_STATE_RUNNING;
+    }
+    irq_restore(flags);
 }
 
 static void scheduler_resume_switch(thread_t* next_thread,
