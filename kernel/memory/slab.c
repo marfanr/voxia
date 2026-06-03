@@ -12,7 +12,7 @@
 
 #define MAX_FREED_VADDRS 512
 
-#define DEFAULT_SLAB_ADDR 0xFFFFFF8080000000
+#define DEFAULT_SLAB_ADDR 0xFFFF828000000000
 static uintptr_t last_slab_addr = DEFAULT_SLAB_ADDR;
 
 static spinlock_t slab_global_lock = {0};
