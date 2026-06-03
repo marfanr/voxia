@@ -10,6 +10,7 @@
 #include <libk/serial.h>
 #include <memory/memory_utils.h>
 #include <memory/vm_manager.h>
+#include <memory/phys_base_allocator.h>
 #include <procc/scheduler.h>
 #include <procc/task.h>
 #include <spinlock.h>
@@ -233,9 +234,45 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 
 		if (int_number == PAGE_FAULT) {
 			asm volatile("mov %%cr2, %0" : "=r"(cr2));
-			// KDEBUG(DEBUG_LEVEL_ERROR, "page fault 0x%x\n", cr2);
-			serial2_printf("page fault 0x%x\n", cr2);
 			auto err = rsp->err_code;
+
+			// Present (err & 1) and Write fault ((err >> 1) & 1)
+			if ((err & 1) && ((err >> 1) & 1)) {
+				const scheduler_queue_t* queue = vxSchedulerGetCurrentQueue(cpu_id);
+				if (queue && queue->thread && queue->thread->page) {
+					thread_t* thr = queue->thread;
+					uint64_t entry = paging_get_entry(thr->page, cr2);
+
+					// Check if page is Present and COW (bit 9 is 0x200)
+					if ((entry & 1) && (entry & 0x200ULL)) {
+						uintptr_t new_phys = (uintptr_t)phys_base_alloc(1);
+						if (new_phys) {
+							uintptr_t fault_page = cr2 & ~0xFFFULL;
+
+							// Map new physical page temporarily into kernel virtual space
+							uintptr_t temp_vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, 1);
+							vxMmap(paging_get_highest_page_map(), temp_vaddr, new_phys, 0b111);
+
+							// Copy page contents
+							memcopy((void*)temp_vaddr, (void*)fault_page, 4096);
+
+							// Unmap temp kernel mapping
+							paging_unmap_page(paging_get_highest_page_map(), temp_vaddr);
+
+							// Map new page in thread PML4 as User | Write | Present (0b111)
+							vxMmap(thr->page, fault_page, new_phys, 0b111);
+
+							// Invalidate TLB for the faulting page
+							asm volatile("invlpg (%0)" ::"r"(fault_page) : "memory");
+
+							// Return immediately to re-execute the write instruction
+							return;
+						}
+					}
+				}
+			}
+
+			serial2_printf("page fault 0x%x\n", cr2);
 			serial2_printf(
 			    "  err bits: present=%d write=%d user=%d nx=%d\n",
 			    err & 1, (err >> 1) & 1, (err >> 2) & 1,

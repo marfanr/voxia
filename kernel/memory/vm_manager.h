@@ -74,5 +74,7 @@ uintptr_t vma_lookup_free_vaddr(struct virtual_memory_page* page,
                                 mem_vma_region region, size_t size);
 struct virtual_memory_page* get_kernel_vmm_page();
 struct virtual_memory_page* create_vmm_page();
+void vma_mmap(struct virtual_memory_page* vmapage, uintptr_t* pml4);
+int vma_clone_cow(struct virtual_memory_page* parent_vmapage, struct virtual_memory_page* child_vmapage, uintptr_t* child_pml4, uintptr_t* parent_pml4);
 
 #endif // __MEMORY_VM_MANAGER_H__
