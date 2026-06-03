@@ -78,7 +78,7 @@ static void workqueue_process() {
 		}
 	}
 
-	vxThreadExit();
+	thread_exit();
 }
 
 workqueue_t* vxAddWorkqueueTask(void (*task)(void*), void* arg,
@@ -152,7 +152,7 @@ INIT(Workqueue) {
 		auto stack = (uintptr_t)kalloc(4096);
 		// auto stack_top = stack + 4096;
 		auto thr = create_thread(
-		    kernel_page, (uintptr_t)workqueue_process, stack, i, 1, 0);
+		    kernel_page, (uintptr_t)workqueue_process, stack, stack, i, 1, 0);
 		attach_to_scheduler(thr);
 	}
 }

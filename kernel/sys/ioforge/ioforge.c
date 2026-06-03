@@ -230,11 +230,13 @@ KERNEL_API
 uintptr_t IOforgeMMapPhys(uintptr_t paddr, size_t size) {
 	auto paddr_base = ALIGN_DOWN(paddr, PAGE_SIZE);
 	auto offset_paddr = paddr - paddr_base;
-	auto vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, size);
-	vxMultipleMmap(paging_get_highest_page_map(), vaddr, paddr_base, size,
+	size_t aligned_size = ALIGN_UP(size, PAGE_SIZE);
+	size_t pages = aligned_size / PAGE_SIZE;
+	auto vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, pages);
+	vxMultipleMmap(paging_get_highest_page_map(), vaddr, paddr_base, pages,
 	               0b111);
 	paging_reload(paging_get_highest_page_map());
-	vma_register(get_kernel_vmm_page(), paddr, vaddr, size / 4096);
+	vma_register(get_kernel_vmm_page(), paddr, vaddr, aligned_size);
 	return vaddr + offset_paddr;
 }
 

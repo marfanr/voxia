@@ -6,6 +6,9 @@
 #include "procc/process.h"
 #include <spinlock.h>
 
+#define USER_STACK_PAGES 256
+#define USER_STACK_SIZE (USER_STACK_PAGES * 4096)
+
 typedef uint64_t thread_id;
 
 enum : uint16_t {
@@ -30,26 +33,27 @@ struct thread {
 	uint8_t state;
 	uint8_t priority;
 	uint16_t flags;
-	uint64_t stack;
+	uint64_t stack_top;
+	uint64_t stack_base;
 	uint64_t last_run_time;
 	boolean_t has_update_run_time;
-	uintptr_t entry_addr;
 	uint16_t current_core_id;
 	// 1 cache line
 
+	uintptr_t entry_addr;
 	process_t* process;
-	uint32_t *clear_child_tid;
+	uint32_t* clear_child_tid;
 	uint32_t uuid;
 	uint64_t fs_base;
 	uint64_t gs_base;
 	uint8_t _pad[12];
 	// 1 cache line
 
-	uintptr_t  kernel_rsp;      /* RSP saat switch keluar */
-    uintptr_t  kernel_stack_base;
-    uintptr_t  kernel_stack_top;
-    bool       in_kernel_sleep;
-    bool       wake_pending;
+	uintptr_t kernel_rsp; /* RSP saat switch keluar */
+	uintptr_t kernel_stack_base;
+	uintptr_t kernel_stack_top;
+	bool in_kernel_sleep;
+	bool wake_pending;
 
 	cpu_register_t reg;
 } __attribute__((aligned(64)));
@@ -70,9 +74,11 @@ typedef struct thread_bucket {
 #define THREAD_GET_ID(tid) ((uint32_t)((tid) & 0xFFFFFFFFULL) - 1)
 #define THREAD_GET_GEN(tid) ((uint32_t)((tid) >> 32))
 
-thread_t* create_thread(volatile uintptr_t* page, uintptr_t entry, uintptr_t stack,
+thread_t* create_thread(volatile uintptr_t* page, uintptr_t entry,
+                        uintptr_t stack_top, uintptr_t stack_base,
                         uint16_t core_affinity, uint8_t priority,
                         uint16_t flags);
-void vxThreadExit(void);
+void thread_exit(void);
+thread_t* fork(thread_t* parent, uintptr_t entry);
 
 #endif /* __PROCC__THREAD_H__ */

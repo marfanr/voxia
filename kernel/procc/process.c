@@ -64,9 +64,6 @@ INIT(Process) {
 #define AT_EXECFN 31 /* String path name executbale file */
 #define AT_SYSINFO_EHDR 33
 
-#define USER_STACK_PAGES 256
-#define USER_STACK_SIZE (USER_STACK_PAGES * 4096)
-
 static uintptr_t elf_prepare_stack(uintptr_t stack_top_kernel,
                                    uintptr_t stack_top_user, int argc,
                                    char* const* argv, char* const* envp,
@@ -235,13 +232,13 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 
 	size_t loaded_size = elf_count_load_size(file_buffer);
 	LOG2_INFO("PROCESS", "loaded size %d (%d kb)", loaded_size,
-	         loaded_size / 1024);
+	          loaded_size / 1024);
 	size_t size_4k = ALIGN_UP(1 + loaded_size, BLOCK_SIZE) / BLOCK_SIZE;
 
 	uintptr_t base_addr = vma_lookup_free_vaddr(
 	    get_kernel_vmm_page(), VMA_REGION_PROCESS, size_4k);
 	LOG2_INFO("PROCESS", "executable %s has base addr at 0x%x", path,
-	         base_addr);
+	          base_addr);
 
 	LOG2_INFO("PROCESS", "found executable type is %d", ehdr.e_type);
 	if (ehdr.e_type != ET_DYN && ehdr.e_type != ET_EXEC) {
@@ -363,6 +360,8 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	uintptr_t interp_entry_addr = 0;
 	Elf64_Ehdr interp_ehdr;
 
+	auto user_thread_vm_page = create_vmm_page();
+
 	struct elf_load_mmap_table* interp_mmap_table = 0;
 
 	if (interp_dentry) {
@@ -418,7 +417,7 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 		interp_base_addr = vma_lookup_free_vaddr(
 		    get_kernel_vmm_page(), VMA_REGION_PROCESS, ld_so_size_4k);
 		LOG2_INFO("PROCESS", "interp %s has base addr at 0x%x",
-		         interp_dentry->name->c_str, interp_base_addr);
+		          interp_dentry->name->c_str, interp_base_addr);
 
 		interp_mmap_table = (struct elf_load_mmap_table*)kalloc(
 		    sizeof(struct elf_load_mmap_table) * interp_ehdr.e_phnum);
@@ -431,13 +430,22 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	}
 
 	// Stack setup
+	// TODO: user_stack_vaddr its allocated using vmm, because its
+	// possible in the one page
+	//  has more than 1 mapping (ex: stack and heap), so we need to
+	//  register vma for stack
 	auto stack_phys = (uintptr_t)phys_base_alloc(USER_STACK_PAGES);
-	auto stack_vaddr = vma_lookup_free_vaddr(
+
+	auto user_stack_vaddr = USER_STACK_VADDR - USER_STACK_SIZE + 4096;
+	auto stack_vaddr_kernel = vma_lookup_free_vaddr(
 	    get_kernel_vmm_page(), VMA_REGION_A, USER_STACK_PAGES);
-	vxMultipleMmap(page, USER_STACK_VADDR - USER_STACK_SIZE + 4096,
+	vma_register(get_kernel_vmm_page(), stack_phys, stack_vaddr_kernel,
+	             USER_STACK_PAGES * 4096);
+	vxMultipleMmap(page, user_stack_vaddr,
 	               stack_phys, USER_STACK_PAGES, 0b111);
-	vxMultipleMmap(paging_get_highest_page_map(), stack_vaddr, stack_phys,
+	vxMultipleMmap(paging_get_highest_page_map(), stack_vaddr_kernel, stack_phys,
 	               USER_STACK_PAGES, 0b111);
+	// vma_register(
 
 	uintptr_t phdr_vaddr = (ehdr.e_type == ET_EXEC)
 	                           ? base_vaddr + ehdr.e_phoff
@@ -456,31 +464,39 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	}
 
 	uintptr_t user_rsp = elf_prepare_stack(
-	    stack_vaddr + USER_STACK_SIZE, USER_STACK_VADDR + 4096, argc, argv,
+	    stack_vaddr_kernel + USER_STACK_SIZE, USER_STACK_VADDR + 4096, argc, argv,
 	    envp, &ehdr, entry_addr, phdr_vaddr, interp_base_addr);
 
 	auto entr = entry_addr;
 	if (interp_base_addr)
 		entr = interp_entry_addr;
 
-	paging_unmap_page(paging_get_highest_page_map(), stack_vaddr);
-	vma_unregister(get_kernel_vmm_page(), stack_vaddr);
+	paging_unmap_page(paging_get_highest_page_map(), stack_vaddr_kernel);
+	// vma_unregister(get_kernel_vmm_page(), stack_vaddr);
 
-	auto thr = create_thread(page, entr, user_rsp, (uint16_t)-1, 2, THREAD_USER);
+	auto thr = create_thread(page, entr, user_rsp, user_stack_vaddr, (uint16_t)-1,
+	                         2, THREAD_USER);
 	auto procc = create_process(loaded_file_dentry->name->c_str, thr);
+	auto caller_thr = get_current_core_data()->active_thread;
+	if (caller_thr && caller_thr->process) {
+		procc->parent_pid = caller_thr->process->pid;
+	}
 	procc->heap_start = heap_start;
 	procc->heap_end = procc->heap_start;
 	procc->vm_lock.next_ticket = procc->vm_lock.now_serving = 0;
+	procc->vm_page = user_thread_vm_page;
 
-	procc->vm_page = create_vmm_page();
+	// regiter stack vma
+	vma_register(user_thread_vm_page, stack_phys, user_stack_vaddr, USER_STACK_PAGES * 4096);
+
 	for (int i = 0; i < ehdr.e_phnum; i++) {
 		auto mm = &mmap_table[i];
 		if (mm->mapped) {
 			serial2_printf(
 			    "process: added to vma aligned base 0x%x\n",
 			    base_addr + mm->alligned);
-			vma_register(procc->vm_page, mm->paddr,
-			             base_addr + mm->alligned, mm->size);
+			vma_register(user_thread_vm_page, mm->paddr,
+			             base_addr + mm->alligned, mm->size * 4096);
 		}
 	}
 
@@ -494,9 +510,9 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 				              "aligned base 0x%x\n",
 				              interp_base_addr + mm->alligned);
 
-				vma_register(procc->vm_page, mm->paddr,
+				vma_register(user_thread_vm_page, mm->paddr,
 				             interp_base_addr + mm->alligned,
-				             mm->size);
+				             mm->size * 4096);
 			}
 		}
 	}
@@ -513,8 +529,9 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	if (interp_mmap_table)
 		kfree2(interp_mmap_table);
 
+	pid_t new_pid = procc->pid;
 	dentry_put(loaded_file_dentry);
-	return VFS_OK;
+	return (int)new_pid;
 }
 
 pid_t alloc_pid(void) {
@@ -627,4 +644,17 @@ process_t* create_process(char* name, thread_t* main_thread) {
 		p->fdtable->fds[next_fd] = fd2;
 	}
 	return p;
+}
+
+process_t* find_process_by_pid(pid_t pid) {
+	if (!_process_list)
+		return nullptr;
+	process_t* curr = _process_list;
+	do {
+		if (curr->pid == pid) {
+			return curr;
+		}
+		curr = curr->next;
+	} while (curr != _process_list);
+	return nullptr;
 }
