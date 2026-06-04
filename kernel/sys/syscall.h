@@ -21,6 +21,9 @@
 #define SYSCALL_BRK 0x0C
 #define SYSCALL_MMAP 0x9
 #define SYSCALL_MPORTECT 0x0A
+#define SYSCALL_FORK 0x39
+#define SYSCALL_EXECVE 0x3B
+#define SYSCALL_WAIT4 61
 
 #define PROT_NONE 0
 #define PROT_READ 1
@@ -34,7 +37,7 @@ int syscall_read(int fd, void* buf, long count);
 int syscall_write(int fd, void* buf, long count);
 int syscall_open(const char* path, int flags, int mode);
 int syscall_arch_prctl(int code, unsigned long addr);
-pid_t syscall_set_tid(uint32_t tid);
+pid_t syscall_set_tid(uintptr_t tid);
 int syscall_ioctl(int fd, uint32_t req, void* arg);
 intptr_t syscall_brk(void* addr);
 void* syscall_mmap(void* addr, size_t len, int prot, int flags, int fd,
@@ -47,5 +50,8 @@ struct iovec {
 
 long syscall_writev(int fd, const struct iovec* iov, int iovcnt);
 void syscall_exit_group(int status);
+int syscall_fork(void);
+int syscall_wait4(pid_t pid, int* wstatus, int options, void* rusage);
+int64_t syscall_rt_sigprocmask(int how, void* set, void* oldset, size_t sigsetsize);
 
 #endif // __SYS__SYSCALL_H__

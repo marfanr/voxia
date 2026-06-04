@@ -33,5 +33,7 @@ void schedule_yield();
 void thread_block();
 void scheduler_resume_point(void);
 void vxThreadWake(thread_t* thread);
+void vxSaveRegister(volatile interrupt_stack_frame_t* stack, cpu_register_t* reg);
+void vxRestoreRegister(volatile interrupt_stack_frame_t* stack, cpu_register_t* reg);
 
 #endif /* __PROCC__SCHEDULER_H__ */

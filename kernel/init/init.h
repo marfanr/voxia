@@ -33,4 +33,5 @@ typedef void (*initcall_t)(init_context_t* ctx);
 	for (;;)                                                               \
 		__asm__ volatile("hlt");
 
+
 #endif // __INIT__INIT_H

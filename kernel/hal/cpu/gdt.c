@@ -13,7 +13,6 @@ extern void reloadGDT(int cs, int ds);
 #define TSS_HIGH 0x30ULL
 
 static gdt_each_core_t __gdt_entries[VOXIA_MAX_CORE];
-uint8_t ap_stack_top[VOXIA_MAX_CORE][65536] __attribute__((aligned(16))); // 64KB
 
 __attribute__((no_stack_protector)) void setup_gdt(int core) {
 	gdt_entry_t* entries = __gdt_entries[core].entries;
@@ -30,8 +29,7 @@ __attribute__((no_stack_protector)) void setup_gdt(int core) {
 	entries[9] = gdt_make_entry(0, 0, 0xFA, 0x20); // User CS 64-bit (Base + 16) 0x48
 
 	lm_tss_t* _tss = &__gdt_entries[core].tss;
-	_tss->rsp[0] =
-		(uintptr_t) ap_stack_top[core] + sizeof(ap_stack_top[core]);
+	_tss->rsp[0] = 0;
 	_tss->rsp[1] = 0;
 	_tss->rsp[2] = 0;
 	_tss->reserved = 0;

@@ -40,6 +40,7 @@ page_t paging_create_page_directory();
 #define PAGE_DIRTY (1ULL << 6)
 #define PAGE_HUGE (1ULL << 7)
 #define PAGE_GLOBAL (1ULL << 8)
+#define PAGE_COW (1ULL << 9)
 #define PAGE_NO_EXECUTE (1ULL << 63)
 
 // Mask untuk strip flag dari physical address
@@ -63,5 +64,10 @@ void paging_add_dma_mapping(uintptr_t phys, uintptr_t virt, uint64_t size);
 void paging_debug(page_t pml4, uint64_t virt);
 
 page_t paging_create_page_directory();
+
+void paging_make_cow(page_t page_dir, uint64_t virt);
+uint64_t paging_get_entry(page_t page_dir, uint64_t virt);
+
+#define INVLPG(x) asm volatile("invlpg (%0)" ::"r"(x) : "memory");
 
 #endif // __HAL__CPU__PAGING_H__

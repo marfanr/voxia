@@ -14,9 +14,9 @@ int syscall_mprotect(void* addr, size_t len, int prot) {
 	serial2_printf("mprotect: addr 0x%x, len 0x%x, prot %d\n", addr, len,
 	               prot);
 	auto thr = get_current_core_data()->active_thread;
-	auto procc = thr->process;
+	auto proc = thr->process;
 
-	if (!thr || !procc) {
+	if (!thr || !proc) {
 		return -1;
 	}
 
@@ -38,13 +38,13 @@ int syscall_mprotect(void* addr, size_t len, int prot) {
 	auto addr_4kb = ALIGN_DOWN((uintptr_t)addr, 0x1000);
 	serial2_printf("mrpotect: base aligned 0x%x\n", addr_4kb);
 
-	auto mm = vma_find(procc->vm_page, (uintptr_t)addr);
+	auto mm = vma_find(proc->vm_page, (uintptr_t)addr);
 	if (!mm) {
 		return -1;
 	}
 
 	auto len_4kb = ALIGN_UP(len, 0x1000) / 0x1000;
-	vxMultipleMmap(thr->page, (uint64_t)addr, (uint64_t)mm->phys_address,
+	vxMultipleMmap(proc->page, (uint64_t)addr, (uint64_t)mm->phys_address,
 	               len_4kb, mmap_flags);
 
 	return 0;

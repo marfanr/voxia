@@ -5,6 +5,8 @@
 #include <unistd.h>
 
 int main(void) {
+    // test PF
+    // *(volatile int*)0 = 123;
     while (1) {
      
     }

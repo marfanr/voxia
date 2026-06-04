@@ -9,6 +9,7 @@
 #include <libk/io.h>
 #include <libk/serial.h>
 #include <memory/memory_utils.h>
+#include <memory/phys_base_allocator.h>
 #include <memory/vm_manager.h>
 #include <procc/scheduler.h>
 #include <procc/task.h>
@@ -233,9 +234,70 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 
 		if (int_number == PAGE_FAULT) {
 			asm volatile("mov %%cr2, %0" : "=r"(cr2));
-			// KDEBUG(DEBUG_LEVEL_ERROR, "page fault 0x%x\n", cr2);
-			serial2_printf("page fault 0x%x\n", cr2);
 			auto err = rsp->err_code;
+
+			// Present (err & 1) and Write fault ((err >> 1) & 1)
+			if ((err & 1) && ((err >> 1) & 1)) {
+				const scheduler_queue_t* queue =
+				    vxSchedulerGetCurrentQueue(cpu_id);
+				auto curr_proc = queue->thread->process;
+				if (queue && queue->thread && curr_proc->page) {
+					uint64_t entry = paging_get_entry(
+					    curr_proc->page, cr2);
+
+					if ((entry & PAGE_PRESENT) &&
+					    (entry & PAGE_COW)) {
+
+						uintptr_t new_phys =
+						    (uintptr_t)phys_base_alloc(
+						        1);
+								
+						if (new_phys) {
+							auto curr_page =
+							    curr_proc->page;
+
+							uintptr_t fault_page =
+							    cr2 & ~0xFFFULL;
+
+							uintptr_t temp_vaddr =
+							    vma_lookup_free_vaddr(
+							        get_kernel_vmm_page(),
+							        VMA_REGION_A,
+							        1);
+							vxMmap(
+							    curr_page,
+							    temp_vaddr,
+							    new_phys,
+							    PAGE_PRESENT |
+							        PAGE_WRITABLE |
+							        PAGE_USER);
+
+							memcopy(
+							    (void*)temp_vaddr,
+							    (void*)fault_page,
+							    BLOCK_SIZE);
+
+							paging_unmap_page(
+							    curr_page,
+							    temp_vaddr);
+
+							vxMmap(
+							    curr_proc->page,
+							    fault_page,
+							    new_phys,
+							    PAGE_PRESENT |
+							        PAGE_WRITABLE |
+							        PAGE_USER);
+
+							INVLPG(fault_page);
+
+							goto end;
+						}
+					}
+				}
+			}
+
+			serial2_printf("page fault 0x%x\n", cr2);
 			serial2_printf(
 			    "  err bits: present=%d write=%d user=%d nx=%d\n",
 			    err & 1, (err >> 1) & 1, (err >> 2) & 1,
@@ -266,15 +328,10 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 			           queue->thread->id, rsp->rip, cr2);
 			queue->thread->state = THREAD_STATE_TERMINATED;
 			sch_restore_to_next_thread(rsp, cpu_id);
-		} else {
 
-			INFLOOP;
-
-			/* Tidak ada thread — terjadi di konteks kernel awal,
-			 * tidak bisa di-recover, halt. */
+			goto end;
 		}
-
-		goto end;
+		INFLOOP;
 	}
 
 	{
@@ -297,6 +354,6 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 		}
 	}
 
-	end:
-		apic_eoi();
-	}
+end:
+	apic_eoi();
+}
