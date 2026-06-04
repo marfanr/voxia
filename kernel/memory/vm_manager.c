@@ -113,7 +113,8 @@ void vma_register(struct virtual_memory_page* page, uintptr_t phys_address,
 	spin_release(&page->lock);
 }
 
-virtual_memory_t* vma_find(struct virtual_memory_page* page, uintptr_t virt_addr) {
+virtual_memory_t* vma_find(struct virtual_memory_page* page,
+                           uintptr_t virt_addr) {
 	spin_acquire(&page->lock);
 	struct rbt_node* n =
 	    rbt_search_node(page->tree, virt_addr, VMA_RBT_NIL);
@@ -196,8 +197,10 @@ uintptr_t vma_lookup_free_vaddr(struct virtual_memory_page* page,
 	spin_release(&page->lock);
 	return result;
 }
-__attribute__((always_inline))
-struct virtual_memory_page* get_kernel_vmm_page() { return kernel_vmm_page; }
+__attribute__((always_inline)) struct virtual_memory_page*
+get_kernel_vmm_page() {
+	return kernel_vmm_page;
+}
 
 static void vma_mmap_recursive(struct rbt_node* node, uintptr_t* pml4) {
 	if (node == VMA_RBT_NIL)
@@ -224,7 +227,8 @@ void vma_mmap(struct virtual_memory_page* vmapage, uintptr_t* pml4) {
 	spin_release(&vmapage->lock);
 }
 
-static void vma_tree_clone(struct virtual_memory_tree* dest, const struct virtual_memory_tree* src) {
+static void vma_tree_clone(struct virtual_memory_tree* dest,
+                           const struct virtual_memory_tree* src) {
 	dest->unused = NULL;
 	dest->active = NULL;
 
@@ -232,8 +236,9 @@ static void vma_tree_clone(struct virtual_memory_tree* dest, const struct virtua
 	struct virtual_memory_tree_node* last_dest_node = NULL;
 
 	while (src_node) {
-		struct virtual_memory_tree_node* new_node = 
-			(struct virtual_memory_tree_node*)vxSlabAlloc(vma_tree_zone_cache);
+		struct virtual_memory_tree_node* new_node =
+		    (struct virtual_memory_tree_node*)vxSlabAlloc(
+		        vma_tree_zone_cache);
 		memset(new_node, 0, sizeof(struct virtual_memory_tree_node));
 		new_node->start_address = src_node->start_address;
 		new_node->end_address = src_node->end_address;
@@ -249,11 +254,15 @@ static void vma_tree_clone(struct virtual_memory_tree* dest, const struct virtua
 	}
 }
 
-static int vma_clone_cow_recursive(struct rbt_node* node, struct virtual_memory_page* child_vmapage, uintptr_t* child_pml4, uintptr_t* parent_pml4) {
+static int vma_clone_cow_recursive(struct rbt_node* node,
+                                   struct virtual_memory_page* child_vmapage,
+                                   uintptr_t* child_pml4,
+                                   uintptr_t* parent_pml4) {
 	if (node == VMA_RBT_NIL)
 		return 0;
 
-	int err = vma_clone_cow_recursive(node->left, child_vmapage, child_pml4, parent_pml4);
+	int err = vma_clone_cow_recursive(node->left, child_vmapage, child_pml4,
+	                                  parent_pml4);
 	if (err < 0)
 		return err;
 
@@ -262,7 +271,8 @@ static int vma_clone_cow_recursive(struct rbt_node* node, struct virtual_memory_
 	if (vma->start_address < KERNEL_BASE) {
 		uintptr_t size = vma->end_address - vma->start_address;
 		uintptr_t pages = (size + 4095) / BLOCK_SIZE;
-		if (pages == 0) pages = 1;
+		if (pages == 0)
+			pages = 1;
 
 		for (uintptr_t i = 0; i < pages; i++) {
 			uintptr_t virt = vma->start_address + i * BLOCK_SIZE;
@@ -270,42 +280,54 @@ static int vma_clone_cow_recursive(struct rbt_node* node, struct virtual_memory_
 			if (entry & 1) {
 				// Mark parent's entry as Read-Only
 				paging_make_cow(parent_pml4, virt);
-				
+
 				uintptr_t phys = entry & PAGE_PHYS_MASK;
-				
-				// Map in child's PML4 as COW (0x205)
-				// 0x200 (COW) | 0x4 (User) | 0x1 (Present) = 0x205
-				vxMmap(child_pml4, virt, phys, 0x205);
+
+				vxMmap(child_pml4, virt, phys,
+				       PAGE_PRESENT | PAGE_COW | PAGE_USER);
 			}
 		}
 
-		vma_register(child_vmapage, vma->phys_address, vma->start_address, size);
+		vma_register(child_vmapage, vma->phys_address,
+		             vma->start_address, size);
 	} else {
 		uintptr_t size = vma->end_address - vma->start_address;
 		uintptr_t pages = (size + 4095) / BLOCK_SIZE;
-		if (pages == 0) pages = 1;
+		if (pages == 0)
+			pages = 1;
 
-		vxMultipleMmap(child_pml4, vma->start_address, vma->phys_address, pages, 0b111);
-		vma_register(child_vmapage, vma->phys_address, vma->start_address, size);
+		vxMultipleMmap(child_pml4, vma->start_address,
+		               vma->phys_address, pages, 0b111);
+		vma_register(child_vmapage, vma->phys_address,
+		             vma->start_address, size);
 	}
 
-	return vma_clone_cow_recursive(node->right, child_vmapage, child_pml4, parent_pml4);
+	return vma_clone_cow_recursive(node->right, child_vmapage, child_pml4,
+	                               parent_pml4);
 }
 
-int vma_clone_cow(struct virtual_memory_page* parent_vmapage, struct virtual_memory_page* child_vmapage, uintptr_t* child_pml4, uintptr_t* parent_pml4) {
+int vma_clone_cow(struct virtual_memory_page* parent_vmapage,
+                  struct virtual_memory_page* child_vmapage,
+                  uintptr_t* child_pml4, uintptr_t* parent_pml4) {
 	spin_acquire(&parent_vmapage->lock);
 	spin_acquire(&child_vmapage->lock);
 
-	vma_tree_clone(&child_vmapage->vma_tree_zone_process, &parent_vmapage->vma_tree_zone_process);
-	vma_tree_clone(&child_vmapage->vma_tree_zone_a, &parent_vmapage->vma_tree_zone_a);
-	vma_tree_clone(&child_vmapage->vma_tree_zone_b, &parent_vmapage->vma_tree_zone_b);
-	vma_tree_clone(&child_vmapage->vma_tree_zone_c, &parent_vmapage->vma_tree_zone_c);
-	vma_tree_clone(&child_vmapage->vma_tree_zone_kmodule, &parent_vmapage->vma_tree_zone_kmodule);
+	vma_tree_clone(&child_vmapage->vma_tree_zone_process,
+	               &parent_vmapage->vma_tree_zone_process);
+	vma_tree_clone(&child_vmapage->vma_tree_zone_a,
+	               &parent_vmapage->vma_tree_zone_a);
+	vma_tree_clone(&child_vmapage->vma_tree_zone_b,
+	               &parent_vmapage->vma_tree_zone_b);
+	vma_tree_clone(&child_vmapage->vma_tree_zone_c,
+	               &parent_vmapage->vma_tree_zone_c);
+	vma_tree_clone(&child_vmapage->vma_tree_zone_kmodule,
+	               &parent_vmapage->vma_tree_zone_kmodule);
 
 	spin_release(&child_vmapage->lock);
 	spin_release(&parent_vmapage->lock);
 
-	return vma_clone_cow_recursive(parent_vmapage->tree, child_vmapage, child_pml4, parent_pml4);
+	return vma_clone_cow_recursive(parent_vmapage->tree, child_vmapage,
+	                               child_pml4, parent_pml4);
 }
 
 #undef RBT_ID_NAME
