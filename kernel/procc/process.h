@@ -52,7 +52,8 @@ pid_t alloc_pid();
 void free_pid(pid_t pid);
 
 process_t* create_process(char* name, struct thread* main_thread);
-int execve(const char* path, char* const argv[], char* const envp[]);
+int run_process(const char* path, char* const argv[], char* const envp[]);
+int run_process_at_proc(const char* path, char* const argv[], char* const envp[], process_t* proc);
 process_t* find_process_by_pid(pid_t pid);
 
 #endif // __PROCC__PROCESS_H__
