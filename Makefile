@@ -35,11 +35,13 @@ modules:
 sbin:
 	$(MAKE) -C $(ROOT_DIR)/sbin/vshell
 	$(MAKE) -C $(ROOT_DIR)/sbin/init
+	$(MAKE) -C $(ROOT_DIR)/sbin/toolbox
 
 sbin-clean:
 	@rm -rf $(ISO_DIR)/root/sbin
 	$(MAKE) -C $(ROOT_DIR)/sbin/hello clean
 	$(MAKE) -C $(ROOT_DIR)/sbin/init clean
+	$(MAKE) -C $(ROOT_DIR)/sbin/toolbox clean
 
 all-hdd: $(HDD)
 
