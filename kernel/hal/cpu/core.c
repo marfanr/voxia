@@ -34,16 +34,13 @@ extern uint8_t x2_apic_supported;
 
 each_core_data core_data[VOXIA_MAX_CORE] = {0};
 
-extern uint8_t ap_stack_top[VOXIA_MAX_CORE][65536];
-
 void update_core_gs(uint8_t id) {
 	core_data[id].canary = (id + 0x56) ^ 0x595e9fbd94fda766;
 	core_data[id].core_id = id;
 	core_data[id].usleep_trigerred = false;
 	core_data[id].scheduler = vxGetSchedulerCore(id);
 	core_data[id].workqueue_count = 0;
-	core_data[id].kernel_rsp =
-	    (uintptr_t)ap_stack_top[id] + sizeof(ap_stack_top[id]);
+	core_data[id].kernel_rsp = 0;
 	core_data[id].user_rsp = 0;
 
 	const uintptr_t core_data_addr = (uintptr_t)&core_data[id];
