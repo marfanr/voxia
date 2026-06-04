@@ -4,6 +4,7 @@
 #include "autoconf.h"
 #include "hal/cpu/register.h"
 #include "procc/process.h"
+#include "sys/sig.h"
 #include <spinlock.h>
 
 #define USER_STACK_PAGES 256
@@ -38,21 +39,21 @@ struct thread {
 	boolean_t has_update_run_time;
 	uint16_t current_core_id;
 	uintptr_t entry_addr;
+	uint32_t* clear_child_tid;
 	// 1 cache line
 
 	process_t* process;
-	uint32_t* clear_child_tid;
 	uint32_t uuid;
 	uint64_t fs_base;
-	uint64_t gs_base;
-	uint8_t _pad[18];
-	// 1 cache line
-
+	uint64_t gs_base;	
 	uintptr_t kernel_rsp; /* RSP saat switch keluar */
 	uintptr_t kernel_stack_base;
 	uintptr_t kernel_stack_top;
 	bool in_kernel_sleep;
 	bool wake_pending;
+	// 1 cache line
+	
+	sig_han_t* signal;
 
 	cpu_register_t reg;
 } __attribute__((aligned(64)));
@@ -78,6 +79,6 @@ thread_t* create_thread(uintptr_t entry,
                         uint16_t core_affinity, uint8_t priority,
                         uint16_t flags);
 void thread_exit(void);
-thread_t* fork(thread_t* parent, uintptr_t entry);
+thread_t* fork_process(thread_t* parent, uintptr_t entry);
 
 #endif /* __PROCC__THREAD_H__ */

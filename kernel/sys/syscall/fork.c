@@ -6,7 +6,7 @@ int syscall_fork(void) {
 	// syscall_fork()
 	auto parent = get_current_core_data()->active_thread;
 
-	auto child = fork(parent, parent->reg.rip);
+	auto child = fork_process(parent, parent->reg.rip);
 
 	if (!child) {
 		return -1;

@@ -42,7 +42,6 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 
 	auto int_no = rsp->rax;
 
-
 	// TODO: refactor this using array of linker section
 	switch (int_no) {
 	case SYSCALL_READ:
@@ -90,8 +89,8 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 		break;
 	}
 	case SYSCALL_IOCTL: {
-		rsp->rax = (uint64_t)syscall_ioctl((int)rsp->rdi, (uint32_t)rsp->rsi,
-		                           (void*)rsp->rdx);
+		rsp->rax = (uint64_t)syscall_ioctl(
+		    (int)rsp->rdi, (uint32_t)rsp->rsi, (void*)rsp->rdx);
 		break;
 	}
 	case SYSCALL_WRITEV: {
@@ -106,8 +105,8 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 	}
 	case SYSCALL_MMAP: {
 		rsp->rax = (uint64_t)syscall_mmap(
-		    (void*)rsp->rdi, (size_t)rsp->rsi, (int)rsp->rdx, (int)rsp->r10,
-		    (int)rsp->r8, (int)rsp->r9);
+		    (void*)rsp->rdi, (size_t)rsp->rsi, (int)rsp->rdx,
+		    (int)rsp->r10, (int)rsp->r8, (int)rsp->r9);
 		break;
 	}
 	case SYSCALL_MPORTECT: {
@@ -124,26 +123,29 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 		break;
 	}
 	case SYSCALL_EXECVE: {
-		rsp->rax = (uint64_t)execve((const char*)rsp->rdi,
-		                           (char* const*)rsp->rsi, (char* const*)rsp->rdx);
+		rsp->rax = (uint64_t)syscall_execve(
+		    (const char*)rsp->rdi, (char* const*)rsp->rsi,
+		    (char* const*)rsp->rdx, rsp);
 		break;
 	}
 	case SYSCALL_WAIT4: {
-		rsp->rax = (uint64_t)syscall_wait4((pid_t)rsp->rdi, (int*)rsp->rsi,
-		                                   (int)rsp->rdx, (void*)rsp->r10);
+		rsp->rax =
+		    (uint64_t)syscall_wait4((pid_t)rsp->rdi, (int*)rsp->rsi,
+		                            (int)rsp->rdx, (void*)rsp->r10);
 		break;
 	}
 	case 34: { // pause
 		auto thr_ = get_current_core_data()->active_thread;
-		serial2_printf("pause from thread id %d (procc %d) \n", thr_->id, thr_->process->pid);
-		
+		serial2_printf("pause from thread id %d (procc %d) \n",
+		               thr_->id, thr_->process->pid);
+
 		thread_block();
 		rsp->rax = (uint64_t)-EINTR;
 		break;
 	}
-	case 14: { // sigprocmask
-		rsp->rax = (uint64_t)syscall_rt_sigprocmask((int)rsp->rdi, (void *)rsp->rsi,
-		                                 (void*)rsp->rdx, rsp->r10);
+	case SYSCALL_SIGPROCMASK: { // sigprocmask
+		rsp->rax = (uint64_t)syscall_rt_sigprocmask(
+		    (int)rsp->rdi, (void*)rsp->rsi, (void*)rsp->rdx, rsp->r10);
 		break;
 	}
 	default:

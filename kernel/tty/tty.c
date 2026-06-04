@@ -335,8 +335,6 @@ static void tty_input_handler(uint32_t event, void* data, void* ctx) {
 
 	/* Delete */
 	if (is_delete) {
-		serial2_printf("delete detected\n");
-
 		if (priv->line_buff_cursor == priv->line_buff_tail)
 			goto done_input;
 
@@ -471,10 +469,11 @@ static void tty_input_handler(uint32_t event, void* data, void* ctx) {
 		goto done_input;
 	}
 
+	// TODO: handle signal
+
 	{
 		uint32_t avail = (LINE_BUFF_SIZE - 1) - line_buff_used(priv);
 		if (codepoint_len <= avail) {
-			/* Geser karakter dari tail mundur untuk buat ruang */
 			uint32_t scan = priv->line_buff_tail;
 			while (scan != priv->line_buff_cursor) {
 				uint32_t prev = (scan - 1) & LINE_BUFF_MASK;

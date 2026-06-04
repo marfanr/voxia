@@ -85,8 +85,8 @@ void vxSetDentryAsRoot(dentry_ptr dentry) { root_dentry = dentry; }
 
 dentry_ptr KERNEL_API get_root_dentry() { return root_dentry; }
 
-int KERNEL_API resolve_dentry(char* path, dentry_ptr parent, dentry_ptr* out,
-                              uint8_t flag) {
+int KERNEL_API resolve_dentry(const char* path, dentry_ptr parent,
+                              dentry_ptr* out, uint8_t flag) {
 	if (!path || !out)
 		return -1;
 
@@ -158,7 +158,8 @@ int KERNEL_API resolve_dentry(char* path, dentry_ptr parent, dentry_ptr* out,
 				if (!ops || !ops->lookup)
 					goto fail;
 
-				serial2_printf("lookup into fs %s\n", component);
+				serial2_printf("lookup into fs %s\n",
+				               component);
 				if (ops->lookup(fs_instance, component, curr,
 				                &next) != VFS_OK)
 					goto fail;
@@ -184,7 +185,7 @@ int KERNEL_API resolve_dentry(char* path, dentry_ptr parent, dentry_ptr* out,
 	return VFS_OK;
 
 fail:
-	LOG2_DEBUG("Dentry", "missing '%s'", path);
+	LOG2_DEBUG("Dentry", "missing '%s'", path_copy->c_str);
 	dentry_put(curr);
 	*out = NULL;
 	str_release(path_copy);
@@ -314,7 +315,7 @@ void print_dentry_tree(dentry_t* dentry, int depth) {
 
 	auto vnode = dentry->vnode;
 	if (vnode) {
-		serial2_printf(" permission %d ",  vnode->permission);
+		serial2_printf(" permission %d ", vnode->permission);
 		if (vnode->type == VNODE_TYPE_BLK) {
 			serial2_printf("BLOCK DEVICE %d:%d",
 			               vnode->device.major,

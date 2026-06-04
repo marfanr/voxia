@@ -77,4 +77,6 @@ struct virtual_memory_page* create_vmm_page();
 void vma_mmap(struct virtual_memory_page* vmapage, uintptr_t* pml4);
 int vma_clone_cow(struct virtual_memory_page* parent_vmapage, struct virtual_memory_page* child_vmapage, uintptr_t* child_pml4, uintptr_t* parent_pml4);
 
+void vma_unmap_all(struct virtual_memory_page* page, uintptr_t* pml4);
+
 #endif // __MEMORY_VM_MANAGER_H__
