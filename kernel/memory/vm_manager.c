@@ -95,7 +95,6 @@ INIT(vma) {
 	    VMA_RBT_NIL;
 
 	kernel_vmm_page = create_vmm_page();
-	serial_trace("ok\n");
 }
 
 void vma_register(struct virtual_memory_page* page, uintptr_t phys_address,
