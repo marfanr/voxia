@@ -1,8 +1,5 @@
 #include "init/init.h"
-#include "hal/apic/apic.h"
-#include "hal/cpu/interrupt.h"
 #include "init/loader.h"
-#include "libk/debug/debug.h"
 #include "libk/serial.h"
 #include "memory/phys_base_allocator.h"
 #include "notify.h"
@@ -68,7 +65,7 @@ _start(struct stivale2_struct* stivale2_struct) {
 	start_tty();
 
 	execve("/sbin/init.elf", 0, 0);
-	execve("/sbin/hello.elf", 0, 0);
+	execve("/sbin/vshell.elf", 0, 0);
 	
 	INFLOOP;
 }

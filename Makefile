@@ -25,6 +25,7 @@ modules:
 	@mkdir -p ./initrd/modules
 	$(MAKE) -C ./modules/e1000
 	$(MAKE) -C ./modules/ehci
+	$(MAKE) -C ./modules/xhci
 	$(MAKE) -C ./modules/usb-hid
 	$(MAKE) -C ./modules/virtio-gpu
 	$(MAKE) -C ./modules/ahci
@@ -32,7 +33,7 @@ modules:
 # 	$(MAKE) -C ./modules/runtimeinit all
 
 sbin:
-	$(MAKE) -C $(ROOT_DIR)/sbin/hello
+	$(MAKE) -C $(ROOT_DIR)/sbin/vshell
 	$(MAKE) -C $(ROOT_DIR)/sbin/init
 
 sbin-clean:
@@ -72,7 +73,7 @@ run-gpu2:
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) $(QEMU_NETWORK) \
 	-display gtk,gl=on,full-screen=off \
 	-device virtio-gpu-gl-pci,xres=1920,yres=1080,id=gpu \
-	-monitor stdio -serial file:qemu.log -d trace:*virtio* -D aqemu.log -s
+	-monitor stdio -serial file:qemu.log -d int -D aqemu.log -s --no-reboot
 
 run-gpu-win: 
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) $(QEMU_NETWORK) \
@@ -214,6 +215,7 @@ run-flashdisk:
 clean:
 	rm -rf $(ISO_DIR) $(ISO) $(BUILD_DIR) $(SYSROOT)
 	$(MAKE) -C kernel clean	
+	$(MAKE) -C modules/xhci clean
 	$(MAKE) -C modules/ehci clean
 	$(MAKE) -C modules/usb-hid clean
 	$(MAKE) -C modules/e1000 clean
