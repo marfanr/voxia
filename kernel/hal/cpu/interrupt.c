@@ -9,8 +9,8 @@
 #include <libk/io.h>
 #include <libk/serial.h>
 #include <memory/memory_utils.h>
-#include <memory/vm_manager.h>
 #include <memory/phys_base_allocator.h>
+#include <memory/vm_manager.h>
 #include <procc/scheduler.h>
 #include <procc/task.h>
 #include <spinlock.h>
@@ -238,35 +238,60 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 
 			// Present (err & 1) and Write fault ((err >> 1) & 1)
 			if ((err & 1) && ((err >> 1) & 1)) {
-				const scheduler_queue_t* queue = vxSchedulerGetCurrentQueue(cpu_id);
-				if (queue && queue->thread && queue->thread->page) {
-					thread_t* thr = queue->thread;
-					uint64_t entry = paging_get_entry(thr->page, cr2);
+				const scheduler_queue_t* queue =
+				    vxSchedulerGetCurrentQueue(cpu_id);
+				auto curr_proc = queue->thread->process;
+				if (queue && queue->thread && curr_proc->page) {
+					uint64_t entry = paging_get_entry(
+					    curr_proc->page, cr2);
 
-					// Check if page is Present and COW (bit 9 is 0x200)
-					if ((entry & 1) && (entry & 0x200ULL)) {
-						uintptr_t new_phys = (uintptr_t)phys_base_alloc(1);
+					if ((entry & PAGE_PRESENT) &&
+					    (entry & PAGE_COW)) {
+
+						uintptr_t new_phys =
+						    (uintptr_t)phys_base_alloc(
+						        1);
+								
 						if (new_phys) {
-							uintptr_t fault_page = cr2 & ~0xFFFULL;
+							auto curr_page =
+							    curr_proc->page;
 
-							// Map new physical page temporarily into kernel virtual space
-							uintptr_t temp_vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, 1);
-							vxMmap(paging_get_highest_page_map(), temp_vaddr, new_phys, 0b111);
+							uintptr_t fault_page =
+							    cr2 & ~0xFFFULL;
 
-							// Copy page contents
-							memcopy((void*)temp_vaddr, (void*)fault_page, 4096);
+							uintptr_t temp_vaddr =
+							    vma_lookup_free_vaddr(
+							        get_kernel_vmm_page(),
+							        VMA_REGION_A,
+							        1);
+							vxMmap(
+							    curr_page,
+							    temp_vaddr,
+							    new_phys,
+							    PAGE_PRESENT |
+							        PAGE_WRITABLE |
+							        PAGE_USER);
 
-							// Unmap temp kernel mapping
-							paging_unmap_page(paging_get_highest_page_map(), temp_vaddr);
+							memcopy(
+							    (void*)temp_vaddr,
+							    (void*)fault_page,
+							    BLOCK_SIZE);
 
-							// Map new page in thread PML4 as User | Write | Present (0b111)
-							vxMmap(thr->page, fault_page, new_phys, 0b111);
+							paging_unmap_page(
+							    curr_page,
+							    temp_vaddr);
 
-							// Invalidate TLB for the faulting page
-							asm volatile("invlpg (%0)" ::"r"(fault_page) : "memory");
+							vxMmap(
+							    curr_proc->page,
+							    fault_page,
+							    new_phys,
+							    PAGE_PRESENT |
+							        PAGE_WRITABLE |
+							        PAGE_USER);
 
-							// Return immediately to re-execute the write instruction
-							return;
+							INVLPG(fault_page);
+
+							goto end;
 						}
 					}
 				}
@@ -303,15 +328,10 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 			           queue->thread->id, rsp->rip, cr2);
 			queue->thread->state = THREAD_STATE_TERMINATED;
 			sch_restore_to_next_thread(rsp, cpu_id);
-		} else {
 
-			INFLOOP;
-
-			/* Tidak ada thread — terjadi di konteks kernel awal,
-			 * tidak bisa di-recover, halt. */
+			goto end;
 		}
-
-		goto end;
+		INFLOOP;
 	}
 
 	{
@@ -334,6 +354,6 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 		}
 	}
 
-	end:
-		apic_eoi();
-	}
+end:
+	apic_eoi();
+}
