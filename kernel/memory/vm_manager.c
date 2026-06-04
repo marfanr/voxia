@@ -330,5 +330,58 @@ int vma_clone_cow(struct virtual_memory_page* parent_vmapage,
 	                               child_pml4, parent_pml4);
 }
 
+static void vma_unmap_all_recursive(rbt_node* node, uintptr_t* pml4) {
+	if (node == VMA_RBT_NIL || node == NULL)
+		return;
+
+	vma_unmap_all_recursive(node->left, pml4);
+	vma_unmap_all_recursive(node->right, pml4);
+
+	virtual_memory_t* vma = node->data;
+
+	uintptr_t size = vma->end_address - vma->start_address;
+	uintptr_t pages = (size + 4095) / BLOCK_SIZE;
+	if (pages == 0)
+		pages = 1;
+
+	paging_unmap_fill(pml4, vma->start_address, pages);
+
+	slab_free(vma_cache, vma);
+	slab_free(rbt_node_cache, node);
+}
+
+static void vma_tree_zone_free(struct virtual_memory_tree* tree) {
+	struct virtual_memory_tree_node* curr = tree->active;
+	while (curr) {
+		struct virtual_memory_tree_node* next = curr->next;
+		slab_free(vma_tree_zone_cache, curr);
+		curr = next;
+	}
+	tree->active = NULL;
+
+	curr = tree->unused;
+	while (curr) {
+		struct virtual_memory_tree_node* next = curr->next;
+		slab_free(vma_tree_zone_cache, curr);
+		curr = next;
+	}
+	tree->unused = NULL;
+}
+
+void vma_unmap_all(struct virtual_memory_page* page, uintptr_t* pml4) {
+	spin_acquire(&page->lock);
+
+	vma_unmap_all_recursive(page->tree, pml4);
+	page->tree = VMA_RBT_NIL;
+
+	vma_tree_zone_free(&page->vma_tree_zone_process);
+	vma_tree_zone_free(&page->vma_tree_zone_a);
+	vma_tree_zone_free(&page->vma_tree_zone_b);
+	vma_tree_zone_free(&page->vma_tree_zone_c);
+	vma_tree_zone_free(&page->vma_tree_zone_kmodule);
+
+	spin_release(&page->lock);
+}
+
 #undef RBT_ID_NAME
 #undef RBT_TYPE

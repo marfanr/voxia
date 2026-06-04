@@ -113,8 +113,7 @@ void thread_exit() {
 		__asm__ volatile("hlt");
 }
 
-thread_t* fork(thread_t* parent, uintptr_t entry) {
-	// TODO: for now fork only work with user thread
+thread_t* fork_process(thread_t* parent, uintptr_t entry) {
 	if (!(parent->flags & THREAD_USER)) {
 		LOG2_ERROR("THREAD", "now fork only working on user thread");
 		return nullptr;

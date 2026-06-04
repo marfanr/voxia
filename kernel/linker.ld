@@ -78,6 +78,7 @@ SECTIONS
         KEEP(*(.init_early.Input))
         KEEP(*(.init_early.TTY))
         KEEP(*(.init_early.Scheduler))
+        KEEP(*(.init_early.Sig))
         KEEP(*(.init_early.Thread))
         KEEP(*(.init_early.Process))
         KEEP(*(.init_early.Core))

@@ -1,6 +1,7 @@
 #ifndef __SYS__SYSCALL_H__
 #define __SYS__SYSCALL_H__
 
+#include "hal/cpu/interrupt.h"
 #include "procc/process.h"
 #include <type.h>
 
@@ -53,6 +54,10 @@ long syscall_writev(int fd, const struct iovec* iov, int iovcnt);
 void syscall_exit_group(int status);
 int syscall_fork(void);
 int syscall_wait4(pid_t pid, int* wstatus, int options, void* rusage);
-int64_t syscall_rt_sigprocmask(int how, void* set, void* oldset, size_t sigsetsize);
+int64_t syscall_rt_sigprocmask(int how, void* set, void* oldset,
+                               size_t sigsetsize);
+
+int syscall_execve(const char* path, char* const argv[], char* const envp[],
+                   interrupt_stack_frame_t* rsp);
 
 #endif // __SYS__SYSCALL_H__

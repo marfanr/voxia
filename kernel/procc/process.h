@@ -53,7 +53,9 @@ void free_pid(pid_t pid);
 
 process_t* create_process(char* name, struct thread* main_thread);
 int run_process(const char* path, char* const argv[], char* const envp[]);
-int run_process_at_proc(const char* path, char* const argv[], char* const envp[], process_t* proc);
+#include "hal/cpu/interrupt.h"
+int run_process_at_proc(const char* path, char* const argv[],
+                        char* const envp[], process_t* proc, interrupt_stack_frame_t* rsp);
 process_t* find_process_by_pid(pid_t pid);
 
 #endif // __PROCC__PROCESS_H__

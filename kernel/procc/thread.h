@@ -79,6 +79,6 @@ thread_t* create_thread(uintptr_t entry,
                         uint16_t core_affinity, uint8_t priority,
                         uint16_t flags);
 void thread_exit(void);
-thread_t* fork(thread_t* parent, uintptr_t entry);
+thread_t* fork_process(thread_t* parent, uintptr_t entry);
 
 #endif /* __PROCC__THREAD_H__ */

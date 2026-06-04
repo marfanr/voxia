@@ -45,7 +45,7 @@ static int term_read_key(int fd, char out[8]) {
 
 int main(void) {
 	printf("VXTerminal on TTY0\n");
-	printf("Welcome to VOXIA V.0.0.1\n");
+	printf("Welcome to VOXIA V.0.0.1\n\n");
 
 	char linebuf[MAX_INPUT];
 	int linelen = 0;
@@ -94,22 +94,39 @@ int main(void) {
 			continue;
 
 		pid_t pid = fork();
-		
+
 		if (pid == 0) {
+			// TODO: chang eto malloc
+			char* argv[10];
+			int argc = 0;
+
+			char* s = linebuf;
+			char* start = s;
+
+			for (char* p = s;; p++) {
+				if (*p == ' ' || *p == '\0') {
+					if (argc < 10) {
+						argv[argc++] = start;
+					}
+					if (*p == '\0')
+						break;
+
+					*p = '\0';
+					start = p + 1;
+				}
+			}
+
+			int res = execve(linebuf, argv, NULL);
+			if (res < 0) {
+				printf("command not found: %s\n", linebuf);
+				exit(1);
+			}
+			waitpid(res, NULL, 0);
 			exit(0);
 		} else if (pid > 0) {
 			waitpid(pid, NULL, 0);
 		}
 
-		// char* argv[] = {linebuf, NULL};
-		// int res = execve(linebuf, argv, NULL);
-		// if (res < 0) {
-		// 	term_puts("command not found: ");
-		// 	term_puts(linebuf);
-		// 	term_puts("\n");
-		// 	exit(1);
-		// }
-		// waitpid(res, NULL, 0);
 		// exit(0);
 		// } else if (pid > 0) {
 		// 	waitpid(pid, NULL, 0);

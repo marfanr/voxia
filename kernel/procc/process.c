@@ -458,6 +458,8 @@ int run_process(const char* path, char* const* argv, char* const* envp) {
 	          loaded_size / 1024);
 	size_t size_4k = ALIGN_UP(1 + loaded_size, BLOCK_SIZE) / BLOCK_SIZE;
 
+	auto user_vm_page = create_vmm_page();
+
 	uintptr_t base_addr = vma_lookup_free_vaddr(
 	    get_kernel_vmm_page(), VMA_REGION_PROCESS, size_4k);
 	LOG2_INFO("PROCESS", "executable %s has base addr at 0x%x", path,
@@ -526,8 +528,6 @@ int run_process(const char* path, char* const* argv, char* const* envp) {
 	Elf64_Ehdr interp_ehdr;
 	struct elf_load_mmap_table* interp_mmap_table = 0;
 
-	auto user_thread_vm_page = create_vmm_page();
-
 	if (interp_dentry) {
 		auto status = setup_interp(interp_dentry, &interp_base_addr,
 		                           &interp_entry_addr, &interp_ehdr,
@@ -563,17 +563,16 @@ int run_process(const char* path, char* const* argv, char* const* envp) {
 	procc->heap_start = heap_start;
 	procc->heap_end = procc->heap_start;
 	procc->lock.next_ticket = procc->lock.now_serving = 0;
-	procc->vm_page = user_thread_vm_page;
+	procc->vm_page = user_vm_page;
 
-	register_elf_vmas(user_thread_vm_page, base_addr, mmap_table,
-	                  ehdr.e_phnum);
+	register_elf_vmas(user_vm_page, base_addr, mmap_table, ehdr.e_phnum);
 	if (interp_base_addr && interp_mmap_table) {
 		serial2_printf("interp base addr 0x%x\n", interp_base_addr);
-		register_elf_vmas(user_thread_vm_page, interp_base_addr,
+		register_elf_vmas(user_vm_page, interp_base_addr,
 		                  interp_mmap_table, interp_ehdr.e_phnum);
 	}
 
-	vma_register(user_thread_vm_page, stack_phys, user_stack_vaddr,
+	vma_register(user_vm_page, stack_phys, user_stack_vaddr,
 	             USER_STACK_PAGES * 4096);
 
 	print_dentry_tree(get_root_dentry(), 0);
@@ -592,6 +591,242 @@ int run_process(const char* path, char* const* argv, char* const* envp) {
 	pid_t new_pid = procc->pid;
 	dentry_put(loaded_file_dentry);
 	return (int)new_pid;
+}
+
+static char** copy_string_array(char* const* arr) {
+	if (!arr)
+		return NULL;
+	int count = 0;
+	while (arr[count])
+		count++;
+
+	char** new_arr = (char**)kalloc(((size_t)count + 1) * sizeof(char*));
+	for (int i = 0; i < count; i++) {
+		size_t len = strlen(arr[i]);
+		new_arr[i] = (char*)kalloc(len + 1);
+		memcopy(new_arr[i], (void*)arr[i], len + 1);
+	}
+	new_arr[count] = NULL;
+	return new_arr;
+}
+
+static void free_string_array(char** arr) {
+	if (!arr)
+		return;
+	for (int i = 0; arr[i]; i++) {
+		kfree2(arr[i]);
+	}
+	kfree2(arr);
+}
+
+int run_process_at_proc(const char* path, char* const argv[],
+                        char* const envp[], process_t* proc,
+                        interrupt_stack_frame_t* rsp) {
+	auto path_kstr = str(path);
+	if (!path_kstr)
+		return -1;
+
+	auto path_ = path_kstr->c_str;
+
+	char** safe_argv = copy_string_array(argv);
+	char** safe_envp = copy_string_array(envp);
+
+	for (int i = 0; safe_argv[i]; i++) {
+		serial2_printf("argv[%d] %s\n", i, safe_argv[i]);
+	}
+
+	serial2_printf("exec process %s \n", path_);
+
+	dentry_ptr loaded_file_dentry;
+	if (resolve_dentry(path_, 0, &loaded_file_dentry, 0) != VFS_OK) {
+		LOG2_ERROR("Process", "executable %s not found", path_);
+		str_release(path_kstr);
+		return -1;
+	}
+
+	if (loaded_file_dentry) {
+		serial2_printf("found %s (size %d kb) \n",
+		               loaded_file_dentry->name->c_str,
+		               loaded_file_dentry->vnode->size / 1024);
+	}
+
+	auto page = proc->page;
+	vma_unmap_all(proc->vm_page, (uintptr_t*)page);
+
+	size_t size = 0;
+	uint8_t* file_buffer =
+	    load_executable_buffer(&loaded_file_dentry, &size);
+	if (!file_buffer) {
+		dentry_put(loaded_file_dentry);
+		str_release(path_kstr);
+		free_string_array(safe_argv);
+		free_string_array(safe_envp);
+		return -1;
+	}
+
+	Elf64_Ehdr ehdr;
+	memcopy(&ehdr, (void*)file_buffer, sizeof(Elf64_Ehdr));
+
+	if (!validate_elf_header(&ehdr)) {
+		LOG2_ERROR("PROCESS", "invalid elf file or wrong elf type");
+		kfree2(file_buffer);
+		dentry_put(loaded_file_dentry);
+		str_release(path_kstr);
+		free_string_array(safe_argv);
+		free_string_array(safe_envp);
+		return -2;
+	}
+
+	size_t loaded_size = elf_count_load_size(file_buffer);
+	LOG2_INFO("PROCESS", "loaded size %d (%d kb)", loaded_size,
+	          loaded_size / 1024);
+	size_t size_4k = ALIGN_UP(1 + loaded_size, BLOCK_SIZE) / BLOCK_SIZE;
+
+	uintptr_t base_addr = vma_lookup_free_vaddr(
+	    get_kernel_vmm_page(), VMA_REGION_PROCESS, size_4k);
+	LOG2_INFO("PROCESS", "executable %s has base addr at 0x%x",
+	          path_kstr->c_str, base_addr);
+	LOG2_INFO("PROCESS", "found executable type is %d", ehdr.e_type);
+
+	if (ehdr.e_type == ET_EXEC)
+		base_addr = 0;
+
+	elf_section_map sh_map = {0};
+	elf_section_map_all(file_buffer, &sh_map);
+
+	LOG2_INFO("ELF", "version : %d, ph num : %d", ehdr.e_version,
+	          ehdr.e_phnum);
+	LOG2_INFO("ELF", "entry : 0x%x", ehdr.e_entry);
+	serial2_printf("phdr count %d\n", ehdr.e_phnum);
+
+	Elf64_Phdr* phdr = ELF_PTR(Elf64_Phdr, file_buffer, ehdr.e_phoff);
+	uintptr_t base_vaddr = 0;
+	uintptr_t heap_start = 0;
+	get_elf_memory_bounds(&ehdr, phdr, base_addr, &base_vaddr, &heap_start);
+	serial2_printf("heap start at 0x%x\n", heap_start);
+
+	dentry_ptr interp_dentry = 0;
+	if (find_elf_interpreter(&ehdr, phdr, file_buffer, &interp_dentry) <
+	    0) {
+		dentry_put(loaded_file_dentry);
+		str_release(path_kstr);
+		free_string_array(safe_argv);
+		free_string_array(safe_envp);
+		return -1;
+	}
+
+	struct elf_load_mmap_table* mmap_table =
+	    (struct elf_load_mmap_table*)kalloc(
+	        sizeof(struct elf_load_mmap_table) * ehdr.e_phnum);
+
+	auto l = elf_load(page, file_buffer, base_addr, base_addr, mmap_table);
+	serial2_printf("loaded size %d kb\n", l / 1024);
+
+	uintptr_t temporary_base = 0;
+	for (int i = 0; i < ehdr.e_phnum; i++) {
+		if (mmap_table[i].mapped) {
+			temporary_base = mmap_table[i].vaddr;
+			break;
+		}
+	}
+
+	serial2_printf("temporary_base 0x%x -> base 0x%x\n", temporary_base,
+	               base_addr);
+	if (!temporary_base) {
+		serial2_printf("error temporary addr must be not empty\n");
+		kfree2(mmap_table);
+		dentry_put(loaded_file_dentry);
+		str_release(path_kstr);
+		free_string_array(safe_argv);
+		free_string_array(safe_envp);
+		return -2;
+	}
+
+	relocate_dynamic_elf(file_buffer, &sh_map, temporary_base, base_addr,
+	                     mmap_table, ehdr.e_phnum, interp_dentry);
+
+	serial2_printf("base vaddr %x %x\n", base_vaddr,
+	               (ehdr.e_entry - base_vaddr));
+
+	auto entry_addr =
+	    (ehdr.e_type == ET_EXEC) ? ehdr.e_entry : ehdr.e_entry + base_addr;
+
+	uintptr_t interp_base_addr = 0;
+	uintptr_t interp_entry_addr = 0;
+	Elf64_Ehdr interp_ehdr;
+	struct elf_load_mmap_table* interp_mmap_table = 0;
+
+	auto user_vm_page = proc->vm_page;
+
+	if (interp_dentry) {
+		auto status = setup_interp(interp_dentry, &interp_base_addr,
+		                           &interp_entry_addr, &interp_ehdr,
+		                           &interp_mmap_table, page);
+		dentry_put(interp_dentry);
+		if (status < 0) {
+			str_release(path_kstr);
+			free_string_array(safe_argv);
+			free_string_array(safe_envp);
+			return status;
+		}
+		serial2_printf("interp load done\n");
+	}
+
+	uintptr_t phdr_vaddr = (ehdr.e_type == ET_EXEC)
+	                           ? base_vaddr + ehdr.e_phoff
+	                           : base_addr + ehdr.e_phoff;
+
+	uintptr_t stack_phys = 0;
+	uintptr_t user_rsp = setup_process_stack(
+	    page, &stack_phys, safe_argv, safe_envp, &ehdr, entry_addr,
+	    phdr_vaddr, interp_base_addr, path_kstr->c_str);
+
+	auto entr = interp_base_addr ? interp_entry_addr : entry_addr;
+	auto user_stack_vaddr = USER_STACK_VADDR - USER_STACK_SIZE + 4096;
+	auto main_thr = proc->main_thread;
+	main_thr->stack_base = user_stack_vaddr;
+	main_thr->stack_top = user_rsp;
+
+	
+	if (rsp) {
+		rsp->rip = entr;
+		rsp->rsp = user_rsp;
+		rsp->cs = 0x48 | 3;
+		rsp->ss = 0x40 | 3;
+		rsp->rflags = 0x202;
+		rsp->rbp = 0;
+	}
+
+	strcpy(proc->name, loaded_file_dentry->name->c_str);
+
+	proc->page = page;
+	proc->heap_start = heap_start;
+	proc->heap_end = proc->heap_start;
+
+	register_elf_vmas(user_vm_page, base_addr, mmap_table, ehdr.e_phnum);
+	if (interp_base_addr && interp_mmap_table) {
+		serial2_printf("interp base addr 0x%x\n", interp_base_addr);
+		register_elf_vmas(user_vm_page, interp_base_addr,
+		                  interp_mmap_table, interp_ehdr.e_phnum);
+	}
+
+	vma_register(user_vm_page, stack_phys, user_stack_vaddr,
+	             USER_STACK_PAGES * 4096);
+
+	print_dentry_tree(get_root_dentry(), 0);
+
+	serial2_printf("process id %d\n", proc->pid);
+	serial2_printf("done setuping executable, returning to user space\n");
+
+	kfree2(mmap_table);
+	if (interp_mmap_table)
+		kfree2(interp_mmap_table);
+	kfree2(file_buffer);
+
+	str_release(path_kstr);
+	free_string_array(safe_argv);
+	free_string_array(safe_envp);
+	return (int)proc->pid;
 }
 
 pid_t alloc_pid(void) {
