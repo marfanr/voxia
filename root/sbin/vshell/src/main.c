@@ -44,15 +44,16 @@ static int term_read_key(int fd, char out[8]) {
 }
 
 int main(void) {
-	term_puts("VXTerminal on TTY0\n");
+	printf("VXTerminal on TTY0\n");
+	printf("Welcome to VOXIA V.0.0.1\n");
 
 	char linebuf[MAX_INPUT];
 	int linelen = 0;
 
 	while (1) {
-		// term_puts("$ ");
+		term_puts("$ ");
 		linelen = 0;
-		// memset(linebuf, 0, sizeof(linebuf));
+		memset(linebuf, 0, sizeof(linebuf));
 
 		while (1) {
 			char key[8] = {0};
@@ -93,8 +94,7 @@ int main(void) {
 			continue;
 
 		pid_t pid = fork();
-		// printf("%d\n", pid);
-
+		
 		if (pid == 0) {
 			exit(0);
 		} else if (pid > 0) {

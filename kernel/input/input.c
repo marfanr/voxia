@@ -59,8 +59,5 @@ void input_report_key(struct ioforge_device* dev, uint16_t code, int value) {
 	__atomic_store_n(&__event_data_ascii->type, INPUT_EVENT_TEXT,
 	                 __ATOMIC_RELAXED);
 
-	// serial2_printf("input: capslock %d code=%x ascii=%s (%d)\n",
-	//                shift || capslock, code, ascii, strlen(ascii));
-
 	notify_call("/input/triggered", 0, __event_data_ascii);
 }

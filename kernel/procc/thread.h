@@ -29,7 +29,6 @@ typedef struct thread thread_t;
 struct thread {
 	thread_id id;
 	uint16_t core_affinity;
-	volatile uintptr_t* page;
 	uint8_t state;
 	uint8_t priority;
 	uint16_t flags;
@@ -38,15 +37,15 @@ struct thread {
 	uint64_t last_run_time;
 	boolean_t has_update_run_time;
 	uint16_t current_core_id;
+	uintptr_t entry_addr;
 	// 1 cache line
 
-	uintptr_t entry_addr;
 	process_t* process;
 	uint32_t* clear_child_tid;
 	uint32_t uuid;
 	uint64_t fs_base;
 	uint64_t gs_base;
-	uint8_t _pad[12];
+	uint8_t _pad[18];
 	// 1 cache line
 
 	uintptr_t kernel_rsp; /* RSP saat switch keluar */
@@ -74,7 +73,7 @@ typedef struct thread_bucket {
 #define THREAD_GET_ID(tid) ((uint32_t)((tid) & 0xFFFFFFFFULL) - 1)
 #define THREAD_GET_GEN(tid) ((uint32_t)((tid) >> 32))
 
-thread_t* create_thread(volatile uintptr_t* page, uintptr_t entry,
+thread_t* create_thread(uintptr_t entry,
                         uintptr_t stack_top, uintptr_t stack_base,
                         uint16_t core_affinity, uint8_t priority,
                         uint16_t flags);

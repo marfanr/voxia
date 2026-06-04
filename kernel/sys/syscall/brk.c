@@ -32,7 +32,7 @@ intptr_t syscall_brk(void* addr) {
 			return (intptr_t)old_brk;
 		}
         
-		vxMultipleMmap(curr_thr->page, old_page, (uintptr_t)phys,
+		vxMultipleMmap(proc->page, old_page, (uintptr_t)phys,
         (new_page - old_page) / PAGE_SIZE,
         PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
         

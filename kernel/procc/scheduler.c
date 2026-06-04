@@ -73,7 +73,7 @@ static void vxDeatachFromScheduler(scheduler_queue_t* current,
 }
 
 void vxSaveRegister(volatile interrupt_stack_frame_t* stack,
-                           cpu_register_t* reg) {
+                    cpu_register_t* reg) {
 	reg->rip = stack->rip;
 	reg->cs = stack->cs;
 	reg->rflags = stack->rflags;
@@ -97,7 +97,7 @@ void vxSaveRegister(volatile interrupt_stack_frame_t* stack,
 }
 
 void vxRestoreRegister(volatile interrupt_stack_frame_t* stack,
-                              cpu_register_t* reg) {
+                       cpu_register_t* reg) {
 	stack->rip = reg->rip;
 	stack->cs = reg->cs;
 	stack->rflags = reg->rflags;
@@ -233,11 +233,11 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 	}
 
 	thread_t* next_thread = next_node->thread;
+	auto next_proc = next_thread->process;
 
 	if (next_thread->in_kernel_sleep) {
 		serial2_printf("next thread %d in kernel sleep\n",
 		               next_thread->id);
-		volatile uintptr_t* reload_page = next_thread->page;
 		set_tss_stack(core_id, next_thread->kernel_stack_top);
 		current_core->kernel_rsp = next_thread->kernel_stack_top;
 
@@ -245,6 +245,9 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 		current_core->active_thread = next_thread;
 		current_core->next_is_user =
 		    (next_thread->flags & THREAD_USER) ? 1 : 0;
+		volatile uintptr_t* reload_page =
+		    current_core->next_is_user ? next_proc->page
+		                               : paging_get_highest_page_map();
 
 		msrSetFSBase(next_thread->fs_base);
 		msrSetKernelGSBase(next_thread->gs_base);
@@ -282,7 +285,9 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 		msrSetFSBase(next_thread->fs_base);
 		msrSetKernelGSBase(next_thread->gs_base);
 
-		volatile uintptr_t* reload_page = next_thread->page;
+		volatile uintptr_t* reload_page =
+		    current_core->next_is_user ? next_proc->page
+		                               : paging_get_highest_page_map();
 		if (reload_page)
 			paging_reload(reload_page);
 
@@ -295,14 +300,18 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 			msrSetFSBase(next_thread->fs_base);
 			msrSetKernelGSBase(next_thread->gs_base);
 			set_tss_stack(core_id, next_thread->kernel_stack_top);
-			current_core->kernel_rsp = next_thread->kernel_stack_top;
+			current_core->kernel_rsp =
+			    next_thread->kernel_stack_top;
 
 			next_thread->current_core_id = core_id;
 			current_core->active_thread = next_thread;
 			current_core->next_is_user =
 			    (next_thread->flags & THREAD_USER) ? 1 : 0;
 
-			volatile uintptr_t* reload_page = next_thread->page;
+			volatile uintptr_t* reload_page =
+			    current_core->next_is_user
+			        ? next_proc->page
+			        : paging_get_highest_page_map();
 			if (reload_page)
 				paging_reload(reload_page);
 		}
@@ -313,9 +322,12 @@ static void vxSchedulerTick(volatile interrupt_stack_frame_t* reg) {
 		next_thread->has_update_run_time = true;
 	}
 
-	volatile uintptr_t* reload_page = next_thread->page;
 	spin_release(&scheduler[core_id].lock);
+	current_core->next_is_user = (next_thread->flags & THREAD_USER) ? 1 : 0;
 
+	auto reload_page = current_core->next_is_user
+	                       ? next_proc->page
+	                       : paging_get_highest_page_map();
 	if (reload_page)
 		paging_reload(reload_page);
 
@@ -339,7 +351,8 @@ void thread_block() {
 
 	thread->state = THREAD_STATE_BLOCKED;
 
-	LOG2_DEBUG("scheduler", "thread block on thread %d (%d)", thread->id, thread->process->pid);
+	LOG2_DEBUG("scheduler", "thread block on thread %d (%d)", thread->id,
+	           thread->process->pid);
 
 	thread->fs_base = msrReadFSBase();
 	thread->gs_base = msrReadKernelGSBase();
@@ -356,28 +369,28 @@ void thread_block() {
 }
 
 void schedule_yield() {
-    thread_t* thread = get_current_core_data()->active_thread;
-    uint16_t core_id = thread->current_core_id;
+	thread_t* thread = get_current_core_data()->active_thread;
+	uint16_t core_id = thread->current_core_id;
 
-    uintptr_t flags = irq_save();
-    thread->in_kernel_sleep = true;
+	uintptr_t flags = irq_save();
+	thread->in_kernel_sleep = true;
 
-    if (thread->state != THREAD_STATE_TERMINATED) {
-        thread->state = THREAD_STATE_READY;
-    }
+	if (thread->state != THREAD_STATE_TERMINATED) {
+		thread->state = THREAD_STATE_READY;
+	}
 
-    thread->fs_base = msrReadFSBase();
-    thread->gs_base = msrReadKernelGSBase();
+	thread->fs_base = msrReadFSBase();
+	thread->gs_base = msrReadKernelGSBase();
 
-    kernel_context_save(&thread->kernel_rsp, scheduler[core_id].sched_rsp,
-                        (uintptr_t)scheduler_resume_point);
+	kernel_context_save(&thread->kernel_rsp, scheduler[core_id].sched_rsp,
+	                    (uintptr_t)scheduler_resume_point);
 
-    if (thread->state != THREAD_STATE_TERMINATED && 
-        thread->state != THREAD_STATE_HAL) {
-        thread->in_kernel_sleep = false;
-        thread->state = THREAD_STATE_RUNNING;
-    }
-    irq_restore(flags);
+	if (thread->state != THREAD_STATE_TERMINATED &&
+	    thread->state != THREAD_STATE_HAL) {
+		thread->in_kernel_sleep = false;
+		thread->state = THREAD_STATE_RUNNING;
+	}
+	irq_restore(flags);
 }
 
 static void scheduler_resume_switch(thread_t* next_thread,
@@ -391,9 +404,13 @@ static void scheduler_resume_switch(thread_t* next_thread,
 	msrSetFSBase(next_thread->fs_base);
 	msrSetKernelGSBase(next_thread->gs_base);
 
-	volatile uintptr_t* reload_page = next_thread->page;
-	if (reload_page)
-		paging_reload(reload_page);
+	auto next_proc = next_thread->process;
+	if (!next_proc) {
+		paging_reload(paging_get_highest_page_map());
+		return;
+	}
+	if (next_proc->page)
+		paging_reload(next_proc->page);
 }
 
 __attribute__((noreturn)) void scheduler_resume_point(void) {
@@ -575,10 +592,10 @@ void sch_restore_to_next_thread(volatile interrupt_stack_frame_t* rsp,
 	thread_t* crashed = current_node->thread;
 	crashed->state = THREAD_STATE_HAL;
 
-	// Detach dari queue (already_locked = true)
+	// Detach from queue
 	vxDeatachFromScheduler(current_node, true);
 
-	// Tidak ada thread lain → tidak bisa recover
+	// no another thread, just loop
 	if (!scheduler[core_id].run_queue_head) {
 		spin_release(&scheduler[core_id].lock);
 		INFLOOP;
@@ -598,22 +615,7 @@ void sch_restore_to_next_thread(volatile interrupt_stack_frame_t* rsp,
 	} else if (next->state == THREAD_STATE_READY) {
 		// setup new thread
 		next->state = THREAD_STATE_RUNNING;
-		if (next->flags & THREAD_USER) {
-			rsp->rip = next->entry_addr;
-			rsp->rsp = next->stack_top;
-			rsp->cs = 0x48 | 3;
-			rsp->ss = 0x40 | 3;
-			rsp->rflags = 0x202;
-			rsp->rbp = 0;
-		} else {
-			rsp->rip = next->entry_addr;
-			rsp->rsp =
-			    ((next->stack_top + 0x1000) & ~(uint64_t)0xF) - 8;
-			rsp->cs = 0x28;
-			rsp->ss = 0x30;
-			rsp->rflags = 0x202;
-			rsp->rbp = 0;
-		}
+		vxRestoreRegister(rsp, &next->reg);
 	}
 
 	auto current_core = get_current_core_data();
@@ -623,9 +625,13 @@ void sch_restore_to_next_thread(volatile interrupt_stack_frame_t* rsp,
 
 	scheduler[core_id].current = next_node;
 
-	volatile uintptr_t* reload_page = next->page;
 	spin_release(&scheduler[core_id].lock);
 
-	if (reload_page)
-		paging_reload(reload_page);
+	auto next_proc = next->process;
+	if (!next_proc) {
+		paging_reload(paging_get_highest_page_map());
+		return;
+	}
+	if (next_proc->page)
+		paging_reload(next_proc->page);
 }

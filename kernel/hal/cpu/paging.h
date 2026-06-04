@@ -68,4 +68,6 @@ page_t paging_create_page_directory();
 void paging_make_cow(page_t page_dir, uint64_t virt);
 uint64_t paging_get_entry(page_t page_dir, uint64_t virt);
 
+#define INVLPG(x) asm volatile("invlpg (%0)" ::"r"(x) : "memory");
+
 #endif // __HAL__CPU__PAGING_H__

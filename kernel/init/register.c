@@ -7,6 +7,7 @@ INIT(ModuleRegister) {
 	vxSetDefaultVoxmoPath(VOXIA_DEFAULT_VOXMO_PATH);
 	vxVoxmoInstall("e1000");
 	vxVoxmoInstall("ehci");
+	vxVoxmoInstall("xhci");
 	vxVoxmoInstall("virtio-gpu");
 	vxVoxmoInstall("ahci");
 	vxVoxmoInstall("atapi");

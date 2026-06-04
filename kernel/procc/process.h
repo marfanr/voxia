@@ -6,7 +6,7 @@
 #include <type.h>
 
 #define MAX_PID_ALLOWED 4194304
-#define INVALID_PID ((pid_t)-1)
+#define INVALID_PID ((pid_t) - 1)
 
 typedef uint32_t pid_t;
 
@@ -25,20 +25,19 @@ struct thread;
 typedef struct process {
 	pid_t pid;
 	pid_t parent_pid;
-
-	char name[64];
-
+	volatile uintptr_t* page;
 	struct thread* main_thread;
 	struct fdtable* fdtable;
 	int exit_code;
 	bool exited;
-
 	struct process_node cache;
+	struct virtual_memory_page* vm_page;
+
+	char name[64];
 
 	uintptr_t heap_start;
-	uintptr_t heap_end;
 	spinlock_t vm_lock;
-	struct virtual_memory_page* vm_page;
+	uintptr_t heap_end;
 
 	// linked list
 	struct process* next;

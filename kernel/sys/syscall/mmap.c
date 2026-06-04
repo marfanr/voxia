@@ -73,7 +73,7 @@ static uintptr_t mmap_resolve_virt_addr(void* addr, int flags,
 	return vma_lookup_free_vaddr(vm_page, VMA_REGION_PROCESS, len_4kb);
 }
 
-static void* mmap_handle_anonymous(thread_t* thr, process_t* procc, void* addr,
+static void* mmap_handle_anonymous(process_t* procc, void* addr,
                                    int flags, size_t len_4kb,
                                    uint64_t mmap_flags) {
 	serial2_printf("anonymous mmap: flags=0x%x\n", flags);
@@ -88,7 +88,7 @@ static void* mmap_handle_anonymous(thread_t* thr, process_t* procc, void* addr,
 	if (!phys)
 		return (void*)-ENOMEM;
 
-	vxMultipleMmap(thr->page, virt_addr, phys, len_4kb, mmap_flags);
+	vxMultipleMmap(procc->page, virt_addr, phys, len_4kb, mmap_flags);
 	serial2_printf("mmaped virt=0x%x phys=0x%x flags=%b\n", virt_addr, phys,
 	               mmap_flags);
 
@@ -116,7 +116,7 @@ void* syscall_mmap(void* addr, size_t len, int prot, int flags, int fd,
 	uint64_t mmap_flags = mmap_prot_to_flags(prot);
 
 	if (flags & MAP_ANONYMOUS)
-		return mmap_handle_anonymous(thr, procc, addr, flags, len_4kb,
+		return mmap_handle_anonymous(procc, addr, flags, len_4kb,
 		                             mmap_flags);
 
 	if (flags & MAP_PRIVATE)

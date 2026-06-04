@@ -441,10 +441,10 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	    get_kernel_vmm_page(), VMA_REGION_A, USER_STACK_PAGES);
 	vma_register(get_kernel_vmm_page(), stack_phys, stack_vaddr_kernel,
 	             USER_STACK_PAGES * 4096);
-	vxMultipleMmap(page, user_stack_vaddr,
+	vxMultipleMmap(page, user_stack_vaddr, stack_phys, USER_STACK_PAGES,
+	               0b111);
+	vxMultipleMmap(paging_get_highest_page_map(), stack_vaddr_kernel,
 	               stack_phys, USER_STACK_PAGES, 0b111);
-	vxMultipleMmap(paging_get_highest_page_map(), stack_vaddr_kernel, stack_phys,
-	               USER_STACK_PAGES, 0b111);
 	// vma_register(
 
 	uintptr_t phdr_vaddr = (ehdr.e_type == ET_EXEC)
@@ -464,8 +464,8 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	}
 
 	uintptr_t user_rsp = elf_prepare_stack(
-	    stack_vaddr_kernel + USER_STACK_SIZE, USER_STACK_VADDR + 4096, argc, argv,
-	    envp, &ehdr, entry_addr, phdr_vaddr, interp_base_addr);
+	    stack_vaddr_kernel + USER_STACK_SIZE, USER_STACK_VADDR + 4096, argc,
+	    argv, envp, &ehdr, entry_addr, phdr_vaddr, interp_base_addr);
 
 	auto entr = entry_addr;
 	if (interp_base_addr)
@@ -474,20 +474,22 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	paging_unmap_page(paging_get_highest_page_map(), stack_vaddr_kernel);
 	// vma_unregister(get_kernel_vmm_page(), stack_vaddr);
 
-	auto thr = create_thread(page, entr, user_rsp, user_stack_vaddr, (uint16_t)-1,
+	auto thr = create_thread(entr, user_rsp, user_stack_vaddr, (uint16_t)-1,
 	                         2, THREAD_USER);
 	auto procc = create_process(loaded_file_dentry->name->c_str, thr);
 	auto caller_thr = get_current_core_data()->active_thread;
 	if (caller_thr && caller_thr->process) {
 		procc->parent_pid = caller_thr->process->pid;
 	}
+	procc->page = page;
 	procc->heap_start = heap_start;
 	procc->heap_end = procc->heap_start;
 	procc->vm_lock.next_ticket = procc->vm_lock.now_serving = 0;
 	procc->vm_page = user_thread_vm_page;
 
 	// regiter stack vma
-	vma_register(user_thread_vm_page, stack_phys, user_stack_vaddr, USER_STACK_PAGES * 4096);
+	vma_register(user_thread_vm_page, stack_phys, user_stack_vaddr,
+	             USER_STACK_PAGES * 4096);
 
 	for (int i = 0; i < ehdr.e_phnum; i++) {
 		auto mm = &mmap_table[i];
@@ -565,9 +567,10 @@ process_t* create_process(char* name, thread_t* main_thread) {
 	strncpy(p->name, name, name_len);
 	p->name[name_len] = '\0';
 	p->pid = alloc_pid();
-
-	p->main_thread = main_thread;
-	main_thread->process = p;
+	if (main_thread) {
+		p->main_thread = main_thread;
+		main_thread->process = p;
+	}
 	p->exit_code = 0;
 	p->exited = false;
 	p->fdtable = alloc_fdtable();
