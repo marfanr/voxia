@@ -141,7 +141,7 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 		rsp->rax = (uint64_t)-EINTR;
 		break;
 	}
-	case 14: { // sigprocmask
+	case SYSCALL_SIGPROCMASK: { // sigprocmask
 		rsp->rax = (uint64_t)syscall_rt_sigprocmask((int)rsp->rdi, (void *)rsp->rsi,
 		                                 (void*)rsp->rdx, rsp->r10);
 		break;

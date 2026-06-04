@@ -2,6 +2,7 @@
 #include "hal/cpu/paging.h"
 #include "libk/serial.h"
 #include "procc/scheduler.h"
+#include "sys/sig.h"
 #include <sys/syscall.h>
 
 void syscall_exit_group(int status) {
@@ -10,15 +11,21 @@ void syscall_exit_group(int status) {
 		return;
 	}
 
+	auto proc = thr->process;
+	if (!proc) {
+		return;
+	}
+
 	serial2_printf("exit_group: status code %d\n", status);
 
 	thr->state = THREAD_STATE_TERMINATED;
-	// paging_reload(thr->page);
 
 	if (thr->clear_child_tid) {
 		serial2_printf("clearing tid %d..\n", *thr->clear_child_tid );
-		// *thr->clear_child_tid = 0;
+		*thr->clear_child_tid = 0;
 	}
+
+	sig_send(proc->signal, SIGCHLD);
 
 	auto procc = thr->process;
 	if (procc) {						

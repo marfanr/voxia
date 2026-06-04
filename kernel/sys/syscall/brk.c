@@ -19,7 +19,7 @@ intptr_t syscall_brk(void* addr) {
 	if (new_brk < proc->heap_start)
 		return (intptr_t)old_brk;
 
-	spin_acquire(&proc->vm_lock);
+	spin_acquire(&proc->lock);
 
 	if (new_brk > old_brk) {
 
@@ -28,7 +28,7 @@ intptr_t syscall_brk(void* addr) {
 
 		void* phys = phys_base_alloc((new_page - old_page) / PAGE_SIZE);
 		if (!phys) {
-			spin_release(&proc->vm_lock);
+			spin_release(&proc->lock);
 			return (intptr_t)old_brk;
 		}
         
@@ -42,7 +42,7 @@ intptr_t syscall_brk(void* addr) {
 
 	proc->heap_end = new_brk;
 
-	spin_release(&proc->vm_lock);
+	spin_release(&proc->lock);
 
 	return (intptr_t)new_brk;
 }

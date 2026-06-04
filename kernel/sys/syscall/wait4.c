@@ -25,26 +25,19 @@ int syscall_wait4(pid_t pid, int* wstatus, int options, void* rusage) {
 
 	serial2_printf("found child %d at 0x%x\n", pid, child);
 
+	spin_acquire(&child->lock);
 	if (!child->exited)
 		thread_block();
 
 	if (!child->exited)
 		return 0;
+	spin_release(&child->lock);
 
-	serial2_printf("child %d exited\n", pid);
+
+	serial2_printf("child %d waited %d \n", pid, options);
 
 	if (wstatus) {
-		/*
-		 * assume a signal has been received (e.g. SIGKILL = 9) for now.
-		 * In POSIX, a process terminated by a signal has (status & 0x7f) equal to the signal number.
-		 * We hardcode it here as requested.
-		 */
-		*wstatus = 9; // Hardcoded: assume SIGKILL (9) was received
-
-		/*
-		 * Normal exit status handling (disabled/commented out for now):
-		 * *wstatus = (child->exit_code & 0xff) << 8;
-		 */
+		*wstatus = (child->exit_code & 0xff) << 8;
 	}
 
 	return (int)pid;

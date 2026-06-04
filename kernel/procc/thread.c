@@ -7,6 +7,7 @@
 #include "memory/slab.h"
 #include "memory/vm_manager.h"
 #include "scheduler.h"
+#include "sys/sig.h"
 #include <hal/cpu/core.h>
 #include <str.h>
 
@@ -96,6 +97,9 @@ thread_t* create_thread(uintptr_t entry, uintptr_t stack_top,
 	thr->kernel_stack_top = (uintptr_t)kstack + 0x4000;
 	thr->kernel_rsp = (thr->kernel_stack_top & ~(uintptr_t)0xF) - 8;
 
+	// sig
+	thr->signal = alloc_sig_handle();
+	
 	vxUpdateThreadSlot(thr->id, thr);
 	LOG2_DEBUG("THREAD", "created thread %d", thr->id);
 	return thr;

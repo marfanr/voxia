@@ -13,6 +13,7 @@
 #include "procc/thread.h"
 #include "string.h"
 #include "sys/fd.h"
+#include "sys/sig.h"
 #include "tty/tty.h"
 #include "type.h"
 #include "vfs/dentry.h"
@@ -484,7 +485,7 @@ int execve(const char* path, char* const* argv, char* const* envp) {
 	procc->page = page;
 	procc->heap_start = heap_start;
 	procc->heap_end = procc->heap_start;
-	procc->vm_lock.next_ticket = procc->vm_lock.now_serving = 0;
+	procc->lock.next_ticket = procc->lock.now_serving = 0;
 	procc->vm_page = user_thread_vm_page;
 
 	// regiter stack vma
@@ -596,6 +597,9 @@ process_t* create_process(char* name, thread_t* main_thread) {
 		p->next = _process_list;
 		_process_list->prev = p;
 	}
+
+	// signal
+	p->signal = alloc_sig_handle();
 
 	dentry_ptr current_proc = 0;
 	resolve_dentry(itoa(p->pid, 10), process_dentry, &current_proc,

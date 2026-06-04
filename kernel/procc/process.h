@@ -3,6 +3,7 @@
 
 #include "memory/vm_manager.h"
 #include "spinlock.h"
+#include "sys/sig.h"
 #include <type.h>
 
 #define MAX_PID_ALLOWED 4194304
@@ -32,11 +33,12 @@ typedef struct process {
 	bool exited;
 	struct process_node cache;
 	struct virtual_memory_page* vm_page;
-
+	
 	char name[64];
-
+	
+	sig_han_t* signal;
 	uintptr_t heap_start;
-	spinlock_t vm_lock;
+	spinlock_t lock;
 	uintptr_t heap_end;
 
 	// linked list
