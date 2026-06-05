@@ -7,9 +7,13 @@
 #include "memory/slab.h"
 #include "memory/vm_manager.h"
 #include "scheduler.h"
+#include "string.h"
 #include "sys/sig.h"
+#include "vfs/dentry.h"
+#include "vfs/enum.h"
 #include <hal/cpu/core.h>
 #include <str.h>
+#include <sys/fd.h>
 
 static struct slab_cache* thread_cache = nullptr;
 static thread_bucket_t bucket = {0};
@@ -99,7 +103,7 @@ thread_t* create_thread(uintptr_t entry, uintptr_t stack_top,
 
 	// sig
 	thr->signal = alloc_sig_handle();
-	
+
 	vxUpdateThreadSlot(thr->id, thr);
 	LOG2_DEBUG("THREAD", "created thread %d", thr->id);
 	return thr;
@@ -185,6 +189,44 @@ thread_t* fork_process(thread_t* parent, uintptr_t entry) {
 	fork_thr->reg.rax = 0;
 	fork_thr->state = THREAD_STATE_READY;
 	vxUpdateThreadSlot(fork_thr->id, fork_thr);
+
+	// clone every fd
+	fork_proc->fdtable = alloc_fdtable();
+	memcopy(fork_proc->fdtable, parent_proc->fdtable,
+	        sizeof(struct fdtable));
+
+	// dentry
+	dentry_ptr cur_proc_dentry = 0;
+	auto proc_str = str("/proc/");
+	auto cur_proc_str = str_concat(proc_str, itoa(fork_proc->pid, 10));
+	str_release(proc_str);
+	if (vxnamei(cur_proc_str->c_str, &cur_proc_dentry) != VFS_OK) {
+		LOG2_ERROR("Thread",
+		           "failed to create proc dentry for pid %d\n",
+		           fork_proc->pid);
+		str_release(cur_proc_str);
+		return nullptr;
+	}
+
+	str_release(cur_proc_str);
+
+	// clone every fd folder
+	for (uint32_t i = 0; i < fork_proc->fdtable->next_fd; i++) {
+		dentry_ptr fd_dentry = 0;
+		if (resolve_dentry(itoa(i, 10), cur_proc_dentry, &fd_dentry,
+		                   CREATE_MISSING_ENTRY) != VFS_OK) {
+			LOG_ERROR(
+			    "Thread",
+			    "failed create a dentry for fd %d on proc %d\n", i,
+			    fork_proc->pid);
+			break;
+		}
+		if (!fork_proc->fdtable->fds[i]) {
+			continue;
+		}
+		fd_dentry->vnode = fork_proc->fdtable->fds[i]->vnode;
+	}
+
 	attach_to_scheduler(fork_thr);
 
 	return fork_thr;

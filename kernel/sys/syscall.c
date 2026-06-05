@@ -134,7 +134,7 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 		                            (int)rsp->rdx, (void*)rsp->r10);
 		break;
 	}
-	case 34: { // pause
+	case SYSCALL_PAUSE: { // pause
 		auto thr_ = get_current_core_data()->active_thread;
 		serial2_printf("pause from thread id %d (procc %d) \n",
 		               thr_->id, thr_->process->pid);
@@ -146,6 +146,10 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 	case SYSCALL_SIGPROCMASK: { // sigprocmask
 		rsp->rax = (uint64_t)syscall_rt_sigprocmask(
 		    (int)rsp->rdi, (void*)rsp->rsi, (void*)rsp->rdx, rsp->r10);
+		break;
+	}
+	case SYSCALL_STAT: {
+		rsp->rax = (uint64_t)syscall_stat((const char*)rsp->rdi, (struct stat*)rsp->rsi);
 		break;
 	}
 	default:

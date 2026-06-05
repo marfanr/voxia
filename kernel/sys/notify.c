@@ -95,8 +95,6 @@ int notify_register(char* name, struct notifier* n) {
 	while (*curr_chain && (*curr_chain)->priority >= new_notifier->priority)
 		curr_chain = &(*curr_chain)->next;
 
-	serial2_printf("notift kntl\n");
-
 	new_notifier->next = *curr_chain;
 	*curr_chain = new_notifier;
 	__atomic_fetch_add(&current_dev->chain.size, 1, __ATOMIC_RELAXED);

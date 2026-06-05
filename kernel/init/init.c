@@ -65,8 +65,6 @@ _start(struct stivale2_struct* stivale2_struct) {
 	start_tty();
 
 	run_process("/sbin/init.elf", 0, 0);
-	run_process("/sbin/vshell.elf", 0, 0);
-	
 	INFLOOP;
 }
 

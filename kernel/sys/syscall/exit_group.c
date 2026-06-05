@@ -25,6 +25,8 @@ void syscall_exit_group(int status) {
 		*thr->clear_child_tid = 0;
 	}
 
+	// TODO: unmap all, remove process, and all thread inside
+
 	sig_send(proc->signal, SIGCHLD);
 
 	auto procc = thr->process;
@@ -36,8 +38,7 @@ void syscall_exit_group(int status) {
 			serial2_printf("waking parent process %d (current %d)\n", parent->pid, procc->pid);
 			vxThreadWake(parent->main_thread);
 		}
-	}
-	
+	}	
 
 	schedule_yield();
 

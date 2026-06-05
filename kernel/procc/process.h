@@ -21,7 +21,8 @@ struct process_node {
 	struct process_node* prev;
 };
 
-// TODO: move paging page information into here
+// TODO: linked list for thread list on process
+
 struct thread;
 typedef struct process {
 	pid_t pid;

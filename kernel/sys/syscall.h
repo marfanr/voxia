@@ -10,7 +10,7 @@
 #define SYSCALL_WRITE 0X1
 #define SYSCALL_OPEN 0X2
 #define SYSCALL_CLOSE 0x3
-#define SYSCALL_FSTAT 0X4
+#define SYSCALL_STAT 0X4
 #define SYSCALL_ALLOC 0x8
 #define SYSCALL_ARCH_PRCTL 158
 #define SYSCALL_API 0X9F
@@ -26,6 +26,7 @@
 #define SYSCALL_EXECVE 0x3B
 #define SYSCALL_WAIT4 0x3D
 #define SYSCALL_SIGPROCMASK 0x0E
+#define SYSCALL_PAUSE 0x22
 
 #define PROT_NONE 0
 #define PROT_READ 1
@@ -56,8 +57,25 @@ int syscall_fork(void);
 int syscall_wait4(pid_t pid, int* wstatus, int options, void* rusage);
 int64_t syscall_rt_sigprocmask(int how, void* set, void* oldset,
                                size_t sigsetsize);
-
 int syscall_execve(const char* path, char* const argv[], char* const envp[],
                    interrupt_stack_frame_t* rsp);
+
+struct stat {
+	uint64_t st_dev;
+	uint64_t st_ino;
+	uint32_t st_mode;
+	uint32_t st_nlink;
+	uint32_t st_uid;
+	uint32_t st_gid;
+	uint64_t st_rdev;
+	int64_t st_size;
+	int64_t st_blksize;
+	int64_t st_blocks;
+	int64_t st_atime;
+	int64_t st_mtime;
+	int64_t st_ctime;
+};
+
+int syscall_stat(const char* path, struct stat* buf);
 
 #endif // __SYS__SYSCALL_H__

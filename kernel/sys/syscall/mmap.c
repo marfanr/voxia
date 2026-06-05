@@ -50,7 +50,7 @@ static uint64_t mmap_prot_to_flags(int prot) {
 	if (prot == PROT_NONE)
 		return 0;
 
-	uint64_t flags = 0;
+	uint64_t flags = PAGE_USER;
 	if (prot & (PROT_READ | PROT_WRITE | PROT_EXEC))
 		flags |= PAGE_PRESENT;
 	if (prot & PROT_WRITE)

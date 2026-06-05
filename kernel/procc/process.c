@@ -163,7 +163,7 @@ static uintptr_t elf_prepare_stack(uintptr_t stack_top_kernel,
 static int setup_interp(dentry_ptr interp_dentry, uintptr_t* interp_base_addr,
                         uintptr_t* interp_entry_addr, Elf64_Ehdr* interp_ehdr,
                         struct elf_load_mmap_table** interp_mmap_table,
-                        page_t page) {
+                        page_t page, struct virtual_memory_page* user_vm_page) {
 
 	auto interp_file_size = interp_dentry->vnode->size;
 	serial2_printf("interp found %s size %d\n", interp_dentry->name->c_str,
@@ -210,7 +210,7 @@ static int setup_interp(dentry_ptr interp_dentry, uintptr_t* interp_base_addr,
 	    ALIGN_UP(1 + ld_so_size, BLOCK_SIZE) / BLOCK_SIZE;
 
 	*interp_base_addr = vma_lookup_free_vaddr(
-	    get_kernel_vmm_page(), VMA_REGION_PROCESS, ld_so_size_4k);
+	    user_vm_page, VMA_REGION_PROCESS, ld_so_size_4k);
 	LOG2_INFO("PROCESS", "interp %s has base addr at 0x%x",
 	          interp_link_dentry->name->c_str, interp_base_addr);
 
@@ -460,8 +460,8 @@ int run_process(const char* path, char* const* argv, char* const* envp) {
 
 	auto user_vm_page = create_vmm_page();
 
-	uintptr_t base_addr = vma_lookup_free_vaddr(
-	    get_kernel_vmm_page(), VMA_REGION_PROCESS, size_4k);
+	uintptr_t base_addr =
+	    vma_lookup_free_vaddr(user_vm_page, VMA_REGION_PROCESS, size_4k);
 	LOG2_INFO("PROCESS", "executable %s has base addr at 0x%x", path,
 	          base_addr);
 	LOG2_INFO("PROCESS", "found executable type is %d", ehdr.e_type);
@@ -529,9 +529,9 @@ int run_process(const char* path, char* const* argv, char* const* envp) {
 	struct elf_load_mmap_table* interp_mmap_table = 0;
 
 	if (interp_dentry) {
-		auto status = setup_interp(interp_dentry, &interp_base_addr,
-		                           &interp_entry_addr, &interp_ehdr,
-		                           &interp_mmap_table, page);
+		auto status = setup_interp(
+		    interp_dentry, &interp_base_addr, &interp_entry_addr,
+		    &interp_ehdr, &interp_mmap_table, page, user_vm_page);
 		dentry_put(interp_dentry);
 		if (status < 0)
 			return status;
@@ -593,54 +593,15 @@ int run_process(const char* path, char* const* argv, char* const* envp) {
 	return (int)new_pid;
 }
 
-static char** copy_string_array(char* const* arr) {
-	if (!arr)
-		return NULL;
-	int count = 0;
-	while (arr[count])
-		count++;
-
-	char** new_arr = (char**)kalloc(((size_t)count + 1) * sizeof(char*));
-	for (int i = 0; i < count; i++) {
-		size_t len = strlen(arr[i]);
-		new_arr[i] = (char*)kalloc(len + 1);
-		memcopy(new_arr[i], (void*)arr[i], len + 1);
-	}
-	new_arr[count] = NULL;
-	return new_arr;
-}
-
-static void free_string_array(char** arr) {
-	if (!arr)
-		return;
-	for (int i = 0; arr[i]; i++) {
-		kfree2(arr[i]);
-	}
-	kfree2(arr);
-}
-
 int run_process_at_proc(const char* path, char* const argv[],
                         char* const envp[], process_t* proc,
                         interrupt_stack_frame_t* rsp) {
-	auto path_kstr = str(path);
-	if (!path_kstr)
-		return -1;
 
-	auto path_ = path_kstr->c_str;
-
-	char** safe_argv = copy_string_array(argv);
-	char** safe_envp = copy_string_array(envp);
-
-	for (int i = 0; safe_argv[i]; i++) {
-		serial2_printf("argv[%d] %s\n", i, safe_argv[i]);
-	}
-
-	serial2_printf("exec process %s \n", path_);
+	serial2_printf("exec process %s \n", path);
 
 	dentry_ptr loaded_file_dentry;
-	if (resolve_dentry(path_, 0, &loaded_file_dentry, 0) != VFS_OK) {
-		LOG2_ERROR("Process", "executable %s not found", path_);
-		str_release(path_kstr);
+	if (resolve_dentry(path, 0, &loaded_file_dentry, 0) != VFS_OK) {
+		LOG2_ERROR("Process", "executable %s not found", path);
 		return -1;
 	}
 
@@ -658,9 +619,7 @@ int run_process_at_proc(const char* path, char* const argv[],
 	    load_executable_buffer(&loaded_file_dentry, &size);
 	if (!file_buffer) {
 		dentry_put(loaded_file_dentry);
-		str_release(path_kstr);
-		free_string_array(safe_argv);
-		free_string_array(safe_envp);
+
 		return -1;
 	}
 
@@ -671,9 +630,7 @@ int run_process_at_proc(const char* path, char* const argv[],
 		LOG2_ERROR("PROCESS", "invalid elf file or wrong elf type");
 		kfree2(file_buffer);
 		dentry_put(loaded_file_dentry);
-		str_release(path_kstr);
-		free_string_array(safe_argv);
-		free_string_array(safe_envp);
+
 		return -2;
 	}
 
@@ -682,10 +639,10 @@ int run_process_at_proc(const char* path, char* const argv[],
 	          loaded_size / 1024);
 	size_t size_4k = ALIGN_UP(1 + loaded_size, BLOCK_SIZE) / BLOCK_SIZE;
 
-	uintptr_t base_addr = vma_lookup_free_vaddr(
-	    get_kernel_vmm_page(), VMA_REGION_PROCESS, size_4k);
-	LOG2_INFO("PROCESS", "executable %s has base addr at 0x%x",
-	          path_kstr->c_str, base_addr);
+	uintptr_t base_addr =
+	    vma_lookup_free_vaddr(proc->vm_page, VMA_REGION_PROCESS, size_4k);
+	LOG2_INFO("PROCESS", "executable %s has base addr at 0x%x", path,
+	          base_addr);
 	LOG2_INFO("PROCESS", "found executable type is %d", ehdr.e_type);
 
 	if (ehdr.e_type == ET_EXEC)
@@ -709,9 +666,7 @@ int run_process_at_proc(const char* path, char* const argv[],
 	if (find_elf_interpreter(&ehdr, phdr, file_buffer, &interp_dentry) <
 	    0) {
 		dentry_put(loaded_file_dentry);
-		str_release(path_kstr);
-		free_string_array(safe_argv);
-		free_string_array(safe_envp);
+
 		return -1;
 	}
 
@@ -736,9 +691,7 @@ int run_process_at_proc(const char* path, char* const argv[],
 		serial2_printf("error temporary addr must be not empty\n");
 		kfree2(mmap_table);
 		dentry_put(loaded_file_dentry);
-		str_release(path_kstr);
-		free_string_array(safe_argv);
-		free_string_array(safe_envp);
+
 		return -2;
 	}
 
@@ -759,14 +712,12 @@ int run_process_at_proc(const char* path, char* const argv[],
 	auto user_vm_page = proc->vm_page;
 
 	if (interp_dentry) {
-		auto status = setup_interp(interp_dentry, &interp_base_addr,
-		                           &interp_entry_addr, &interp_ehdr,
-		                           &interp_mmap_table, page);
+		auto status = setup_interp(
+		    interp_dentry, &interp_base_addr, &interp_entry_addr,
+		    &interp_ehdr, &interp_mmap_table, page, user_vm_page);
 		dentry_put(interp_dentry);
 		if (status < 0) {
-			str_release(path_kstr);
-			free_string_array(safe_argv);
-			free_string_array(safe_envp);
+
 			return status;
 		}
 		serial2_printf("interp load done\n");
@@ -777,9 +728,9 @@ int run_process_at_proc(const char* path, char* const argv[],
 	                           : base_addr + ehdr.e_phoff;
 
 	uintptr_t stack_phys = 0;
-	uintptr_t user_rsp = setup_process_stack(
-	    page, &stack_phys, safe_argv, safe_envp, &ehdr, entry_addr,
-	    phdr_vaddr, interp_base_addr, path_kstr->c_str);
+	uintptr_t user_rsp =
+	    setup_process_stack(page, &stack_phys, argv, envp, &ehdr,
+	                        entry_addr, phdr_vaddr, interp_base_addr, path);
 
 	auto entr = interp_base_addr ? interp_entry_addr : entry_addr;
 	auto user_stack_vaddr = USER_STACK_VADDR - USER_STACK_SIZE + 4096;
@@ -787,7 +738,6 @@ int run_process_at_proc(const char* path, char* const argv[],
 	main_thr->stack_base = user_stack_vaddr;
 	main_thr->stack_top = user_rsp;
 
-	
 	if (rsp) {
 		rsp->rip = entr;
 		rsp->rsp = user_rsp;
@@ -823,9 +773,6 @@ int run_process_at_proc(const char* path, char* const argv[],
 		kfree2(interp_mmap_table);
 	kfree2(file_buffer);
 
-	str_release(path_kstr);
-	free_string_array(safe_argv);
-	free_string_array(safe_envp);
 	return (int)proc->pid;
 }
 
@@ -852,32 +799,32 @@ void free_pid(pid_t pid) {
 	pid_bitmap[curr_byte] &= ~(1 << curr_bit);
 }
 
-static void init_process_stdio(process_t* p) {
-	dentry_ptr current_proc = 0;
-	resolve_dentry(itoa(p->pid, 10), process_dentry, &current_proc,
-	               CREATE_MISSING_ENTRY);
+// static void init_process_stdio(process_t* p) {
+// 	dentry_ptr current_proc = 0;
+// 	resolve_dentry(itoa(p->pid, 10), process_dentry, &current_proc,
+// 	               CREATE_MISSING_ENTRY);
 
-	dentry_ptr current_proc_fd = 0;
-	resolve_dentry("fd", current_proc, &current_proc_fd,
-	               CREATE_MISSING_ENTRY);
+// 	dentry_ptr current_proc_fd = 0;
+// 	resolve_dentry("fd", current_proc, &current_proc_fd,
+// 	               CREATE_MISSING_ENTRY);
 
-	auto tty_dentry = get_tty_dentry(0);
-	auto tty_vnode = tty_dentry->vnode;
+// 	auto tty_dentry = get_tty_dentry(0);
+// 	auto tty_vnode = tty_dentry->vnode;
 
-	// fd0 (stdin), fd1 (stdout), fd2 (stderr)
-	for (int i = 0; i < 3; i++) {
-		dentry_ptr fd_dentry;
-		auto next_fd = p->fdtable->next_fd++;
-		resolve_dentry(itoa(next_fd, 10), current_proc_fd, &fd_dentry,
-		               CREATE_MISSING_ENTRY);
-		fd_dentry->vnode = tty_vnode;
+// 	// fd0 (stdin), fd1 (stdout), fd2 (stderr)
+// 	for (int i = 0; i < 3; i++) {
+// 		dentry_ptr fd_dentry;
+// 		auto next_fd = p->fdtable->next_fd++;
+// 		resolve_dentry(itoa(next_fd, 10), current_proc_fd, &fd_dentry,
+// 		               CREATE_MISSING_ENTRY);
+// 		fd_dentry->vnode = tty_vnode;
 
-		auto fd = alloc_fd();
-		fd->vnode = tty_vnode;
-		fd->ops = tty_vnode->ops;
-		p->fdtable->fds[next_fd] = fd;
-	}
-}
+// 		auto fd = alloc_fd();
+// 		fd->vnode = tty_vnode;
+// 		fd->ops = tty_vnode->ops;
+// 		p->fdtable->fds[next_fd] = fd;
+// 	}
+// }
 
 process_t* create_process(char* name, thread_t* main_thread) {
 	auto p = (process_t*)vxSlabAlloc(process_cache);
@@ -920,7 +867,7 @@ process_t* create_process(char* name, thread_t* main_thread) {
 
 	p->signal = alloc_sig_handle();
 
-	init_process_stdio(p);
+	// init_process_stdio(p);
 
 	return p;
 }
@@ -937,3 +884,4 @@ process_t* find_process_by_pid(pid_t pid) {
 	} while (curr != _process_list);
 	return nullptr;
 }
+
