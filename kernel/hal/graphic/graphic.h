@@ -23,6 +23,12 @@ uint32_t screen_rows(void);
 
 void fill_rect(int x, int y, int w, int h, uint32_t color);
 
-#define FONT_SIZE 14
+uint8_t* graphic_alloc_backbuffer(void);
+void graphic_free_backbuffer(uint8_t* buffer);
+void graphic_set_draw_buffer(uint8_t* buffer);
+void graphic_flush_backbuffer(const uint8_t* backbuffer);
+void graphic_flush_backbuffer_rows(const uint8_t* backbuffer, int start_row, int end_row);
+
+extern int g_font_size;
 
 #endif // __HAL__GRAPHIC__GRAPHIC_H__

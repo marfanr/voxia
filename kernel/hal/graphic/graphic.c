@@ -81,11 +81,13 @@ static void ssfn_free_(void* ptr) {
 #pragma GCC diagnostic pop
 
 volatile framebuffer_t* g__fb;
+int g_font_size = 14;
 static ssfn_buf_t dst;
 static ssfn_t ssfn_ctx = {0};
 
 static boolean_t ssfn_ready = false;
 static spinlock_t gfx_lock = SPINLOCK_INIT;
+static uint8_t* active_draw_buffer = NULL;
 
 INIT(graphic) {
 	g__fb = &ctx->framebuffer;
@@ -126,6 +128,7 @@ INIT(graphic) {
 	serial2_printf("new framebuffer 0x%lx\n", g__fb->framebuffer_addr);
 
 	dst.ptr = (uint8_t*)g__fb->framebuffer_addr;
+	active_draw_buffer = dst.ptr;
 	dst.w = g__fb->framebuffer_width;
 	dst.h = g__fb->framebuffer_height;
 	dst.p = (uint16_t)g__fb->framebuffer_pitch;
@@ -145,7 +148,7 @@ INIT(graphic) {
 		}
 
 		ssfn_select(&ssfn_ctx, SSFN_FAMILY_ANY, NULL,
-		            SSFN_STYLE_REGULAR, FONT_SIZE);
+		            SSFN_STYLE_REGULAR, g_font_size);
 		ssfn_ready = true;
 	}
 
@@ -153,15 +156,16 @@ INIT(graphic) {
 }
 
 void putc(char c, int col, int row, uint32_t fg, uint32_t bg) {
-	if (!ssfn_ready || !dst.ptr)
+	if (!ssfn_ready || !active_draw_buffer)
 		return;
 
 	uintptr_t flags = irq_save();
 	spin_acquire(&gfx_lock);
+	dst.ptr = active_draw_buffer;
 	dst.fg = fg | 0xFF000000;
 	dst.bg = bg | 0xFF000000;
-	dst.x = col * (FONT_SIZE / 2);
-	dst.y = FONT_SIZE + row * FONT_SIZE;
+	dst.x = col * (g_font_size / 2);
+	dst.y = g_font_size + row * g_font_size;
 	
 	char str[2] = {c, '\0'};
 	int r = ssfn_render(&ssfn_ctx, &dst, str);
@@ -172,15 +176,16 @@ void putc(char c, int col, int row, uint32_t fg, uint32_t bg) {
 }
 
 void putc_utf8(const char* s, int col, int row, uint32_t fg, uint32_t bg) {
-	if (!ssfn_ready || !dst.ptr)
+	if (!ssfn_ready || !active_draw_buffer)
 		return;
 
 	uintptr_t flags = irq_save();
 	spin_acquire(&gfx_lock);
+	dst.ptr = active_draw_buffer;
 	dst.fg = fg | 0xFF000000;
 	dst.bg = bg | 0xFF000000;
-	dst.x = col * (FONT_SIZE / 2);
-	dst.y = FONT_SIZE + row * FONT_SIZE;
+	dst.x = col * (g_font_size / 2);
+	dst.y = g_font_size + row * g_font_size;
 
 	int r = ssfn_render(&ssfn_ctx, &dst, s);
 	if (r < 0)
@@ -298,9 +303,11 @@ void put_pixel_alpha_fast(int x, int y, pixel_t src) {
 }
 
 void clear_screen(uint32_t color) {
+	if (!active_draw_buffer)
+		return;
 	uintptr_t flags = irq_save();
 	spin_acquire(&gfx_lock);
-	memset((void*)g__fb->framebuffer_addr, color,
+	memset((void*)active_draw_buffer, color,
 	       g__fb->framebuffer_pitch * g__fb->framebuffer_height);
 	spin_release(&gfx_lock);
 	irq_restore(flags);
@@ -325,28 +332,99 @@ uint32_t screen_cols(void) {
 	uint32_t w = vxGetWidth();
 	if (w == 0)
 		return 80;
-	return (w / (FONT_SIZE / 2));
+	return (w / (g_font_size / 2));
 }
 uint32_t screen_rows(void) {
 	uint32_t h = vxGetHeight();
 	if (h == 0)
 		return 25;
-	return (h / FONT_SIZE);
+	return (h / g_font_size);
 }
 
 void fill_rect(int x, int y, int w, int h, uint32_t color) {
-	if (!dst.ptr)
+	if (!active_draw_buffer || !g__fb)
 		return;
+
+	int max_y = y + h;
+	int max_x = x + w;
+	if (y < 0) y = 0;
+	if (x < 0) x = 0;
+	if (max_y > (int)g__fb->framebuffer_height) max_y = g__fb->framebuffer_height;
+	if (max_x > (int)g__fb->framebuffer_width) max_x = g__fb->framebuffer_width;
 
 	uintptr_t flags = irq_save();
 	spin_acquire(&gfx_lock);
-	for (int row = y; row < y + h; row++) {
-		uint32_t* line = (uint32_t*)((uint8_t*)g__fb->framebuffer_addr +
+	for (int row = y; row < max_y; row++) {
+		uint32_t* line = (uint32_t*)(void*)((uint8_t*)active_draw_buffer +
 		                             row * g__fb->framebuffer_pitch);
-		for (int col = x; col < x + w; col++) {
+		for (int col = x; col < max_x; col++) {
 			line[col] = color;
 		}
 	}
+	spin_release(&gfx_lock);
+	irq_restore(flags);
+}
+
+uint8_t* graphic_alloc_backbuffer(void) {
+	if (!g__fb || g__fb->framebuffer_addr == 0)
+		return NULL;
+	size_t size = g__fb->framebuffer_pitch * g__fb->framebuffer_height;
+	uint8_t* buf = (uint8_t*)kalloc(size);
+	if (buf) {
+		memset(buf, 0, size);
+	}
+	return buf;
+}
+
+void graphic_free_backbuffer(uint8_t* buffer) {
+	if (buffer) {
+		kfree2(buffer);
+	}
+}
+
+void graphic_set_draw_buffer(uint8_t* buffer) {
+	if (buffer == NULL) {
+		active_draw_buffer = (uint8_t*)g__fb->framebuffer_addr;
+	} else {
+		active_draw_buffer = buffer;
+	}
+	dst.ptr = active_draw_buffer;
+}
+
+void graphic_flush_backbuffer(const uint8_t* backbuffer) {
+	if (!backbuffer || !g__fb || g__fb->framebuffer_addr == 0)
+		return;
+	uintptr_t flags = irq_save();
+	spin_acquire(&gfx_lock);
+	memcopy((void*)g__fb->framebuffer_addr, (void *)backbuffer,
+	            g__fb->framebuffer_pitch * g__fb->framebuffer_height);
+	spin_release(&gfx_lock);
+	irq_restore(flags);
+}
+
+void graphic_flush_backbuffer_rows(const uint8_t* backbuffer, int start_row, int end_row) {
+	if (!backbuffer || !g__fb || g__fb->framebuffer_addr == 0)
+		return;
+	if (start_row > end_row)
+		return;
+
+	int start_y = start_row * g_font_size;
+	int end_y = (end_row + 1) * g_font_size;
+	if (start_y < 0) start_y = 0;
+	if (end_y > (int)g__fb->framebuffer_height) end_y = g__fb->framebuffer_height;
+
+	uintptr_t flags = irq_save();
+	spin_acquire(&gfx_lock);
+
+	int pitch = g__fb->framebuffer_pitch;
+	uint8_t* dest = (uint8_t*)g__fb->framebuffer_addr + start_y * pitch;
+	const uint8_t* src = backbuffer + start_y * pitch;
+	size_t len = (size_t)(end_y - start_y) * pitch;
+
+	if (len > 0) {
+		memcopy(dest, (void*)src, len);
+	}
+
 	spin_release(&gfx_lock);
 	irq_restore(flags);
 }

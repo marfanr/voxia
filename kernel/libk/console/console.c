@@ -36,7 +36,7 @@ static uint32_t fgcolor = 0xFFFFFFFF;
 
 static void do_scroll(void) {
 	int rows = (int)screen_rows();
-	vxScroll(FONT_SIZE);
+	vxScroll(g_font_size);
 	pos_y = rows > 0 ? rows - 1 : 0;
 	pos_x = 0;
 }
