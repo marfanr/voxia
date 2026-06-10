@@ -329,7 +329,7 @@ void XHCIModule::probe_ports() {
 		log(mod, "Port %d: Slot %d enabled (speed %d)", i + 1, slot_id,
 		    speed);
 
-		if (!address_device(slot_id, i + 1, 2))
+		if (!address_device(slot_id, i + 1, speed))
 			continue;
 
 		// Device enumeration
@@ -509,7 +509,7 @@ void XHCIModule::process_events() {
 		// log(mod, "EVENT: type=%d code=%d idx=%d", ev_type, comp_code,
 		//     event_ring_index);
 
-		uint32_t proc_idx = event_ring_index;
+		// uint32_t proc_idx = event_ring_index;
 		bool is_sync = false;
 
 		if (ev_type == XHCI_TRB_TRANSFER_EVENT) {
@@ -733,17 +733,17 @@ bool XHCIModule::address_device(uint8_t slot_id, uint8_t port_id,
 	
 
 	auto* in_slot = get_input_slot_ctx(ictx.vaddr);
-	serial2_printf("input slot at 0x%lx\n",
-	               ictx.paddr +
-	                   ((uint64_t)in_slot - (uint64_t)ictx.vaddr));
+	// serial2_printf("input slot at 0x%lx\n",
+	//                ictx.paddr +
+	//                    ((uint64_t)in_slot - (uint64_t)ictx.vaddr));
 
 	in_slot->info =
 	    (1u << 27) | (speed << 20); // Context Entries=1, Speed
 	in_slot->info2 = (port_id << 16);     // Root Hub Port Number [23:16]
 
 	uint32_t mps = 64;
-	if (speed == 1 || speed == 2)
-		mps = 8; // Low-speed / Full-speed
+	if (speed == 2)
+		mps = 8; // Low-speed
 	else if (speed == 4)
 		mps = 512; // Super-speed
 
@@ -756,12 +756,12 @@ bool XHCIModule::address_device(uint8_t slot_id, uint8_t port_id,
 	// DW4: Max ESIT Payload[31:16] | Average TRB Length[15:0]
 	in_ep0->info3 = 8; // Average TRB Length = 8, Max ESIT Payload = 0
 
-	log(mod, "EP0 info2=0x%x trdp=0x%lx", in_ep0->info2, in_ep0->trdp);
+	// log(mod, "EP0 info2=0x%x trdp=0x%lx", in_ep0->info2, in_ep0->trdp);
 
-	log(mod,
-	    "[XHCI] ADDRESS_DEVICE slot=%d port=%d speed=%d mps=%d "
-	    "ctx_paddr=0x%x",
-	    slot_id, port_id, speed, mps, (uint32_t)ictx.paddr);
+	// log(mod,
+	//     "[XHCI] ADDRESS_DEVICE slot=%d port=%d speed=%d mps=%d "
+	//     "ctx_paddr=0x%x",
+	//     slot_id, port_id, speed, mps, (uint32_t)ictx.paddr);
 
 	send_command((uint64_t)ictx.paddr, 0,
 	             (XHCI_TRB_ADDRESS_DEVICE_CMD << 10) // TRB Type
@@ -769,7 +769,7 @@ bool XHCIModule::address_device(uint8_t slot_id, uint8_t port_id,
 	struct xhci_trb ev = wait_for_event(XHCI_TRB_COMMAND_COMPLETION_EVENT);
 
 	uint8_t code = (ev.status >> 24) & 0xFF;
-	serial2_printf("ICTX phys adr at : 0x%lx\n", ictx.paddr);
+	// serial2_printf("ICTX phys adr at : 0x%lx\n", ictx.paddr);
 	// IOUtils::DMAFree((void*)ictx.raw_paddr, ictx.raw_vaddr, ictx.raw_size);
 
 	if (code != 1) {
