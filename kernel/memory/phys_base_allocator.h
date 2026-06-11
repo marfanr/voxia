@@ -1,7 +1,6 @@
 #ifndef __MEMORY__ALLOCATOR_H__
 #define __MEMORY__ALLOCATOR_H__
 
-#include <libk/stivale2.h>
 #include <type.h>
 
 #define BLOCK_SIZE (uint64_t) 0x1000
@@ -15,8 +14,6 @@ typedef struct {
 
 } memory_region;
 
-void phys_base_allocator_install(
-	struct stivale2_struct_tag_memmap* stivale_memmap);
 void* phys_base_alloc(uint64_t size);
 void* phys_base_alloc_aligned(uint64_t block, uint64_t align);
 void vxPhysBaseFree(void* page, uint64_t length);
