@@ -75,7 +75,7 @@ run-gpu2:
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) $(QEMU_NETWORK) \
 	-display gtk,gl=on,full-screen=off \
 	-device virtio-gpu-gl-pci,xres=1920,yres=1080,id=gpu \
-	-monitor stdio -serial file:qemu.log -d int -D aqemu.log -s --no-reboot
+	-monitor stdio -serial file:qemu.log -D aqemu.log -s --no-reboot -trace virtio*
 
 run-gpu-win: 
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) $(QEMU_NETWORK) \
@@ -150,7 +150,9 @@ ovmf-x64:
 	cd ovmf-x64 && curl --fail -o OVMF-X64.zip https://efi.akeo.ie/OVMF/OVMF-X64.zip && 7z x OVMF-X64.zip
 
 limine:
-	git clone https://github.com/limine-bootloader/limine.git --branch=v2.0-branch-binary --depth=1
+	@if [ ! -d limine ]; then \
+		git clone https://github.com/limine-bootloader/limine.git --branch=v11.x-binary --depth=1; \
+	fi
 	$(MAKE) -C limine
 
 kernel:
@@ -159,14 +161,23 @@ kernel:
 
 iso: kernel musl modules sbin limine $(MUSL_CONFIGURED)
 	mkdir -p $(ISO_DIR)
-	cd $(INITRD_DIR) && tar -F ustar -cvf $(realpath $(ISO_DIR))/initrd.tar *
-	cp $(KERNEL_ELF) limine.cfg limine/limine.sys limine/limine-cd.bin limine/limine-eltorito-efi.bin $(ISO_DIR)/
-	xorriso -as mkisofs -b limine-cd.bin \
+	mkdir -p $(ISO_DIR)/boot/limine
+	mkdir -p $(INITRD_DIR)/sbin
+	cp -r $(ISO_DIR)/sbin/* $(INITRD_DIR)/sbin/ || true
+	cd $(INITRD_DIR) && tar -F ustar -cvf $(realpath $(ISO_DIR))/initrd.tar .
+	cp $(KERNEL_ELF) $(ISO_DIR)/
+	cp limine.conf $(ISO_DIR)/
+	cp limine.conf $(ISO_DIR)/limine.cfg
+	cp limine.conf $(ISO_DIR)/boot/limine/
+	cp limine.conf $(ISO_DIR)/boot/limine/limine.cfg
+	cp limine/limine-bios.sys limine/limine-bios-cd.bin limine/limine-uefi-cd.bin $(ISO_DIR)/
+	cp limine/limine-bios.sys $(ISO_DIR)/boot/limine/
+	xorriso -as mkisofs -b limine-bios-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
-		--efi-boot limine-eltorito-efi.bin \
+		--efi-boot limine-uefi-cd.bin \
 		-efi-boot-part --efi-boot-image --protective-msdos-label \
 		$(ISO_DIR) -o $(ISO)
-	limine/limine-install $(ISO)
+	./limine/limine bios-install $(ISO)
 
 # Build HDD image
 $(HDD):
@@ -175,18 +186,23 @@ $(HDD):
 	parted -s elysia.hdd mklabel gpt
 	parted -s elysia.hdd mkpart ESP fat32 2048s 100%
 	parted -s elysia.hdd set 1 esp on
-	limine/limine-deploy elysia.hdd
+	./limine/limine bios-install elysia.hdd
 	sudo losetup -Pf --show elysia.hdd >loopback_dev
 	sudo mkfs.fat -F 32 `cat loopback_dev`p1
 	mkdir -p img_mount
 	sudo mount `cat loopback_dev`p1 img_mount
 	sudo mkdir -p img_mount/EFI/BOOT
-	sudo cp -v $(KERNEL_ELF) limine.cfg limine/limine.sys img_mount/
+	sudo mkdir -p img_mount/boot/limine
+	sudo cp -v $(KERNEL_ELF) img_mount/
+	sudo cp -v limine.conf img_mount/boot/limine/
+	sudo cp -v limine/limine-bios.sys img_mount/boot/limine/
+	sudo cp -v limine/limine-bios.sys img_mount/boot/limine/
 	sudo cp -v limine/BOOTX64.EFI img_mount/EFI/BOOT/
 	sync
 	sudo umount img_mount
 	sudo losetup -d `cat loopback_dev`
 	sudo rm -rf loopback_dev img_mount
+
 
 # Flashdisk setup
 .PHONY: flashdisk run-flashdisk
@@ -195,14 +211,14 @@ flashdisk:
 	sudo parted -s /dev/sdb mklabel gpt
 	sudo parted -s /dev/sdb mkpart ESP fat32 2048s 100%
 	sudo parted -s /dev/sdb set 1 esp on
-	sudo limine/limine-install /dev/sdb
+	sudo ./limine/limine bios-install /dev/sdb
 	sudo mkfs.fat -F 32 /dev/sdb1
 	mkdir -p usb_mount
 	cp -r build/modules ./initrd
 	sudo mount /dev/sdb1 usb_mount
 	cd initrd; tar -F ustar -cvf ../usb_mount/initrd.tar *; cd ..
 	sudo mkdir -p usb_mount/EFI/BOOT
-	sudo cp -v $(KERNEL_ELF) limine.cfg limine/limine.sys usb_mount/
+	sudo cp -v $(KERNEL_ELF) limine.conf limine/limine-bios.sys usb_mount/
 	sudo cp -v limine/BOOTX64.EFI usb_mount/EFI/BOOT/
 	sync
 	sudo umount usb_mount

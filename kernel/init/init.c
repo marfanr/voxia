@@ -10,22 +10,29 @@
 #include <memory/kalloc.h>
 #include <net/netutils.h>
 #include <str.h>
+#include <libk/simd.h>
 
 // prototypes
-__attribute__((noreturn)) void _start(struct stivale2_struct* stivale2_struct);
+__attribute__((noreturn)) void _start(void);
 
 KERNEL_API void _ZdlPv(void* ptr);
 KERNEL_API void _ZdlPvm(void* ptr, size_t size);
 int atexit(void (*function)(void));
 KERNEL_API void __cxa_finalize(void* dso_handle);
+__attribute__((noreturn)) void kernel_main(void);
 
+
+__attribute__((unused))
 static init_context_t ctx = {};
 
-// entry point of kernel
-__attribute__((unused, noreturn)) extern void
-_start(struct stivale2_struct* stivale2_struct) {
+__attribute__((unused, noreturn)) void _start(void) {
+	kernel_main();
+}
+
+__attribute__((unused, noreturn)) void kernel_main(void) {
 	serial_setup();
-	build_context_from_stivale2(stivale2_struct, &ctx);
+	serial_printf("Voxia OS starting...\n");
+	build_context_from_limine(&ctx);
 	run_all_init_calls(&ctx);
 
 	wait_until_receive_notify("/vfs/root", 5000);
@@ -62,6 +69,27 @@ _start(struct stivale2_struct* stivale2_struct) {
 	}
 
 	pmm_log_usage();
+
+	// === FPU/SIMD Context Switch Test ===
+	LOG2_INFO("FPU_TEST", "Beginning SIMD operation inside Kernel...");
+	kernel_fpu_begin();
+	
+	double vec_a[2] __attribute__((aligned(16))) = { 5.0, 10.0 };
+	double vec_b[2] __attribute__((aligned(16))) = { 2.0, 3.0 };
+	double vec_res[2] __attribute__((aligned(16))) = { 0.0, 0.0 };
+	
+	simd_mul_pd(vec_res, vec_a, vec_b);
+	
+	int r0 = 0, r1 = 0;
+	__asm__ volatile("cvttsd2si %1, %0" : "=r"(r0) : "m"(vec_res[0]));
+	__asm__ volatile("cvttsd2si %1, %0" : "=r"(r1) : "m"(vec_res[1]));
+
+	LOG2_INFO("FPU_TEST", "SIMD Multiply Result: %d and %d", r0, r1);
+	
+	kernel_fpu_end();
+	LOG2_INFO("FPU_TEST", "Kernel FPU block ended successfully.");
+	// =====
+	
 	start_tty();
 
 	run_process("/sbin/init.elf", 0, 0);
@@ -70,11 +98,12 @@ _start(struct stivale2_struct* stivale2_struct) {
 
 // cpp runtime stub
 KERNEL_API void _ZdlPv(void* ptr) {
-	kfree(ptr, sizeof(ptr)); 
+	kfree2(ptr); 
 }
 
 KERNEL_API void _ZdlPvm(void* ptr, size_t size) {
-	kfree(ptr, size);
+	(void)size;
+	kfree2(ptr);
 }
 
 KERNEL_API
