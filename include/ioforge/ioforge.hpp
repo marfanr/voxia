@@ -30,11 +30,22 @@ class IOForge {
 		inline static uint16_t irq_alloc_entry() {
 			return ioforge_irq_alloc_entry();
 		}
+		inline static uint16_t irq_alloc_on_core(uint8_t core_id) {
+			return ioforge_irq_alloc_on_core(core_id);
+		}
 		inline static void irq_register(uint8_t n, void* handler) {
 			ioforge_irq_register(n, handler);
 		}
+		inline static void irq_register_on_core(uint8_t core_id,
+		                                        uint8_t n,
+		                                        void* handler) {
+			ioforge_irq_register_on_core(core_id, n, handler);
+		}
 		inline static uint32_t isr_get_vector(uint8_t irq) {
 			return ioforge_isr_get_vector(irq);
+		}
+		inline static uint8_t get_active_core_count() {
+			return ioforge_get_active_core_count();
 		}
 		inline static void* alloc(size_t size) {
 			return ioforge_alloc(size);

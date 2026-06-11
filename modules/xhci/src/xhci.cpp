@@ -255,6 +255,8 @@ void XHCIModule::probe_ports() {
 			IOUtils::memset(data, 0, 0x1000);
 			usb_get_descriptor(slot_id, 2, j,
 			                   sizeof(usb_config_descriptor), data);
+			auto conf = (usb_config_descriptor*)data;
+			log(mod, "configuration value : %d\n", conf->bConfigurationValue);
 			uint16_t total_len =
 			    ((usb_config_descriptor*)data)->wTotalLength;
 			if (total_len > 0x1000)
@@ -496,7 +498,7 @@ struct xhci_trb XHCIModule::wait_for_event(uint8_t type) {
 		}
 		IOUtils::sleep(1);
 	}
-	log(mod, "[XHCI] Timeout waiting for event type %d", type);
+	log(mod, "[XHCI] set_configurationt waiting for event type %d", type);
 	return xhci_trb(0, 0, 0);
 }
 
@@ -529,18 +531,13 @@ void XHCIModule::fireHandler(int index) {
 
 	m->process_events(index);
 
-	// DEFERRED WORK: Handle hotplug events
-	// [WORKQUEUE_MARKER]: Move this method call to a dedicated workqueue
-	// later.
-	m->handle_pending_hotplug();
+	// m->handle_pending_hotplug();
 }
 
 void XHCIModule::handle_pending_hotplug() {
 	if (pending_hotplug_bitmap == 0)
 		return;
 
-	// [WORKQUEUE_MARKER]: The following logic is synchronous and involves
-	// sleeps. It should be executed in a non-interrupt context (Workqueue).
 	for (uint32_t i = 0; i < 32; i++) {
 		if (pending_hotplug_bitmap & (1u << i)) {
 			uint32_t port_id = i + 1;
@@ -620,7 +617,7 @@ extern "C" void xhci_fire_handler_2() { XHCIModule::fireHandler(2); }
 extern "C" void xhci_fire_handler_3() { XHCIModule::fireHandler(3); }
 
 /* Control transfers (EP0, synchronous) */
-void XHCIModule::send_async_with_response(uint8_t addr, uint8_t /*ep*/,
+void XHCIModule::send_async_with_response(uint8_t addr, uint8_t ep,
                                           uint64_t setup_data, size_t /*sz*/,
                                           uintptr_t resp_phys,
                                           size_t resp_size) {
@@ -630,7 +627,7 @@ void XHCIModule::send_async_with_response(uint8_t addr, uint8_t /*ep*/,
 
 	has_sync_ev = false;
 
-	uint32_t ep_idx = 0; // EP0
+	uint32_t ep_idx = ep; // EP0
 	volatile struct xhci_trb* ring = slots[slot_id].rings[ep_idx];
 	uint32_t idx = slots[slot_id].ring_indices[ep_idx];
 	uint8_t pcs = slots[slot_id].ring_pcs[ep_idx];
@@ -746,13 +743,10 @@ bool XHCIModule::address_device(uint8_t slot_id, uint8_t port_id,
 		mps = 512; // Super-speed
 
 	auto* in_ep0 = get_input_ep_ctx(ictx.vaddr, 0);
-	// DW0: Interval = 0
 	in_ep0->info = 0;
-	// DW1: MPS[31:16] | MaxBurstSize[15:8] | EPType[5:3] | CErr[2:1]
 	in_ep0->info2 =
 	    (mps << 16) | (0u << 8) | (4u << 3) | (3u << 1); // Control=4
 	in_ep0->trdp = (uint64_t)ring_paddr | 1;             // DCS=1
-	// DW4: Max ESIT Payload[31:16] | Average TRB Length[15:0]
 	in_ep0->info3 = 8; // Average TRB Length = 8, Max ESIT Payload = 0
 
 	log(mod, "[XHCI] Port %d: EP0 info2=0x%x trdp=0x%lx", port_id,

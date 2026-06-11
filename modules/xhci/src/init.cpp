@@ -1,5 +1,6 @@
 #include "ioforge/ioforge.h"
 #include "memory/kalloc.h"
+#include "usb.h"
 #include "xhci/xhci.hpp"
 #include <ioforge/ioforge.hpp>
 #include <ioforge/ioforge_pci.h>
@@ -111,12 +112,17 @@ void XHCIModule::load() {
 }
 
 extern "C" void xhci_send_async_stub(uint32_t addr, uint8_t endpoint,
-                                     uintptr_t data_phys, size_t request_size,
+                                     uintptr_t data_phys, void* data_virt, size_t request_size,
                                      uintptr_t response_phys,
                                      size_t response_size) {
 
+	uint64_t setup_data = data_phys;
+	if (request_size == sizeof(struct usb_setup_packet) && data_virt != nullptr) {
+		setup_data = *(uint64_t*)data_virt;
+	}
+
 	XHCIModule::getInstance()->send_async_with_response(
-	    addr, endpoint, data_phys, request_size, response_phys,
+	    addr, endpoint, setup_data, request_size, response_phys,
 	    response_size);
 }
 

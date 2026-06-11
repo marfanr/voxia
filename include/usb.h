@@ -60,7 +60,7 @@ struct usb_string_descriptor {
 	uint8_t bLength;
 	uint8_t bDescriptorType;
 	uint16_t wData[];
-};
+} __attribute__((packed));
 
 enum usb_request_type : uint8_t {
 	GET_REPORT = 0x01,
@@ -83,7 +83,7 @@ struct usb_setup_packet {
 	uint16_t wValue;
 	uint16_t wIndex;
 	uint16_t wLength;
-};
+} __attribute__((packed));
 
 enum usb_setup_packet_request {
 	USB_SETUP_PACKET_GET_STATUS = 0,
