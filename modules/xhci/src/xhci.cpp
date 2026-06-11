@@ -1,145 +1,22 @@
 #include "xhci/xhci.hpp"
-#include "ioforge/ioforge.h"
-#include "ioforge/ioforge.hpp"
-#include "memory/kalloc.h"
 #include "xhci/xhci_pipe.hpp"
+#include <cpu/irq_lock.h>
+#include <ioforge/ioforge.h>
+#include <ioforge/ioforge.hpp>
 #include <ioforge/ioforge_new.hpp>
+#include <memory/kalloc.h>
 #include <spinlock.h>
+#include <str.h>
 #include <usb.h>
 
-// ---------------------------------------------------------------------------
-// Static members
-// ---------------------------------------------------------------------------
 bool XHCIModule::irq_driven = false;
 
-// ---------------------------------------------------------------------------
-// IRQ save/restore
-// ---------------------------------------------------------------------------
-static inline uintptr_t xhci_irq_save() {
-	uintptr_t flags;
-	__asm__ volatile("pushfq  \n\t"
-	                 "pop %0  \n\t"
-	                 "cli     \n\t"
-	                 : "=r"(flags)
-	                 :
-	                 : "memory");
-	return flags;
-}
-static inline void xhci_irq_restore(uintptr_t flags) {
-	__asm__ volatile("push %0 \n\t"
-	                 "popfq   \n\t"
-	                 :
-	                 : "r"(flags)
-	                 : "memory", "cc");
-}
-
-// ---------------------------------------------------------------------------
-// DMA allocation helpers with guaranteed alignment
-//
-// xHCI spec alignment requirements:
-//   DCBAA        : 64-byte aligned
-//   Device Context : 64-byte aligned
-//   Input Context  : 64-byte aligned
-//   Command Ring   : 64-byte aligned
-//   Event Ring     : 64-byte aligned
-//   TRB (transfer) : 16-byte aligned  (ring base must be 64-byte aligned)
-//   ERST           : 64-byte aligned
-//   Scratchpad     : page-aligned (4096)
-//
-// Strategy: allocate (size + align - 1) extra bytes so we can always find an
-// aligned region inside the allocation.  We store the ORIGINAL (unaligned)
-// virtual and physical addresses in out-params so the caller can free them.
-// ---------------------------------------------------------------------------
-
-struct dma_alloc_result {
-	void* vaddr;         // aligned virtual address  (use this for access)
-	uintptr_t paddr;     // aligned physical address (use this for HW)
-	void* raw_vaddr;     // original vaddr from DMAAlloc (use for DMAFree)
-	uintptr_t raw_paddr; // original paddr from DMAAlloc (use for DMAFree)
-	size_t raw_size;     // total bytes handed to DMAAlloc
-};
-
-static dma_alloc_result dma_alloc_aligned(size_t size, size_t align) {
-	// align must be a power of two
-	size_t raw_size = size + align - 1;
-	uintptr_t raw_paddr = 0;
-	void* raw_vaddr = IOForge::IOUtils::DMAAlloc(raw_size, &raw_paddr);
-	IOForge::IOUtils::memset(raw_vaddr, 0, raw_size);
-
-	uintptr_t aligned_paddr = (raw_paddr + align - 1) & ~(align - 1);
-	uintptr_t offset = aligned_paddr - raw_paddr;
-	void* aligned_vaddr = (void*)((uintptr_t)raw_vaddr + offset);
-
-	if (((uint64_t)aligned_vaddr & (align - 1ULL)) != 0) {
-		serial2_printf("dma aloc alignment %d failed\n", align);
-	}
-
-	return {aligned_vaddr, aligned_paddr, raw_vaddr, raw_paddr, raw_size};
-}
-
-// ---------------------------------------------------------------------------
-// Event ring state
-// ---------------------------------------------------------------------------
+/* Event ring state */
 static struct xhci_trb last_sync_ev;
 static volatile bool has_sync_ev = false;
 static spinlock_t xhci_event_lock;
 
-// ===========================================================================
-// Descriptor helpers
-// ===========================================================================
-
-void XHCIModule::usb_get_descriptor(uint8_t addr, uint8_t type, uint8_t index,
-                                    uint8_t len, uint8_t* data) {
-	// Setup packet + data buffer in one 64-byte-aligned DMA block
-	size_t total = sizeof(struct usb_setup_packet) + len;
-	auto alloc = dma_alloc_aligned(total, 64);
-
-	auto* cmd = (struct usb_setup_packet*)alloc.vaddr;
-	cmd->bRequest = 0x06;
-	cmd->bmRequestType = 0x80;
-	cmd->wValue = (uint16_t)((type << 8) | index);
-	cmd->wIndex = 0;
-	cmd->wLength = len;
-
-	uintptr_t data_phys = alloc.paddr + sizeof(usb_setup_packet);
-	uint8_t* data_buf = (uint8_t*)alloc.vaddr + sizeof(usb_setup_packet);
-
-	send_async_with_response(addr, 0, *(uint64_t*)cmd, sizeof(usb_setup_packet),
-	                         data_phys, len);
-
-	IOUtils::memcpy(data, data_buf, len);
-	IOUtils::DMAFree((void*)alloc.raw_paddr, alloc.raw_vaddr,
-	                 alloc.raw_size);
-}
-
-void XHCIModule::usb_get_string_descriptor(uint8_t addr, uint8_t index,
-                                           char* data, size_t size) {
-	uint8_t* buffer = (uint8_t*)kalloc(255);
-	IOUtils::memset(buffer, 0, 255);
-	usb_get_descriptor(addr, 0x3, index, 255, buffer);
-
-	auto* str = (struct usb_string_descriptor*)buffer;
-	if (str->bLength < 2) {
-		data[0] = 0;
-		IOUtils::free(buffer, 255);
-		return;
-	}
-
-	size_t len = (str->bLength - 2) / 2;
-	size_t j = 0;
-	for (size_t i = 0; i < len && j < size - 1; i++) {
-		uint16_t ch = str->wData[i];
-		if (ch < 128)
-			data[j++] = (char)ch;
-	}
-	data[j] = 0;
-	IOUtils::free(buffer, 255);
-}
-
-// ===========================================================================
-// Controller lifecycle
-// ===========================================================================
-
+/* Controller lifecycle */
 void XHCIModule::reset_controller() {
 	op_regs->usbcmd &= ~XHCI_CMD_RS;
 	while (!(op_regs->usbsts & XHCI_STS_HCH))
@@ -177,12 +54,10 @@ void XHCIModule::init_controller() {
 	{
 		auto a =
 		    dma_alloc_aligned(sizeof(uint64_t) * (num_slots + 1), 64);
-		IOUtils::memset(a.vaddr, 0, sizeof(uint64_t) * (num_slots + 1));
+		memset(a.vaddr, 0, sizeof(uint64_t) * (num_slots + 1));
 		dcbaa = (volatile uint64_t*)a.vaddr;
 		dcbaa_phys = a.paddr;
 		op_regs->dcbaap = (uint64_t)a.paddr;
-		// (raw pointers not saved; controller owns this for its
-		// lifetime)
 	}
 
 	//  Scratchpad: page-aligned
@@ -215,37 +90,35 @@ void XHCIModule::init_controller() {
 	}
 
 	auto hcsparams = cap_regs->hcsparams1;
-	auto max_int = (hcsparams >> 8) & 0x7FF;
-	log(mod, "max interrupts : %d\n", max_int);
+	max_intrs = (hcsparams >> 8) & 0x7FF;
+	if (max_intrs > 4)
+		max_intrs = 4;
+	log(mod, "Using max interrupts: %d\n", max_intrs);
 
 	auto esrt_max = (hcsparams2 >> 4) & 0xF;
 	log(mod, "esrt max : %d\n", esrt_max);
 
-	//  Event ring: 64-byte aligned
-	{
+	for (uint32_t i = 0; i < max_intrs; i++) {
 		auto ea = dma_alloc_aligned(sizeof(struct xhci_trb) * 64, 64);
 		IOUtils::memset(ea.vaddr, 0, sizeof(struct xhci_trb) * 64);
-		event_ring = (volatile struct xhci_trb*)ea.vaddr;
-		event_ring_phys = ea.paddr;
-		event_ring_index = 0;
-		event_ring_pcs = 1;
+		event_ring[i] = (volatile struct xhci_trb*)ea.vaddr;
+		event_ring_phys[i] = ea.paddr;
+		event_ring_index[i] = 0;
+		event_ring_pcs[i] = 1;
 
-		// ERST: 64-byte aligned, one entry
 		auto esta =
 		    dma_alloc_aligned(sizeof(struct xhci_erst_entry), 64);
-		erst = (struct xhci_erst_entry*)esta.vaddr;
-		erst_phys = esta.paddr;
+		erst[i] = (struct xhci_erst_entry*)esta.vaddr;
+		erst_phys[i] = esta.paddr;
 
-		erst[0].ba = ea.paddr;
-		erst[0].size = 64;
-		erst[0].reserved = 0;
+		erst[i][0].ba = ea.paddr;
+		erst[i][0].size = 64;
+		erst[i][0].reserved = 0;
 
-		runtime_regs->ir[0].erstsz = 1;
-		runtime_regs->ir[0].erdp = ea.paddr | (1u << 3); // EHB
-		runtime_regs->ir[0].erstba = esta.paddr;
-		// IE=1, clear IP — but INTE in USBCMD stays off until after
-		// enumeration
-		runtime_regs->ir[0].iman |= 3;
+		runtime_regs->ir[i].erstsz = 1;
+		runtime_regs->ir[i].erdp = ea.paddr | (1u << 3);
+		runtime_regs->ir[i].erstba = esta.paddr;
+		runtime_regs->ir[i].iman |= 3;
 	}
 
 	// Start controller — RS only, INTE added after enumeration
@@ -258,34 +131,36 @@ void XHCIModule::init_controller() {
 
 void XHCIModule::enable_irq_driven_mode() {
 	irq_driven = true;
-	
+
 	// Drain any events that accumulated while irq_driven was false
-	while (true) {
-		uint32_t c = event_ring[event_ring_index].control;
-		if ((c & 1) != event_ring_pcs)
-			break; // Ring is empty
-		process_events();
-		has_sync_ev = false; // Discard sync events outside wait_for_event
+	for (uint32_t i = 0; i < max_intrs; i++) {
+		while (true) {
+			uint32_t c = event_ring[i][event_ring_index[i]].control;
+			if ((c & 1) != event_ring_pcs[i])
+				break;
+			process_events();
+			has_sync_ev = false;
+		}
 	}
 
-	// Enable Interrupter Enable (INTE)
 	op_regs->usbcmd |= XHCI_CMD_INTE;
-	// Enable interrupts
-	runtime_regs->ir[0].imod = 0; // Disable moderation to eliminate any possible QEMU timer delays
-	runtime_regs->ir[0].iman |= (1u << 1); // IE
-	
+
+	for (uint32_t i = 0; i < max_intrs; i++) {
+		runtime_regs->ir[i].imod = 0;
+		runtime_regs->ir[i].iman |= (1u << 1);
+	}
+
 	if (op_regs->usbsts & XHCI_STS_EINT)
 		op_regs->usbsts = XHCI_STS_EINT;
-	runtime_regs->ir[0].iman |= (1u << 0); // clear IP
+
+	for (uint32_t i = 0; i < max_intrs; i++) {
+		runtime_regs->ir[i].iman |= (1u << 0);
+	}
 	log(mod, "IRQ-driven mode enabled");
 }
 
-// ===========================================================================
-// Port enumeration
-// ===========================================================================
-
+/* Port enumeration */
 void XHCIModule::probe_ports() {
-	// Force polling mode — override whatever IoForge IRQ registration did
 	op_regs->usbcmd &= ~XHCI_CMD_INTE;
 	runtime_regs->ir[0].iman &= ~(1u << 1); // IE off
 	if (op_regs->usbsts & XHCI_STS_EINT)
@@ -302,25 +177,25 @@ void XHCIModule::probe_ports() {
 		if (!(status & XHCI_PORT_CCS))
 			continue;
 
+		// Jika port sudah di-enable (berarti sudah di-enumerate
+		// sebelumnya), skip!
+		if (status & XHCI_PORT_PED)
+			continue;
+
 		uint32_t speed = (status >> 10) & 0xF;
 		log(mod, "Port %d: Connected (Speed %d)", i + 1, speed);
 
-		if (!(status & XHCI_PORT_PED)) {
-			log(mod, "Port %d: Resetting...", i + 1);
+		log(mod, "Port %d: Resetting...", i + 1);
 
-			// Preserve only RW bits (strip all W1C), then set PR
-			uint32_t rw = (*reg) & ~XHCI_PORTSC_W1C_MASK;
-			*reg = rw | XHCI_PORT_PR;
-			while (*reg & XHCI_PORT_PR)
-				IOUtils::sleep(1);
+		uint32_t rw = (*reg) & ~XHCI_PORTSC_W1C_MASK;
+		*reg = rw | XHCI_PORT_PR;
+		while (*reg & XHCI_PORT_PR)
+			IOUtils::sleep(1);
 
-			status = *reg;
-			speed = (status >> 10) & 0xF;
+		status = *reg;
+		speed = (status >> 10) & 0xF;
 
-			// Clear only PRC and CSC — never write PED=1 (disables
-			// port)
-			*reg = XHCI_PORT_PRC | XHCI_PORT_CSC;
-		}
+		*reg = XHCI_PORT_PRC | XHCI_PORT_CSC;
 
 		uint8_t slot_id = enable_slot();
 		if (!slot_id)
@@ -345,8 +220,10 @@ void XHCIModule::probe_ports() {
 		auto* dev = (usb_device_descriptor*)data;
 
 		if (dev->idVendor == 0) {
-			log(mod, "[XHCI] Failed to get descriptor for slot %d",
-			    slot_id);
+			log(mod,
+			    "[XHCI] Port %d: Failed to get descriptor for slot "
+			    "%d",
+			    i + 1, slot_id);
 			IOUtils::free(data, 0x1000);
 			IOUtils::free(usbDevice,
 			              sizeof(struct ioforge_usb_device));
@@ -383,6 +260,40 @@ void XHCIModule::probe_ports() {
 			if (total_len > 0x1000)
 				total_len = 0x1000;
 			usb_get_descriptor(slot_id, 2, j, total_len, data);
+
+			uint16_t offset =
+			    ((usb_config_descriptor*)data)->bLength;
+			while (offset < total_len) {
+				uint8_t len = data[offset];
+				uint8_t type = data[offset + 1];
+				if (len == 0)
+					break; // prevent infinite loop on
+					       // malformed descriptor
+
+				if (type == 4) { // Interface Descriptor
+					usb_interface* iface =
+					    (usb_interface*)(data + offset);
+					char iInterface[64] = {0};
+					if (iface->iInterface) {
+						usb_get_string_descriptor(
+						    slot_id, iface->iInterface,
+						    iInterface,
+						    sizeof(iInterface));
+					}
+					log(mod,
+					    "[XHCI]   -> Interface %d (Alt "
+					    "%d): Class=0x%x Sub=0x%x "
+					    "Proto=0x%x Name: %s",
+					    iface->bInterfaceNumber,
+					    iface->bAlternateSetting,
+					    iface->bInterfaceClass,
+					    iface->bInterfaceSubClass,
+					    iface->bInterfaceProtocol,
+					    iface->iInterface ? iInterface
+					                      : "No String");
+				}
+				offset += len;
+			}
 
 			uint8_t* ptr = data;
 			uint8_t* end = data + total_len;
@@ -460,10 +371,7 @@ void XHCIModule::probe_ports() {
 	enable_irq_driven_mode();
 }
 
-// ===========================================================================
-// Command ring
-// ===========================================================================
-
+/* Command ring */
 void XHCIModule::send_command(uint64_t ptr, uint32_t status, uint32_t control) {
 	uint32_t index = cmd_ring_index;
 	cmd_ring[index].ptr = ptr;
@@ -491,70 +399,86 @@ void XHCIModule::send_command(uint64_t ptr, uint32_t status, uint32_t control) {
 	doorbell_regs[0] = 0;
 }
 
-// ===========================================================================
-// Event ring
-// ===========================================================================
-
-void XHCIModule::process_events() {
-	uintptr_t flags = xhci_irq_save();
+/* Event ring */
+void XHCIModule::process_events(int index) {
+	uintptr_t flags = irq_save();
 	spin_acquire(&xhci_event_lock);
 
-	while (true) {
-		struct xhci_trb ev = event_ring[event_ring_index];
-		if ((ev.control & 1) != event_ring_pcs)
+	int start = (index == -1) ? 0 : index;
+	int end = (index == -1) ? (int)max_intrs : (index + 1);
+
+	for (int i = start; i < end; i++) {
+		if (i >= (int)max_intrs)
 			break;
 
-		uint8_t ev_type = (ev.control >> 10) & 0x3F;
-		uint8_t comp_code = (ev.status >> 24) & 0xFF;
-		// log(mod, "EVENT: type=%d code=%d idx=%d", ev_type, comp_code,
-		//     event_ring_index);
+		while (true) {
+			struct xhci_trb ev = event_ring[i][event_ring_index[i]];
+			if ((ev.control & 1) != event_ring_pcs[i])
+				break;
 
-		// uint32_t proc_idx = event_ring_index;
-		bool is_sync = false;
+			uint8_t ev_type = (ev.control >> 10) & 0x3F;
+			uint8_t comp_code = (ev.status >> 24) & 0xFF;
 
-		if (ev_type == XHCI_TRB_TRANSFER_EVENT) {
-			uint8_t slot_id = (ev.control >> 24) & 0xFF;
-			uint32_t ep_id = (ev.control >> 16) & 0x1F;
-			if (ep_id > 1) {
-				uint32_t ep_idx = ep_id - 1;
-				size_t len = ev.status & 0xFFFFFF;
-				bool is_err =
-				    (comp_code != 1 && comp_code != 13);
-				call_completion_callback(
-				    ioforge_get_usb_devices_root(), slot_id,
-				    ep_idx, len, is_err);
-			} else {
+			bool is_sync = false;
+
+			if (ev_type == XHCI_TRB_TRANSFER_EVENT) {
+				uint8_t slot_id = (ev.control >> 24) & 0xFF;
+				uint32_t ep_id = (ev.control >> 16) & 0x1F;
+				if (ep_id > 1) {
+					uint32_t ep_idx = ep_id - 1;
+					size_t len = ev.status & 0xFFFFFF;
+					bool is_err =
+					    (comp_code != 1 && comp_code != 13);
+					call_completion_callback(
+					    ioforge_get_usb_devices_root(),
+					    slot_id, ep_idx, len, is_err);
+				} else {
+					last_sync_ev = ev;
+					has_sync_ev = true;
+					is_sync = true;
+					if (comp_code != 1)
+						log(mod,
+						    "[XHCI] EP0 error: code=%d",
+						    comp_code);
+				}
+			} else if (ev_type ==
+			           XHCI_TRB_COMMAND_COMPLETION_EVENT) {
 				last_sync_ev = ev;
 				has_sync_ev = true;
 				is_sync = true;
 				if (comp_code != 1)
-					log(mod, "[XHCI] EP0 error: code=%d",
+					log(mod,
+					    "[XHCI] Command error: code=%d",
 					    comp_code);
+			} else if (ev_type ==
+			           XHCI_TRB_PORT_STATUS_CHANGE_EVENT) {
+				uint32_t port_id = (ev.ptr >> 24) & 0xFF;
+				log(mod, "[XHCI] HOTPLUG DETECTED on Port %d",
+				    port_id);
+				pending_hotplug_bitmap |= (1u << (port_id - 1));
 			}
-		} else if (ev_type == XHCI_TRB_COMMAND_COMPLETION_EVENT) {
-			last_sync_ev = ev;
-			has_sync_ev = true;
-			is_sync = true;
-			if (comp_code != 1)
-				log(mod, "[XHCI] Command error: code=%d",
-				    comp_code);
+
+			if (++event_ring_index[i] >= 64) {
+				event_ring_index[i] = 0;
+				event_ring_pcs[i] ^= 1;
+			}
+
+			if (is_sync)
+				break;
 		}
 
-		if (++event_ring_index >= 64) {
-			event_ring_index = 0;
-			event_ring_pcs ^= 1;
-		}
+		runtime_regs->ir[i].erdp =
+		    (event_ring_phys[i] +
+		     event_ring_index[i] * sizeof(struct xhci_trb)) |
+		    (1u << 3);
 
-		if (is_sync)
-			break;
+		if (runtime_regs->ir[i].iman & (1u << 0)) {
+			runtime_regs->ir[i].iman |= (1u << 0);
+		}
 	}
 
-	runtime_regs->ir[0].erdp =
-	    (event_ring_phys + event_ring_index * sizeof(struct xhci_trb)) |
-	    (1u << 3);
-
 	spin_release(&xhci_event_lock);
-	xhci_irq_restore(flags);
+	irq_restore(flags);
 }
 
 struct xhci_trb XHCIModule::wait_for_event(uint8_t type) {
@@ -576,11 +500,8 @@ struct xhci_trb XHCIModule::wait_for_event(uint8_t type) {
 	return xhci_trb(0, 0, 0);
 }
 
-// ===========================================================================
-// IRQ handler
-// ===========================================================================
-
-void XHCIModule::fireHandler() {
+/* IRQ handler */
+void XHCIModule::fireHandler(int index) {
 	XHCIModule* m = XHCIModule::getInstance();
 	if (!m || !m->op_regs)
 		return;
@@ -589,26 +510,116 @@ void XHCIModule::fireHandler() {
 	if (!(sts & XHCI_STS_EINT))
 		return;
 
-	// serial2_printf("fire handler\n");
+	m->op_regs->usbsts = XHCI_STS_EINT;
 
-	m->op_regs->usbsts = XHCI_STS_EINT; // W1C — clear EINT
+	int start = (index == -1) ? 0 : index;
+	int end = (index == -1) ? (int)m->max_intrs : (index + 1);
 
-	if (!irq_driven) {
-		// Polling phase owns the event ring — just de-assert the IRQ line
-		m->runtime_regs->ir[0].iman |= (1u << 0); // W1C — clear IP
-		return;
+	for (int i = start; i < end; i++) {
+		if (i >= (int)m->max_intrs)
+			break;
+
+		if (!m->irq_driven) {
+			m->runtime_regs->ir[i].iman |= (1u << 0);
+			continue;
+		}
+
+		m->runtime_regs->ir[i].iman |= (1u << 0);
 	}
 
-	m->runtime_regs->ir[0].iman |= (1u << 0); // W1C - clear IP BEFORE processing events
-	m->process_events(); // This will clear EHB via ERDP update
+	m->process_events(index);
+
+	// DEFERRED WORK: Handle hotplug events
+	// [WORKQUEUE_MARKER]: Move this method call to a dedicated workqueue
+	// later.
+	m->handle_pending_hotplug();
 }
 
-extern "C" void xhci_fire_handler() { XHCIModule::fireHandler(); }
+void XHCIModule::handle_pending_hotplug() {
+	if (pending_hotplug_bitmap == 0)
+		return;
 
-// ===========================================================================
-// Control transfers (EP0, synchronous)
-// ===========================================================================
+	// [WORKQUEUE_MARKER]: The following logic is synchronous and involves
+	// sleeps. It should be executed in a non-interrupt context (Workqueue).
+	for (uint32_t i = 0; i < 32; i++) {
+		if (pending_hotplug_bitmap & (1u << i)) {
+			uint32_t port_id = i + 1;
+			volatile uint32_t* portsc =
+			    (volatile uint32_t*)((uintptr_t)op_regs + 0x400);
+			uint32_t status = portsc[i * 4];
 
+			log(mod,
+			    "[XHCI] HOTPLUG EXEC: Invoking probe_ports() for "
+			    "Port %d. "
+			    "PORTSC=0x%x (CCS=%d, CSC=%d, PED=%d)",
+			    port_id, status, (status & (1u << 0)) ? 1 : 0,
+			    (status & (1u << 17)) ? 1 : 0,
+			    (status & (1u << 1)) ? 1 : 0);
+
+			if (status & (1u << 17)) {
+				// Clear CSC
+				uint32_t rw = status & ~0x00FE0000;
+				portsc[i * 4] = rw | (1u << 17);
+			}
+
+			if (status & (1u << 0)) { // If CCS is connected
+				// Switch to polling mode
+				op_regs->usbcmd &= ~XHCI_CMD_INTE;
+				for (uint32_t j = 0; j < max_intrs; j++)
+					runtime_regs->ir[j].iman &= ~(1u << 1);
+				irq_driven = false;
+
+				uint32_t speed = (status >> 10) & 0xF;
+				log(mod,
+				    "[HOTPLUG] Port %d: Connected (Speed %d)",
+				    port_id, speed);
+
+				if (!(status &
+				      (1u << 1))) { // Only reset if PED == 0
+					log(mod,
+					    "[HOTPLUG] Port %d: Resetting...",
+					    port_id);
+					uint32_t rw = status & ~0x00FE0000;
+					portsc[i * 4] = rw | (1u << 4); // PR
+					while (portsc[i * 4] & (1u << 4))
+						IOForge::IOUtils::sleep(1);
+
+					status = portsc[i * 4];
+					speed = (status >> 10) & 0xF;
+					portsc[i * 4] = (1u << 21) |
+					                (1u << 17); // PRC | CSC
+				}
+
+				uint8_t slot_id = enable_slot();
+				if (slot_id) {
+					log(mod,
+					    "[HOTPLUG] Port %d: Slot %d "
+					    "enabled "
+					    "(speed %d)",
+					    port_id, slot_id, speed);
+					if (address_device(slot_id, port_id,
+					                   speed)) {
+						probe_ports();
+					}
+				}
+			} else {
+				log(mod, "[HOTPLUG] Port %d: Disconnected.",
+				    port_id);
+			}
+
+			pending_hotplug_bitmap &= ~(1u << i);
+			enable_irq_driven_mode();
+		}
+	}
+}
+
+extern "C" void xhci_fire_handler() { XHCIModule::fireHandler(-1); }
+extern "C" void xhci_fire_handler_0() { XHCIModule::fireHandler(0); }
+extern "C" void xhci_fire_handler_1() { XHCIModule::fireHandler(1); }
+extern "C" void xhci_fire_handler_2() { XHCIModule::fireHandler(2); }
+extern "C" void xhci_fire_handler_3() { XHCIModule::fireHandler(3); }
+
+/* Control transfers (EP0, synchronous) */
 void XHCIModule::send_async_with_response(uint8_t addr, uint8_t /*ep*/,
                                           uint64_t setup_data, size_t /*sz*/,
                                           uintptr_t resp_phys,
@@ -656,20 +667,14 @@ void XHCIModule::send_async_with_response(uint8_t addr, uint8_t /*ep*/,
 	}
 
 	uint32_t setup_extra = trt | (1u << 6); // IDT=1
-	// Setup Stage TRB must NOT have CH=1 (xHCI 4.11.2.2)
-	// if (resp_phys && resp_size) {
-	// 	setup_extra |= (1u << 4); // CH=1 if there is a Data Stage
-	// }
 	push(setup_data, 8, XHCI_TRB_SETUP_STAGE, false, setup_extra);
-	
+
 	if (resp_phys && resp_size) {
 		uint32_t data_dir = is_in ? (1u << 16) : 0;
-		// Data Stage must not have CH=1 since Status Stage is next (per xHCI spec 4.11.2.2)
-		// Wait, spec actually says Setup and all Data EXCEPT last have CH=1.
-		// Since we only have 1 Data Stage TRB, it is the last, so CH=0.
-		push(resp_phys, resp_size, XHCI_TRB_DATA_STAGE, false, data_dir);
+		push(resp_phys, resp_size, XHCI_TRB_DATA_STAGE, false,
+		     data_dir);
 	}
-	
+
 	uint32_t status_dir;
 	if (resp_phys && resp_size) {
 		status_dir = is_in ? 0 : (1u << 16); // Opposite of data stage
@@ -687,10 +692,7 @@ void XHCIModule::send_async_with_response(uint8_t addr, uint8_t /*ep*/,
 	wait_for_event(XHCI_TRB_TRANSFER_EVENT);
 }
 
-// ===========================================================================
-// Slot management
-// ===========================================================================
-
+/* Slot management */
 uint8_t XHCIModule::enable_slot() {
 	has_sync_ev = false;
 	send_command(0, 0, (XHCI_TRB_ENABLE_SLOT_CMD << 10));
@@ -730,20 +732,16 @@ bool XHCIModule::address_device(uint8_t slot_id, uint8_t port_id,
 	ctrl_ctx->add_flags = 0x3; // A0=Slot, A1=EP0
 	ctrl_ctx->drop_flags = 0;
 
-	
-
 	auto* in_slot = get_input_slot_ctx(ictx.vaddr);
-	// serial2_printf("input slot at 0x%lx\n",
-	//                ictx.paddr +
-	//                    ((uint64_t)in_slot - (uint64_t)ictx.vaddr));
+	serial2_printf("input slot at 0x%lx\n",
+	               ictx.paddr + ((uint64_t)in_slot - (uint64_t)ictx.vaddr));
 
-	in_slot->info =
-	    (1u << 27) | (speed << 20); // Context Entries=1, Speed
-	in_slot->info2 = (port_id << 16);     // Root Hub Port Number [23:16]
+	in_slot->info = (1u << 27) | (speed << 20); // Context Entries=1, Speed
+	in_slot->info2 = (port_id << 16); // Root Hub Port Number [23:16]
 
 	uint32_t mps = 64;
-	if (speed == 2)
-		mps = 8; // Low-speed
+	if (speed == 1 || speed == 2)
+		mps = 8; // Low-speed / Full-speed
 	else if (speed == 4)
 		mps = 512; // Super-speed
 
@@ -751,62 +749,56 @@ bool XHCIModule::address_device(uint8_t slot_id, uint8_t port_id,
 	// DW0: Interval = 0
 	in_ep0->info = 0;
 	// DW1: MPS[31:16] | MaxBurstSize[15:8] | EPType[5:3] | CErr[2:1]
-	in_ep0->info2 = (mps << 16) | (0u << 8) | (4u << 3) | (3u << 1); // Control=4
-	in_ep0->trdp = (uint64_t)ring_paddr | 1; // DCS=1
+	in_ep0->info2 =
+	    (mps << 16) | (0u << 8) | (4u << 3) | (3u << 1); // Control=4
+	in_ep0->trdp = (uint64_t)ring_paddr | 1;             // DCS=1
 	// DW4: Max ESIT Payload[31:16] | Average TRB Length[15:0]
 	in_ep0->info3 = 8; // Average TRB Length = 8, Max ESIT Payload = 0
 
-	// log(mod, "EP0 info2=0x%x trdp=0x%lx", in_ep0->info2, in_ep0->trdp);
+	log(mod, "[XHCI] Port %d: EP0 info2=0x%x trdp=0x%lx", port_id,
+	    in_ep0->info2, in_ep0->trdp);
 
-	// log(mod,
-	//     "[XHCI] ADDRESS_DEVICE slot=%d port=%d speed=%d mps=%d "
-	//     "ctx_paddr=0x%x",
-	//     slot_id, port_id, speed, mps, (uint32_t)ictx.paddr);
+	log(mod,
+	    "[XHCI] Port %d: ADDRESS_DEVICE slot=%d speed=%d mps=%d "
+	    "ctx_paddr=0x%x",
+	    port_id, slot_id, speed, mps, (uint32_t)ictx.paddr);
 
 	send_command((uint64_t)ictx.paddr, 0,
 	             (XHCI_TRB_ADDRESS_DEVICE_CMD << 10) // TRB Type
 	                 | (slot_id << 24));
+
 	struct xhci_trb ev = wait_for_event(XHCI_TRB_COMMAND_COMPLETION_EVENT);
 
 	uint8_t code = (ev.status >> 24) & 0xFF;
-	// serial2_printf("ICTX phys adr at : 0x%lx\n", ictx.paddr);
-	// IOUtils::DMAFree((void*)ictx.raw_paddr, ictx.raw_vaddr, ictx.raw_size);
+	serial2_printf("Port %d: ICTX phys adr at : 0x%lx\n", port_id,
+	               ictx.paddr);
+	IOUtils::DMAFree((void*)ictx.raw_paddr, ictx.raw_vaddr, ictx.raw_size);
 
 	if (code != 1) {
 		log(mod,
-		    "[XHCI] ADDRESS_DEVICE failed: slot=%d port=%d speed=%d "
+		    "[XHCI] Port %d: ADDRESS_DEVICE failed: slot=%d speed=%d "
 		    "code=%d",
-		    slot_id, port_id, speed, code);
+		    port_id, slot_id, speed, code);
 		return false;
 	}
 	return true;
 }
 
-// ===========================================================================
-// Transfer ring creation: ring base must be 64-byte aligned
-// ===========================================================================
-
+/* Transfer ring creation: ring base must be 64-byte aligned */
 struct xhci_trb* XHCIModule::create_transfer_ring(uintptr_t* phys_out) {
-	// Allocate with 64-byte alignment — TRB rings must be 64-byte aligned
 	auto a = dma_alloc_aligned(sizeof(struct xhci_trb) * 64, 64);
 	IOUtils::memset(a.vaddr, 0, sizeof(struct xhci_trb) * 64);
 
-	// Link TRB at slot 63: toggle cycle, TC=1, initial PCS=1
 	auto* ring = (struct xhci_trb*)a.vaddr;
-	ring[63].ptr = a.paddr; // wraps back to start
+	ring[63].ptr = a.paddr;
 	ring[63].status = 0;
-	ring[63].control = (XHCI_TRB_LINK << 10) | (1u << 1) | 1; // TC=1, PCS=1
+	ring[63].control = (XHCI_TRB_LINK << 10) | (1u << 1) | 1;
 
 	*phys_out = a.paddr;
 	return ring;
-	// Note: raw_vaddr/raw_paddr not saved here — rings live for device
-	// lifetime If you need to free them, store raw pointers in xhci_slot
-	// too
 }
 
-// ===========================================================================
-// Endpoint configuration
-// ===========================================================================
+/* Endpoint configuration */
 // called from USBInterruptPipe
 bool XHCIModule::configure_endpoint(uint8_t slot_id, uint8_t ep_address,
                                     uint8_t ep_type, uint16_t max_packet,
@@ -851,17 +843,16 @@ bool XHCIModule::configure_endpoint(uint8_t slot_id, uint8_t ep_address,
 		xhci_interval++;
 	}
 
-	// DW0: Interval[23:16] | Mult[9:8] | EPState[2:0]
 	in_ep->info = (xhci_interval << 16);
-	
-	// DW1: MaxPacketSize[31:16] | MaxBurstSize[15:8] | EPType[5:3] | CErr[2:1]
-	// Max Burst Size must be 0 for Low/Full/High speed (unless bursting is explicitly supported)
-	in_ep->info2 = ((uint32_t)max_packet << 16) | (0u << 8) |
+
+	uint32_t target_intr = next_interrupter_target % max_intrs;
+	next_interrupter_target++;
+
+	in_ep->info2 = ((uint32_t)max_packet << 16) | (target_intr << 8) |
 	               (xhci_ep_type << 3) | (3u << 1);
-	               
-	// DW4: Max ESIT Payload[31:16] | Average TRB Length[15:0]
+
 	in_ep->info3 = ((uint32_t)max_packet << 16) | (uint32_t)max_packet;
-	in_ep->trdp = (uint64_t)ring_paddr | 1; // DCS=1
+	in_ep->trdp = (uint64_t)ring_paddr | 1;
 
 	has_sync_ev = false;
 	send_command((uint64_t)ictx.paddr, 0,
@@ -884,13 +875,10 @@ bool XHCIModule::configure_endpoint(uint8_t slot_id, uint8_t ep_address,
 	return ok;
 }
 
-// ===========================================================================
-// Interrupt transfer queueing
-// ===========================================================================
-
+/* Interrupt transfer queueing */
 void XHCIModule::queue_interrupt_transfer(uint8_t slot_id, uint32_t ep_idx,
                                           uintptr_t data_phys, size_t size) {
-											
+
 	if (!slots[slot_id].active)
 		return;
 
@@ -921,10 +909,7 @@ void XHCIModule::queue_interrupt_transfer(uint8_t slot_id, uint32_t ep_idx,
 	doorbell_regs[slot_id] = ep_idx + 1;
 }
 
-// ===========================================================================
-// Completion callbacks
-// ===========================================================================
-
+/* Completion callbacks */
 void XHCIModule::call_completion_callback(ioforge_device* dev, uint8_t slot_id,
                                           uint32_t ep_idx, size_t len,
                                           bool error) {
