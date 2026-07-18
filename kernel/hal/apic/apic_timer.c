@@ -12,7 +12,7 @@
 void vxInitializeAPICTimer();
 
 static uint64_t calibrated_ticks_1ns = 0;
-static uint64_t calibrated_tsmc_freq_1ms = 0;
+static uint64_t calibrated_tsc_ticks_1us = 0;
 
 extern uint8_t x2_apic_supported;
 
@@ -22,15 +22,11 @@ static uint64_t vxAPICReadTSC() {
 	return ((uint64_t) edx << 32) | eax;
 }
 
-// static void calibrate_tsmc_backend(interrupt_stack_frame_t* _) {
-// 	tsmc_calibrated = 1;
-// }
-
-// static boolean_t vxAPICIsTSMCSupported() {
-// 	uint32_t eax, ebx, ecx, edx;
-// 	cpuid(1, 0, &eax, &ebx, &ecx, &edx);
-// 	return (ecx & (1 << 24)) != 0;
-// }
+static boolean_t vxAPICIsTSCDeadlineSupported() {
+	uint32_t eax, ebx, ecx, edx;
+	cpuid(1, 0, &eax, &ebx, &ecx, &edx);
+	return (ecx & (1 << 24)) != 0;
+}
 
 bool vxTSChasInvariant(void) {
 	uint32_t edx, unused;
@@ -39,111 +35,50 @@ bool vxTSChasInvariant(void) {
 }
 
 static void vxAPICTimerCalibrationUsingHPET() {
-
 	for (uint64_t i = 0; i < 5; i++) {
+		// Calibrate APIC Bus Timer
 		apic_write(TIMER_DIVIDE_CONFIG, 0b1011);
 
 		LOG2_DEBUG("APIC_TIMER", "[APIC] calibrating core %d....",
 			   get_current_core_data()->core_id);
 		hpet_disable();
-		// TODO: buat utility untuk handle ini
-		// hpet_write(HPET_MAIN_COUNT, 0);
 		hpet_enable();
 
 		time_counter_t counter = {0};
 		init_timer_counter(&counter);
-		// LOG2_INFO("APIC TIMER", "ok");
 
 		apic_write(LVT_TIMER, 0x20 | APIC_TIMER_ONE_SHOT);
 		apic_write(TIMER_INITIAL_COUNT, 0xFFFFFFFF);
 
-		// Tunggu 1000 us (1ms) — pakai integer, bukan 1e3
+		uint64_t tsc_start = vxAPICReadTSC();
+
 		while (get_timer_counter_count(&counter) < 1000)
 			;
 
-		// us → ns: bagi 1000, bukan kali 1e-3
+		uint64_t tsc_end = vxAPICReadTSC();
 		uint64_t elapsed_time_us =
 			get_timer_counter_count_ns(&counter) / 1000;
 
-		uint64_t elapsed_test =
+		uint64_t elapsed_apic =
 			0xFFFFFFFF - apic_read(TIMER_CURRENT_COUNT);
 
-		// error_ratio = 1 / elapsed_time_us dalam integer tidak berguna
-		// (selalu 0 karena integer division)
-		// Ganti: hitung ticks per us langsung
-		// elapsed_test ticks terjadi dalam elapsed_time_us us
-		// ticks per us = elapsed_test / elapsed_time_us
-		uint64_t ticks_per_us = 0;
+		uint64_t apic_ticks_per_us = 0;
 		if (elapsed_time_us > 0)
-			ticks_per_us = elapsed_test / elapsed_time_us;
+			apic_ticks_per_us = elapsed_apic / elapsed_time_us;
+
+		uint64_t tsc_ticks_per_us = 0;
+		if (elapsed_time_us > 0)
+			tsc_ticks_per_us = (tsc_end - tsc_start) / elapsed_time_us;
 
 		// Running average
 		calibrated_ticks_1ns =
-			(calibrated_ticks_1ns * i + ticks_per_us) / (i + 1);
+			(calibrated_ticks_1ns * i + apic_ticks_per_us) / (i + 1);
+		calibrated_tsc_ticks_1us =
+			(calibrated_tsc_ticks_1us * i + tsc_ticks_per_us) / (i + 1);
 	}
 
-	LOG2_DEBUG("APIC_TIMER", "[APIC] calibrated apic timer 1ms done.");
+	LOG2_DEBUG("APIC_TIMER", "[APIC] calibrated apic timer done. TSC ticks/us: %ld", calibrated_tsc_ticks_1us);
 }
-
-// static void vxAPICTimerCalibrationUsingPIT() {
-// 	outb((0x43), 0b00010100);
-// 	uint16_t reload_value = (uint16_t) (1193182 / 20);
-// 	outb((0X40), reload_value & 0xFF);
-// 	outb((0X40), (reload_value >> 8) & 0xFF);
-
-// 	serial_trace("PIT Reload Value : %d\n", reload_value);
-// 	apic_write(TIMER_INITIAL_COUNT, 0xFFFFFFFF);
-// 	apic_write(TIMER_DIVIDE_CONFIG, 0x3);
-// 	apic_write(LVT_TIMER, 0x20000 | 48);
-
-// 	uint32_t __start = apic_read(0x390);
-// 	serial_trace("APIC Timer Start : %d\n", __start);
-
-// 	uint16_t pit_status;
-// 	do {
-// 		outb(0x43, 0x00);
-// 		pit_status = inb(0x40);
-// 		pit_status |= inb(0x40) << 8;
-// 	} while ((pit_status & 0x20) == 0);
-
-// 	uint32_t __end = apic_read(0x390);
-// 	serial_trace("APIC Timer End : %d\n", __end);
-// 	uint32_t freq = (__start - __end) * 20;
-// 	calibrated_ticks_1ns = freq;
-// 	serial_trace("APIC Timer Frequency : %d\n", freq);
-// }
-
-// static void vxTSCTimerCalibration() {
-// 	uint64_t tick_ns = vxHPETMinTickNs();
-
-// 	if (!vxAPICIsTSMCSupported()) {
-// 		LOG_DEBUG("APIC_TIMER", "TSMC is Not supported");
-// 		return;
-// 	}
-
-// 	hpet_disable();
-// 	// TODO: buat utility untuk handle ini
-// 	// hpet_write(HPET_MAIN_COUNT, 0);
-// 	hpet_enable();
-
-// 	uint64_t hpet_tickss = ms2ns(1) / tick_ns;
-// 	uint64_t hpet_start = vxHPETGetMainCount();
-// 	uint64_t tsc_start = vxAPICReadTSC();
-
-// 	while ((vxHPETGetMainCount() - hpet_start) < hpet_tickss)
-// 		;
-
-// 	uint64_t tsc_end = vxAPICReadTSC();
-
-// 	// Sebelum: (tsc_end - tsc_start) / 1e6  → FPU/SSE
-// 	// tsc_end - tsc_start = ticks selama 1ms
-// 	// freq per ms = ticks / 1ms
-// 	// bagi 1000 untuk dapat per us, bagi 1000000 untuk per ns
-// 	// calibrated_tsmc_freq_1ms = ticks per ms, simpan apa adanya
-// 	calibrated_tsmc_freq_1ms = (tsc_end - tsc_start);
-
-// 	LOG_DEBUG("APIC_TIMER", "[APIC] calibrated TSC timer 1ms done.");
-// }
 
 void vxInitializeAPICTimer() {
 	if (get_current_core_cpuid() == 0) {
@@ -160,11 +95,6 @@ void vxInitializeAPICTimer() {
 #define APIC_TIMER_MIN_VECTOR 0x20
 
 void vxAPICCreateTimer(uint32_t type, uint64_t interval_us, uint16_t vector) {
-	if (type != APIC_TIMER_ONE_SHOT && type != APIC_TIMER_PERIOD) {
-		LOG_ERROR("APIC_TIMER", "Invalid timer type: 0x%x", type);
-		return;
-	}
-
 	if (vector < APIC_TIMER_MIN_VECTOR || vector > 0xFE) {
 		LOG_ERROR("APIC_TIMER", "Invalid vector: 0x%x", vector);
 		return;
@@ -180,35 +110,41 @@ void vxAPICCreateTimer(uint32_t type, uint64_t interval_us, uint16_t vector) {
 		return;
 	}
 
-	// calibrated_ticks_1ns = ticks per us (hasil kalibrasi baru)
-	// count = ticks per us * interval_us
-	uint64_t count = calibrated_ticks_1ns * interval_us;
+	if (type == APIC_TIMER_PERIOD || !vxAPICIsTSCDeadlineSupported()) {
+		if (type != APIC_TIMER_ONE_SHOT && type != APIC_TIMER_PERIOD) {
+			LOG_ERROR("APIC_TIMER", "Invalid timer type: 0x%x", type);
+			return;
+		}
 
-	if (count > 0xFFFFFFFF) {
-		LOG_WARN("APIC_TIMER", "Interval too long, truncated");
-		count = 0xFFFFFFFF;
+		uint64_t count = calibrated_ticks_1ns * interval_us;
+
+		if (count > 0xFFFFFFFF) {
+			LOG_WARN("APIC_TIMER", "Interval too long, truncated");
+			count = 0xFFFFFFFF;
+		}
+
+		apic_write(TIMER_DIVIDE_CONFIG, 0x0B);
+
+		uint32_t lvt = (vector & 0xFF) | type | APIC_TIMER_MASKED;
+		apic_write(LVT_TIMER, lvt);
+
+		lvt = apic_read(LVT_TIMER);
+		apic_write(LVT_TIMER, lvt & (uint32_t)~APIC_TIMER_MASKED);
+		apic_write(TIMER_INITIAL_COUNT, (uint32_t) count);
+	} else {
+		// Use TSC-Deadline for One-Shot
+		const uint64_t tsc_delta = calibrated_tsc_ticks_1us * interval_us;
+		const uint64_t deadline = vxAPICReadTSC() + tsc_delta;
+		
+		apic_write(LVT_TIMER, (vector & 0xFF) | APIC_TIMER_DEADLINE);
+		vxWRSR(0x6E0, deadline);
 	}
-
-	apic_write(TIMER_DIVIDE_CONFIG, 0x0B);
-
-	uint32_t lvt = (vector & 0xFF) | type | APIC_TIMER_MASKED;
-	apic_write(LVT_TIMER, lvt);
-
-	lvt = apic_read(LVT_TIMER);
-	apic_write(LVT_TIMER, lvt & (uint32_t)~APIC_TIMER_MASKED);
-	apic_write(TIMER_INITIAL_COUNT, (uint32_t) count);
 }
 
 void vxAPICCreateDeadlineTimer(const uint8_t vector, const uint64_t freq_us) {
 	apic_write(LVT_TIMER, (vector & 0xFF) | APIC_TIMER_DEADLINE);
 
-	// Sebelum: calibrated_tsmc_freq_1ms * freq_us → double
-	// calibrated_tsmc_freq_1ms = ticks per 1ms = ticks per 1000us
-	// ticks per us = calibrated_tsmc_freq_1ms / 1000
-	// tsc_delta = (calibrated_tsmc_freq_1ms / 1000) * freq_us
-	// Gunakan urutan perkalian dulu untuk hindari precision loss
-	const uint64_t tsc_delta = (calibrated_tsmc_freq_1ms * freq_us) / 1000;
-
+	const uint64_t tsc_delta = calibrated_tsc_ticks_1us * freq_us;
 	const uint64_t deadline = vxAPICReadTSC() + tsc_delta;
 	vxWRSR(0x6E0, deadline);
 }

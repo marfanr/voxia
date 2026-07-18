@@ -73,9 +73,10 @@ struct cpu_core {
 	struct cpu_core* next;
 };
 struct cpu_core* vxGetCpuInfo(uint8_t apicid);
+struct cpu_core* vxGetCpuInfoByIndex(uint8_t index);
 
-uintptr_t acpi_map_phys_page(uintptr_t phys_addr, size_t len);
-void acpi_phys_page_unmap(uintptr_t addr);
+uintptr_t acpi_map_phys_page(uintptr_t phys_addr, size_t len_in_4kb);
+void acpi_phys_page_unmap(uintptr_t addr, size_t size_in_bytes);
 uint8_t vxGetNumberOfCores();
 
 #endif // __HAL__ACPI__ACPI_H_

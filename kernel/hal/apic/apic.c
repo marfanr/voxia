@@ -1,9 +1,9 @@
-#include <hal/cpu/core.h>
 #include "hal/cpu/msr.h"
 #include "libk/io.h"
 #include "libk/serial.h"
 #include <hal/acpi/acpi.h>
 #include <hal/apic/apic.h>
+#include <hal/cpu/core.h>
 #include <hal/cpu/cpuid.h>
 
 #define APIC_BASE_ADDR 0x1B
@@ -20,21 +20,20 @@ void apicSetBaseAddr(uintptr_t addr);
 static void enable_x2apic() {
 	uint64_t apic_base = vxRDMSR(0x1B);
 
-	// step 1: AE=1, EXTD=0
+	// AE=1, EXTD=0
 	apic_base |= (1ULL << 11);
 	apic_base &= ~(1ULL << 10);
 	vxWRSR(0x1B, apic_base);
 
-	// step 2: re-read
 	apic_base = vxRDMSR(0x1B);
 
-	// step 3: enable x2APIC
+	// enable x2APIC
 	apic_base |= (1ULL << 10);
 	vxWRSR(0x1B, apic_base);
 
 	x2_apic_supported = 1;
 
-	LOG_INFO("APIC", "X2APIC enabled");
+	LOG2_INFO("APIC", "X2APIC enabled");
 }
 
 void apic_write(uint32_t reg, uint32_t value) {
@@ -42,22 +41,20 @@ void apic_write(uint32_t reg, uint32_t value) {
 		uint32_t msr = 0x800 + (reg >> 4);
 		vxWRSR(msr, value);
 	} else {
-		mmio_outl(lapic_base_addr + reg, (uint32_t) value);
+		mmio_outl(lapic_base_addr + reg, (uint32_t)value);
 	}
 }
 
 uint32_t apic_read(uint32_t reg) {
 	if (x2_apic_supported) {
 		uint32_t msr = 0x800 + (reg >> 4);
-		return (uint32_t) vxRDMSR(msr);
+		return (uint32_t)vxRDMSR(msr);
 	} else {
 		return mmio_inl(lapic_base_addr + reg);
 	}
 }
 
-void apicSetBaseAddr(uintptr_t addr) {
-	lapic_base_addr = addr;
-}
+void apicSetBaseAddr(uintptr_t addr) { lapic_base_addr = addr; }
 
 void apicInitialize() {
 	uint32_t lo, hi;
@@ -72,7 +69,7 @@ void apicInitialize() {
 
 	uint32_t lapic_id;
 	if (x2_apic_supported)
-		lapic_id = (uint32_t) vxRDMSR(0x802); // x2APIC: ID full 32-bit
+		lapic_id = (uint32_t)vxRDMSR(0x802); // x2APIC: ID full 32-bit
 	else
 		lapic_id = apic_read(0x20) >> 24;
 
@@ -90,15 +87,18 @@ void apicInitialize() {
 	if (!x2_apic_supported)
 		apic_write(APIC_DFR, 0xFFFFFFFF);
 
-	LOG_DEBUG("lapic", "lapic id %d", lapic_id);
+	LOG2_DEBUG("lapic", "lapic id %d", lapic_id);
 	update_core_gs((uint8_t)lapic_id);
 }
 
 void apic_send_ipi(uint8_t vector, uint8_t dest) {
-	apic_write(APIC_ICR_HIGH, (uint32_t) (dest << 24));
-	apic_write(APIC_ICR_LOW, (0b110 << 8) | vector);
+	if (x2_apic_supported) {
+		uint64_t icr = ((uint64_t)dest << 32) | (0b110ULL << 8) | vector;
+		vxWRSR(0x830, icr);
+	} else {
+		apic_write(APIC_ICR_HIGH, (uint32_t)(dest << 24));
+		apic_write(APIC_ICR_LOW, (0b110 << 8) | vector);
+	}
 }
 
-void apic_eoi() {
-	apic_write(APIC_EOI, 0);
-}
+void apic_eoi() { apic_write(APIC_EOI, 0); }

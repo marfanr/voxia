@@ -1,6 +1,7 @@
 // #include "hal/acpi/bytestream.h"
 #include "hal/apic/apic.h"
 #include "hal/apic/ioapic.h"
+#include "hal/cpu/cpuid.h"
 #include "hal/cpu/paging.h"
 #include "hal/pci/pcie.h"
 #include "init/init.h"
@@ -28,10 +29,22 @@ struct cpu_core* vxGetCpuInfo(uint8_t apicid) {
 	return 0;
 }
 
+struct cpu_core* vxGetCpuInfoByIndex(uint8_t index) {
+	struct cpu_core* core = cpu_list;
+	uint8_t curr = 0;
+	while (core) {
+		if (curr == index)
+			return core;
+		curr++;
+		core = core->next;
+	}
+	return 0;
+}
+
 extern void apicSetBaseAddr(uintptr_t addr);
 
-static void vxACPIRegisterNewCore(uint8_t apicid, uint8_t cpuid,
-                                  uint32_t flag) {
+__attribute__((unused)) static void
+vxACPIRegisterNewCore(uint8_t apicid, uint8_t cpuid, uint32_t flag) {
 	struct cpu_core* core =
 	    (struct cpu_core*)kalloc(sizeof(struct cpu_core));
 	core->apicid = apicid;
@@ -52,125 +65,67 @@ uint8_t vxGetNumberOfCores() {
 	return count;
 }
 
-uintptr_t acpi_map_phys_page(uintptr_t phys_addr, size_t len) {
+uintptr_t acpi_map_phys_page(uintptr_t phys_addr, size_t size_in_bytes) {
 	uintptr_t aligned_phys = ALIGN_DOWN(phys_addr, BLOCK_SIZE);
 	uintptr_t offset = phys_addr - aligned_phys;
+	size_t len_in_4kb =
+	    ALIGN_UP(offset + size_in_bytes, BLOCK_SIZE) / BLOCK_SIZE;
 
-	uintptr_t vaddr =
-	    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, len);
+	uintptr_t vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(),
+	                                        VMA_REGION_A, len_in_4kb);
+	if (!vaddr) {
+		serial2_printf("acpi_map_phys_page: failed to find free vaddr "
+		             "for size %lu\n",
+		             size_in_bytes);
+		return 0;
+	}
 
 	vma_register(get_kernel_vmm_page(), aligned_phys, vaddr,
-	             len * BLOCK_SIZE);
+	             len_in_4kb * BLOCK_SIZE,
+	             PAGE_PRESENT | PAGE_WRITABLE | PAGE_NO_EXECUTE |
+	                 PAGE_WRITE_THROUGH | PAGE_CACHE_DISABLE);
 
-	vxMultipleMmap(paging_get_highest_page_map(), vaddr, aligned_phys, len,
-	               PAGE_PRESENT | PAGE_WRITABLE | PAGE_NO_EXECUTE |
-	                   PAGE_WRITE_THROUGH | PAGE_CACHE_DISABLE);
-	paging_reload(paging_get_highest_page_map());
+	paging_multiple_mmap(paging_get_highest_page_map(), vaddr, aligned_phys,
+	                     len_in_4kb,
+	                     PAGE_PRESENT | PAGE_WRITABLE | PAGE_NO_EXECUTE |
+	                         PAGE_WRITE_THROUGH | PAGE_CACHE_DISABLE);
+
+	for (size_t i = 0; i < len_in_4kb; i++) {
+		INVLPG(vaddr + i * BLOCK_SIZE);
+	}
 	asm volatile("mfence" ::: "memory");
 
-	// paging_debug(paging_get_highest_page_map(), vaddr);
+	serial2_printf("map_phys: 0x%lx -> 0x%lx (size %lu)\n", phys_addr,
+	               vaddr + offset, size_in_bytes);
 
 	return (uintptr_t)(vaddr + offset);
 }
 
-void acpi_phys_page_unmap(uintptr_t addr) {
-	paging_unmap_fill(paging_get_highest_page_map(), addr, 1);
-	paging_reload(paging_get_highest_page_map());
-	vma_unregister(get_kernel_vmm_page(), addr);
+void acpi_phys_page_unmap(uintptr_t addr, size_t size_in_bytes) {
+	uintptr_t aligned_vaddr = ALIGN_DOWN(addr, BLOCK_SIZE);
+	uintptr_t offset = addr - aligned_vaddr;
+	size_t len_in_4kb =
+	    ALIGN_UP(offset + size_in_bytes, BLOCK_SIZE) / BLOCK_SIZE;
+
+	paging_multiple_unmap(paging_get_highest_page_map(), aligned_vaddr,
+	                      len_in_4kb);
+	vma_unregister(get_kernel_vmm_page(), aligned_vaddr);
 }
 
-// static void parsing_dsdt(uintptr_t dsdt_addr) {
-// 	// uintptr_t   ddsdt = acpi_map_phys_page(dsdt_addr, 1);
-// 	// struct SDT *sdt   = (struct SDT *)ddsdt;
-// 	// LOG_INFO("ACPI", "DSDT header length %d", sdt->Length);
-// 	// uintptr_t new_dsdt = acpi_map_phys_page(dsdt_addr, (BLOCK_SIZE +
-// 	// sdt->Length - 1) / BLOCK_SIZE); acpi_phys_page_unmap(ddsdt); sdt =
-// 	// (struct SDT *)new_dsdt; uint8_t *dsdt = (uint8_t *)new_dsdt;
-
-// 	// uint32_t slp_typa = 0;
-// 	// uint32_t slp_typb = 0;
-
-// 	// for (size_t i = 0; i < sdt->Length; i++)
-// 	// {
-// 	//     if (dsdt[i] == NAME_OP)
-// 	//     { // NameOp
-// 	//         if (strncmp((char *)((uintptr_t)dsdt + i + 1), "_S5_", 4) ==
-// 	//         0)
-// 	//         {
-// 	//             LOG_INFO("ACPI", "found _S5_ at %d", i);
-// 	//             for (size_t j = i + 5; j < sdt->Length; j++)
-// 	//             {
-// 	//                 if (dsdt[j] == PACKAGE_OP)
-// 	//                 {
-// 	//                     LOG_INFO("ACPI", "found Package at %d", j);
-
-// 	//                     for (size_t l = j + 1; l < sdt->Length; l++)
-// 	//                     {
-// 	//                         if (dsdt[l] == BYTE_PREFIX)
-// 	//                         {
-// 	//                             LOG_INFO("ACPI", "found byte prefix
-// 	//                             first at %d", l); break;
-// 	//                         }
-// 	//                     }
-// 	//                     // break;
-// 	//                     break;
-// 	//                 }
-// 	//                 i = j;
-// 	//             }
-
-// 	//             // break;
-// 	//             // if (*data == 0x12)
-// 	//             // {                               // PackageOp
-// 	//             //     data++;                     // skip opcode
-// 	//             //     size_t  pkg_size = *data++; // asumsi kecil, 1
-// 	//             byte
-// 	//             //     uint8_t num_elem = *data++;
-// 	//             //     // ambil SLP_TYP_A
-// 	//             //     slp_typa = *data; // simplifikasi, bisa 1/2/4
-// 	//             bytes
-// 	//             //     // ambil SLP_TYP_B
-// 	//             //     slp_typb = *(data + 1); // jika ada
-// 	//             // }
-// 	//         }
-// 	//     }
-// 	// }
-
-// 	// LOG_INFO("ACPI", "slp_typa %x slptypb %x", slp_typa, slp_typb);
-// }
-
-static void parsing_fadt(uintptr_t fadt_addr) {
-	UNUSED(fadt_addr);
-	// struct FADT *fadt = (struct FADT *)fadt_addr;
-	// LOG_INFO("ACPI", "FADT header length %d", fadt->header.Length);
-	// LOG_INFO("ACPI", "FADT PM1a cblk 0x%x", fadt->PM1aControlBlock);
-	// LOG_INFO("ACPI", "FADT  DSDT 0x%x", fadt->Dsdt);
-	// parsing_dsdt(fadt->Dsdt);
-
-	// outw(fadt->PM1aControlBlock, (0x1 << 10) | 1);
-	// outw(fadt->PM1bControlBlock, (0x1 << 10) | 1);
-	// outw(0x604, 0x2000);
-}
-
-static void parsing_madt(struct MADT* madt) {
-	LOG_INFO("ACPI", "APIC addr 0x%x", madt->localApicAddress);
-	uintptr_t apic_addr = acpi_map_phys_page(madt->localApicAddress, 1);
+__attribute__((unused)) static void parsing_madt(struct MADT* madt) {
+	LOG2_INFO("ACPI", "APIC addr 0x%lx", (uintptr_t)madt->localApicAddress);
+	uintptr_t apic_addr =
+	    acpi_map_phys_page(madt->localApicAddress, 0x1000);
 	apicSetBaseAddr(apic_addr);
 	apicInitialize();
 
 	uint8_t* ptr = (uint8_t*)&madt->table;
 	uint8_t* ptr_end = (uint8_t*)madt + madt->header.Length;
-	LOG_INFO("ACPI", "madt header 0x%x length 0x%x", ptr, ptr_end);
-
-	// uint8_t bspid = cpuid_get_bsp_id();
-	// LOG_INFO("ACPI", "current bsp id : %d", bspid);
-
-	// madt_record_table_entry_t *a = (madt_record_table_entry_t
-	// *)((uintptr_t)madt + 0x2C);
+	// LOG2_INFO("ACPI", "madt header 0x%lx length 0x%x", (uintptr_t)ptr,
+	// madt->header.Length);
 
 	while (ptr < ptr_end) {
 		madt_record_table_entry_t* t = (madt_record_table_entry_t*)ptr;
-		// LOG_INFO("MADT", "type %d, len %d", t->entry_type,
-		// t->record_length);
 		if (t->record_length == 0)
 			break;
 		switch (t->entry_type) {
@@ -179,7 +134,7 @@ static void parsing_madt(struct MADT* madt) {
 			uint8_t cpu_id = *(uint8_t*)(void*)(ptr + 0x2);
 			uint32_t flags = *(uint32_t*)(void*)(ptr + 0x4);
 
-			LOG_INFO("ACPI", "found APIC Id %d CPU Id %d", apic_id,
+			LOG2_INFO("ACPI", "found APIC Id %d CPU Id %d", apic_id,
 			         cpu_id);
 			vxACPIRegisterNewCore(apic_id, cpu_id, flags);
 
@@ -190,7 +145,7 @@ static void parsing_madt(struct MADT* madt) {
 			uint8_t irq_src = *(uint8_t*)(void*)(ptr + 0x3);
 			uint32_t gsi = *(uint8_t*)(void*)(ptr + 0x4);
 			uint16_t flags = *(uint16_t*)(void*)(ptr + 0x6);
-			LOG_DEBUG("ACPI INT", "BUS %d IRQ %d GSI %d flags %d",
+			LOG2_DEBUG("ACPI INT", "BUS %d IRQ %d GSI %d flags %d",
 			          bus_src, irq_src, gsi, flags);
 			ioapic_add_irq_gsi_map(irq_src, gsi, flags);
 			break;
@@ -200,17 +155,17 @@ static void parsing_madt(struct MADT* madt) {
 			uint32_t ioapic_addr = *(uint32_t*)(void*)(ptr + 0x4);
 			uint32_t ioapic_gsi_base =
 			    *(uint32_t*)(void*)(ptr + 0x8);
-			LOG_DEBUG("ACPIO IOAPIC",
+			LOG2_DEBUG("ACPIO IOAPIC",
 			          "found IOAPIC id %d addr 0x%x GSI Base %d",
 			          ioapic_id, ioapic_addr, ioapic_gsi_base);
-			ioapic_setup(acpi_map_phys_page(ioapic_addr, 1));
+			ioapic_setup(acpi_map_phys_page(ioapic_addr, 0x1000));
 			break;
 		}
 		case ACPI_NMI: {
 			uint8_t processor = *(uint8_t*)(void*)(ptr + 0x2);
 			uint16_t flags = *(uint16_t*)(void*)(ptr + 0x4);
 			uint8_t lint = *(uint8_t*)(void*)(ptr + 0x6);
-			LOG_DEBUG("ACPI NMI", "processor %d flags %d lint %d",
+			LOG2_DEBUG("ACPI NMI", "processor %d flags %d lint %d",
 			          processor, flags, lint);
 
 			break;
@@ -228,65 +183,90 @@ static void parsing_madt(struct MADT* madt) {
 #define TPM2_SIGNATURE 0x324D5054
 #define DSDT_SIGNATURE 0x54445344
 
+// TODO: will be handled by ACPICA
 INIT(acpi) {
+	// Map RSDP (typically 36 bytes for v2)
 	struct RSDP_t* rsdp_ptr =
-	    (struct RSDP_t*)acpi_map_phys_page(VIRT2PHYS(ctx->rsdp_addr), 1);
+	    (struct RSDP_t*)acpi_map_phys_page(VIRT2PHYS(ctx->rsdp_addr), 40);
 
-	if (!rsdp_ptr) {
-		serial_trace("failed to map RSDP\n");
+	if (!rsdp_ptr || (uintptr_t)rsdp_ptr < 0x1000) {
+		serial2_printf("failed to map RSDP (ptr: 0x%lx)\n",
+		             (uintptr_t)rsdp_ptr);
 		return;
 	}
 
 	if (strncmp(rsdp_ptr->Signature, "RSD PTR ", 8) != 0) {
-		serial_trace("invalid rsdp signature: %.8s\n",
+		serial2_printf("invalid rsdp signature: %.8s\n",
 		             rsdp_ptr->Signature);
 		return;
 	}
 
-	uintptr_t rsdt_addr = rsdp_ptr->RsdtAddress;
-	LOG_INFO("ACPI", "rsdt addr 0x%x", rsdt_addr);
+	uintptr_t rsdt_phys = rsdp_ptr->RsdtAddress;
+	LOG2_INFO("ACPI", "rsdt phys addr 0x%lx", rsdt_phys);
 
-	struct RSDT* rsdt = (struct RSDT*)acpi_map_phys_page(rsdt_addr, 1);
+	// First map only the header to get the length
+	struct RSDT* rsdt_header =
+	    (struct RSDT*)acpi_map_phys_page(rsdt_phys, sizeof(struct SDT));
+	if (!rsdt_header || (uintptr_t)rsdt_header < 0x1000) {
+		serial2_printf("failed to map RSDT header\n");
+		return;
+	}
+
+	uint32_t rsdt_len = rsdt_header->h.Length;
+	acpi_phys_page_unmap((uintptr_t)rsdt_header, sizeof(struct SDT));
+
+	// Now map the FULL RSDT
+	struct RSDT* rsdt =
+	    (struct RSDT*)acpi_map_phys_page(rsdt_phys, rsdt_len);
 	if (!rsdt) {
-		serial_trace("failed to map RSDT\n");
+		serial2_printf("failed to map full RSDT\n");
 		return;
 	}
 
 	uint32_t entry_count = (rsdt->h.Length - sizeof(rsdt->h)) / 4;
-	LOG_INFO("RSDT", "rsdt entry count %d", entry_count);
+	LOG2_INFO("RSDT", "rsdt entry count %d (total length %d)", entry_count,
+	         rsdt_len);
 
 	for (uint32_t i = 0; i < entry_count; i++) {
-		uintptr_t phys_addr = rsdt->PointerToOtherSDT[i];
-		uintptr_t addr = acpi_map_phys_page(phys_addr, 2);
+		uintptr_t sdt_phys = rsdt->PointerToOtherSDT[i];
 
-		if (!addr)
+		// Map header first
+		struct SDT* sdt_header = (struct SDT*)acpi_map_phys_page(
+		    sdt_phys, sizeof(struct SDT));
+		if (!sdt_header)
 			continue;
 
-		struct SDT* sdt = (struct SDT*)addr;
+		uint32_t sdt_len = sdt_header->Length;
+		acpi_phys_page_unmap((uintptr_t)sdt_header, sizeof(struct SDT));
+
+		// Map FULL SDT
+		struct SDT* sdt =
+		    (struct SDT*)acpi_map_phys_page(sdt_phys, sdt_len);
+		if (!sdt)
+			continue;
 
 		uint32_t sig = *(uint32_t*)(void*)(sdt->Signature);
-		LOG_INFO("ACPI", "signature %.4s (0x%x) found", sdt->Signature,
+		LOG2_INFO("ACPI", "signature %.4s (0x%x) found", sdt->Signature,
 		         sig);
 
 		switch (sig) {
 		case APIC_SIGNATURE:
-			parsing_madt((struct MADT*)addr);
+			parsing_madt((struct MADT*)sdt);
 			break;
 		case HPET_SIGNATURE:
-			vxHPETInitialize(addr);
+			vxHPETInitialize((uintptr_t)sdt);
 			break;
 		case MCFG_SIGNATURE:
-			mcfg_parse(addr);
+			mcfg_parse((uintptr_t)sdt);
 			break;
-		case FACP_SIGNATURE:
-			parsing_fadt(addr);
-			break;
-		case WAET_SIGNATURE:
-		case TPM2_SIGNATURE:
 		default:
 			break;
 		}
+
+		// We can unmap it now if we don't need it anymore,
+		// but MADT might be needed by others. Let's keep for now or
+		// unmap later.
 	}
 
-	LOG_INFO("ACPI", "end search at rsdt");
+	LOG2_INFO("ACPI", "end search at rsdt");
 }
