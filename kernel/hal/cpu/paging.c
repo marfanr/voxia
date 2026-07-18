@@ -175,6 +175,8 @@ static void _mmap_internal(page_t page_dir_phys, uint64_t virt, uint64_t phys,
 
 			release_table_vaddr(v_tmp);
 			tables[level][idx[level]] = next | sw_table_flags;
+		} else {
+			tables[level][idx[level]] |= sw_table_flags;
 		}
 
 		curr_phys = tables[level][idx[level]] & PAGE_PHYS_MASK;
@@ -303,7 +305,7 @@ INIT(paging) {
 	paging_multiple_mmap(kernel_pml4, ALIGN_DOWN(rsp - 0x10000, 0x1000),
 	                     ALIGN_DOWN(stack_phys - 0x10000, 0x1000), 0x11,
 	                     PAGE_PRESENT | PAGE_WRITABLE);
-	
+
 	/* Update Phys Base Allocator Bitmap */
 	paging_multiple_mmap(kernel_pml4, KALLOC_BASE_ADDR,
 	                     (uintptr_t)bitmap_base_ - ctx->hhdm_offset,

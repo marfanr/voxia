@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Copyright (C) 2026 Mohammad Arfan
+
 #ifndef __HAL__CPU__PAGING_H__
 #define __HAL__CPU__PAGING_H__
 
