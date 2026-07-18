@@ -3,7 +3,7 @@ include scripts/vars.mk
 
 .PHONY: all modules all-hdd kernel iso sbin musl
 
-all: kernel musl modules sbin iso
+all: kernel musl lib modules sbin share iso
 
 MUSL_CONFIGURED := ./musl/.configured
 
@@ -30,20 +30,36 @@ modules:
 	$(MAKE) -C ./modules/virtio-gpu
 	$(MAKE) -C ./modules/ahci
 	$(MAKE) -C ./modules/atapi
-# 	$(MAKE) -C ./modules/runtimeinit all
+	$(MAKE) -C ./modules/sata
 
-sbin:
+lib: musl
+	$(MAKE) -C $(ROOT_DIR)/lib/vxair
+	$(MAKE) -C $(ROOT_DIR)/lib/vxui
+
+lib-clear:
+	$(MAKE) -C $(ROOT_DIR)/lib/vxair clear
+	$(MAKE) -C $(ROOT_DIR)/sbin/vxui clear
+
+sbin: lib
 	$(MAKE) -C $(ROOT_DIR)/sbin/vshell
 	$(MAKE) -C $(ROOT_DIR)/sbin/init
 	$(MAKE) -C $(ROOT_DIR)/sbin/toolbox
+	$(MAKE) -C $(ROOT_DIR)/sbin/vcomp
+	$(MAKE) -C $(ROOT_DIR)/sbin/vxterm
 
 sbin-clean:
 	@rm -rf $(ISO_DIR)/root/sbin
-	$(MAKE) -C $(ROOT_DIR)/sbin/hello clean
 	$(MAKE) -C $(ROOT_DIR)/sbin/init clean
 	$(MAKE) -C $(ROOT_DIR)/sbin/toolbox clean
+	$(MAKE) -C $(ROOT_DIR)/sbin/vcomp clean
+	$(MAKE) -C $(ROOT_DIR)/sbin/vxterm clean
 
 all-hdd: $(HDD)
+
+share:
+	@rm -rf $(ISO_DIR)/usr/shared
+	mkdir -p $(ISO_DIR)/usr/shared
+	cp -r $(ROOT_DIR)/shared/* $(ISO_DIR)/usr/shared
 
 # Jalankan dengan QEMU
 .PHONY: run run-host run-debug run-gdb run-uefi run-hdd run-hdd-uefi
@@ -71,10 +87,24 @@ debug:
 	gnome-terminal -- gdb kernel.elf \
 		-ex "target remote localhost:1234"
 
-run-gpu2:
-	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) $(QEMU_NETWORK) \
+run-gpu:                                                                                                
+	$(QEMU) $(QEMU_FLAGS) \
+	-drive file=/home/arfan/vdisk.img,format=raw,media=disk \
+	-cdrom $(ISO) \
+	-boot d \
+	$(QEMU_USB) $(QEMU_NETWORK) \
 	-display gtk,gl=on,full-screen=off \
-	-device virtio-gpu-gl-pci,xres=1920,yres=1080,id=gpu \
+	-device virtio-gpu-gl-pci,xres=1920,yres=1080,id=gpu,max_outputs=1,edid=on \
+	-monitor stdio -serial file:qemu.log -D aqemu.log -s --no-reboot -trace virtio*
+
+run-gpu2:                                                                                                
+	$(QEMU) $(QEMU_FLAGS) \
+	-drive file=/home/arfan/vdisk.img,format=raw,media=disk \
+	-cdrom $(ISO) \
+	-boot d \
+	$(QEMU_USB) $(QEMU_NETWORK) -vga none \
+	-display sdl,gl=on,full-screen=off \
+	-device virtio-gpu-gl-pci,xres=1920,yres=1080,id=gpu,max_outputs=1,edid=on \
 	-monitor stdio -serial file:qemu.log -D aqemu.log -s --no-reboot -trace virtio*
 
 run-gpu-win: 
@@ -85,11 +115,48 @@ run-gpu-win:
 
 run-efi: ovmf-x64
 	$(QEMU) $(QEMU_FLAGS)  -bios $(BIOS_OVMF) -cdrom $(ISO) -boot d $(QEMU_USB) -vga none  -device virtio-serial-pci -s \
-	  -display sdl,gl=on \
-	-device virtio-vga-gl \
+	  -display gtk,gl=on \
+	-device virtio-vga-gl,blob=true,hostmem=1G,venus=true \
 	-machine accel=kvm \
 	-monitor stdio -serial file:qemu.log -d trace:ahci* -D aqemu.log 
 
+run-gpu2-efi: ovmf-x64
+	$(QEMU) $(QEMU_FLAGS) \
+		-bios $(BIOS_OVMF) \
+		-drive file=/home/arfan/vdisk.img,format=raw,media=disk \
+		-cdrom $(ISO) \
+		-boot d \
+		$(QEMU_USB) \
+		$(QEMU_NETWORK) \
+		-machine accel=kvm \
+		-display sdl,gl=on,full-screen=on \
+		-device virtio-serial-pci \
+		-device virtio-vga-gl,id=gpu,max_outputs=1,edid=on, \
+		-monitor stdio \
+		-serial file:qemu.log \
+		-D aqemu.log \
+		-s \
+		--no-reboot \
+		-trace virtio*
+
+run-venus-headless: ovmf-x64
+	$(QEMU) $(QEMU_FLAGS) \
+		-bios $(BIOS_OVMF) \
+		-drive file=/home/arfan/vdisk.img,format=raw,media=disk \
+		-cdrom $(ISO) \
+		-boot d \
+		$(QEMU_USB) \
+		$(QEMU_NETWORK) \
+		-machine accel=kvm \
+		-display egl-headless \
+		-device virtio-serial-pci \
+		-device virtio-vga-gl,id=gpu,xres=1920,yres=1080,max_outputs=1,edid=on,blob=true,hostmem=1G,venus=true \
+		-monitor stdio \
+		-serial file:qemu.log \
+		-D aqemu.log \
+		-s \
+		--no-reboot \
+		-trace virtio*
 
 TPM_STATE_DIR = /tmp/tpmstate
 TPM_SOCKET    = /tmp/mytpm-sock
@@ -97,8 +164,8 @@ TPM_SOCKET    = /tmp/mytpm-sock
 run-tpm: stop clean_tpm start_tpm
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(ISO) -boot d $(QEMU_USB) -vga none  -device virtio-serial-pci -s \
 	-d int -D qemu.log  \
-	  -display sdl,gl=on \
-	-device virtio-vga-gl \
+	  -display gtk,gl=on \
+	-device virtio-vga-gl,blob=true,hostmem=1G,venus=true \
 	-chardev socket,id=chrtpm,path=$(TPM_SOCKET) \
 	-tpmdev emulator,id=tpm0,chardev=chrtpm \
 	-device tpm-tis,tpmdev=tpm0 \
@@ -162,8 +229,6 @@ kernel:
 iso: kernel musl modules sbin limine $(MUSL_CONFIGURED)
 	mkdir -p $(ISO_DIR)
 	mkdir -p $(ISO_DIR)/boot/limine
-	mkdir -p $(INITRD_DIR)/sbin
-	cp -r $(ISO_DIR)/sbin/* $(INITRD_DIR)/sbin/ || true
 	cd $(INITRD_DIR) && tar -F ustar -cvf $(realpath $(ISO_DIR))/initrd.tar .
 	cp $(KERNEL_ELF) $(ISO_DIR)/
 	cp limine.conf $(ISO_DIR)/
@@ -184,18 +249,22 @@ $(HDD):
 	rm -f elysia.hdd
 	dd if=/dev/zero bs=1M count=0 seek=64 of=elysia.hdd
 	parted -s elysia.hdd mklabel gpt
-	parted -s elysia.hdd mkpart ESP fat32 2048s 100%
-	parted -s elysia.hdd set 1 esp on
+	parted -s elysia.hdd mkpart BIOSBOOT 1MiB 2MiB
+	parted -s elysia.hdd set 1 bios_grub on
+	parted -s elysia.hdd mkpart ESP fat32 2MiB 100%
+	parted -s elysia.hdd set 2 esp on
 	./limine/limine bios-install elysia.hdd
 	sudo losetup -Pf --show elysia.hdd >loopback_dev
-	sudo mkfs.fat -F 32 `cat loopback_dev`p1
+	sudo mkfs.fat -F 32 `cat loopback_dev`p2
 	mkdir -p img_mount
-	sudo mount `cat loopback_dev`p1 img_mount
+	sudo mount `cat loopback_dev`p2 img_mount
 	sudo mkdir -p img_mount/EFI/BOOT
 	sudo mkdir -p img_mount/boot/limine
 	sudo cp -v $(KERNEL_ELF) img_mount/
+	sudo cp -v limine.conf img_mount/
+	sudo cp -v limine.conf img_mount/limine.cfg
 	sudo cp -v limine.conf img_mount/boot/limine/
-	sudo cp -v limine/limine-bios.sys img_mount/boot/limine/
+	sudo cp -v limine.conf img_mount/boot/limine/limine.cfg
 	sudo cp -v limine/limine-bios.sys img_mount/boot/limine/
 	sudo cp -v limine/BOOTX64.EFI img_mount/EFI/BOOT/
 	sync
@@ -205,28 +274,43 @@ $(HDD):
 
 
 # Flashdisk setup
-.PHONY: flashdisk run-flashdisk
-flashdisk:
-	echo "\n🚨 WARNING: This will erase /dev/sdb. Press Ctrl+C to cancel!" && sleep 5
-	sudo parted -s /dev/sdb mklabel gpt
-	sudo parted -s /dev/sdb mkpart ESP fat32 2048s 100%
-	sudo parted -s /dev/sdb set 1 esp on
-	sudo ./limine/limine bios-install /dev/sdb
-	sudo mkfs.fat -F 32 /dev/sdb1
+FD_DEV ?= /dev/sdb
+FD_PART ?= $(FD_DEV)2
+
+.PHONY: flashdisk run-fd
+flashdisk: all
+	@echo "\n🚨 WARNING: This will erase $(FD_DEV). Press Ctrl+C to cancel!" && sleep 5
+	sudo parted -s $(FD_DEV) mklabel gpt
+	sudo parted -s $(FD_DEV) mkpart BIOSBOOT 1MiB 2MiB
+	sudo parted -s $(FD_DEV) set 1 bios_grub on
+	sudo parted -s $(FD_DEV) mkpart ESP fat32 2MiB 100%
+	sudo parted -s $(FD_DEV) set 2 esp on
+	sudo ./limine/limine bios-install $(FD_DEV)
+	sudo mkfs.fat -F 32 $(FD_PART)
 	mkdir -p usb_mount
-	cp -r build/modules ./initrd
-	sudo mount /dev/sdb1 usb_mount
-	cd initrd; tar -F ustar -cvf ../usb_mount/initrd.tar *; cd ..
+	mkdir -p $(INITRD_DIR)/sbin
+	cp -r $(ISO_DIR)/sbin/* $(INITRD_DIR)/sbin/ || true
+	sudo mount $(FD_PART) usb_mount
+	cd $(INITRD_DIR) && sudo tar -F ustar -cvf $(ROOT)/usb_mount/initrd.tar .
 	sudo mkdir -p usb_mount/EFI/BOOT
-	sudo cp -v $(KERNEL_ELF) limine.conf limine/limine-bios.sys usb_mount/
+	sudo mkdir -p usb_mount/boot/limine
+	sudo cp -v $(KERNEL_ELF) usb_mount/
+	sudo cp -v limine.conf usb_mount/
+	sudo cp -v limine.conf usb_mount/limine.cfg
+	sudo cp -v limine.conf usb_mount/boot/limine/
+	sudo cp -v limine.conf usb_mount/boot/limine/limine.cfg
+	sudo cp -v limine/limine-bios.sys usb_mount/boot/limine/
 	sudo cp -v limine/BOOTX64.EFI usb_mount/EFI/BOOT/
 	sync
 	sudo umount usb_mount
 	sudo rm -rf usb_mount
-	echo "✅ Flashdisk bootable selesai dibuat di /dev/sdb!"
+	@echo "✅ Flashdisk bootable selesai dibuat di $(FD_DEV)!"
 
-run-flashdisk:
-	$(QEMU) $(QEMU_FLAGS) -hda /dev/sdb $(QEMU_USB) -vga std -device virtio-serial-pci
+run-fd:
+	sudo $(QEMU) $(QEMU_FLAGS) -hda $(FD_DEV) $(QEMU_USB) $(QEMU_NETWORK) \
+	-display gtk,gl=on,full-screen=off \
+	-device virtio-gpu-gl-pci,xres=1920,yres=1080,id=gpu \
+	-device virtio-serial-pci -m 2G -serial file:qemu.log
 
 # Cleanup
 .PHONY: clean distclean sbin-clean doc-clean
@@ -240,6 +324,7 @@ clean:
 	$(MAKE) -C modules/virtio-gpu clean
 	$(MAKE) -C modules/ahci clean
 	$(MAKE) -C modules/atapi clean
+	$(MAKE) -C modules/sata clean
 
 musl-clean:
 	rm -f $(MUSL_CONFIGURED)
