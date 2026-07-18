@@ -177,8 +177,6 @@ void XHCIModule::probe_ports() {
 		if (!(status & XHCI_PORT_CCS))
 			continue;
 
-		// Jika port sudah di-enable (berarti sudah di-enumerate
-		// sebelumnya), skip!
 		if (status & XHCI_PORT_PED)
 			continue;
 
@@ -256,7 +254,8 @@ void XHCIModule::probe_ports() {
 			usb_get_descriptor(slot_id, 2, j,
 			                   sizeof(usb_config_descriptor), data);
 			auto conf = (usb_config_descriptor*)data;
-			log(mod, "configuration value : %d\n", conf->bConfigurationValue);
+			log(mod, "configuration value : %d\n",
+			    conf->bConfigurationValue);
 			uint16_t total_len =
 			    ((usb_config_descriptor*)data)->wTotalLength;
 			if (total_len > 0x1000)

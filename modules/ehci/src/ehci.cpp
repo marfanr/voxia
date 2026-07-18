@@ -183,7 +183,8 @@ void EHCIModule::init_periodic() {
 	qh->currentTD = 0;
 	qh->token = 0;
 	qh->ch = EHCI_QH_CAP_HEAD_OF_RECLAMATION;
-	qh->cap = 0xFF;
+	qh->cap = (1 << 0)          // S-mask = 0x01 (hanya microframe 0)
+        | EHCI_QH_CAP_MULT_1; // C-mask = 0 (full-speed split tidak dipakai)
 
 	for (int i = 0; i < 1024; i++) {
 		framelist[i] =
@@ -199,18 +200,16 @@ void EHCIModule::init_periodic() {
 
 void EHCIModule::insert_periodic(ehci_queue_head_node_t* qh_node,
                                  uint16_t interval_ms) {
-	spin_acquire(&schedule_lock);
-	int ring = 0;
-	auto curr_node = framelist_node[ring];
-	auto* mq = curr_node->head;
-	uint32_t saved_next = mq->qhlp;
-	qh_node->head->qhlp = saved_next;
-	__sync_synchronize();
-	mq->qhlp = (uint32_t)qh_node->physaddr | EHCI_Q_SELECT_QH;
-	spin_release(&schedule_lock);
-
-	log(mod, "QH dengan interval %d ms dimasukkan ke slot %d", interval_ms,
-	    ring);
+    spin_acquire(&schedule_lock);
+    int step = (interval_ms < 1) ? 1 : interval_ms;
+    for (int i = 0; i < 1024; i += step) {
+        auto* curr = framelist_node[i];
+        qh_node->head->qhlp = curr->head->qhlp;
+        __sync_synchronize();
+        curr->head->qhlp = (uint32_t)qh_node->physaddr | EHCI_Q_SELECT_QH;
+        // framelist_node[i] tetap dummy — qh_node dijadikan elemen pertama
+    }
+    spin_release(&schedule_lock);
 }
 
 void EHCIModule::start_periodic() {
@@ -225,8 +224,16 @@ void EHCIModule::stop_periodic() {
 void EHCIModule::usb_get_string_descriptor(uint8_t addr, uint8_t index,
                                            char* data, size_t size) {
 	uint8_t* buffer = (uint8_t*)kalloc(255);
+	IOUtils::memset(buffer, 0, 255);
 	usb_get_descriptor(addr, 0x3, index, 255, buffer);
 	auto* str = (struct usb_string_descriptor*)buffer;
+	
+	if (str->bLength < 2) {
+		data[0] = 0;
+		IOUtils::free(buffer, 255);
+		return;
+	}
+	
 	size_t len = (str->bLength - 2) / 2;
 	size_t j = 0;
 	for (size_t i = 0; i < len && j < size - 1; i++) {
