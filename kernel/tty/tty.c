@@ -15,6 +15,7 @@
 #include "type.h"
 #include "vfs/dentry.h"
 #include "vfs/dev.h"
+#include "vfs/ioctl.h"
 #include "vfs/vfs.h"
 #include "vfs/vnode.h"
 #include <autoconf.h>
@@ -1049,17 +1050,16 @@ done_input:
 		char_write(vnode, (void*)"\n", 1, 0);
 	}
 }
-static int char_poll(vnode_t* vnode) {
+static int char_poll(vnode_t* vnode, thread_t* waiter) {
 	struct tty_internal* priv = (struct tty_internal*)vnode->vnode_private;
 	if (!priv)
 		return 1;
+	priv->waiter = waiter;
 	if (priv->line_buff_head != priv->line_buff_tail)
 		return 1;
-	struct thread* t = get_current_core_data()->active_thread;
-	priv->waiter = t;
 	/* Clear any stale wake_pending so the upcoming thread_block actually
 	 * sleeps */
-	__atomic_store_n(&t->wake_pending, false, __ATOMIC_SEQ_CST);
+	__atomic_store_n(&waiter->wake_pending, false, __ATOMIC_SEQ_CST);
 	return 0;
 }
 
@@ -1102,17 +1102,17 @@ static int char_ioctl(vnode_t* vnode, uint32_t req, void* arg) {
 		ws->ws_ypixel = (uint16_t)vxGetHeight();
 		return 0;
 	}
-	case 0x5401: // TCGETS
+	case TCGETS: // TCGETS
 		if (arg && priv) {
 			memcopy(arg, &priv->termios, sizeof(struct termios));
 		}
 		return 0;
-	case 0x5410: { // tcsetpgrp (TIOCSPGRP)
+	case TIOCSPGRP: { 
 		serial2_printf("set foreground id %d\n", *(int*)arg);
 		priv->forground_tid = *(int*)arg;
 		return 0;
 	}
-	case 0x540f: { // tcgetpgrp (TIOCGPGRP)
+	case TIOCGPGRP: { // tcgetpgrp (TIOCGPGRP)
 		if (arg && priv) {
 			*(int*)arg = priv->forground_tid;
 		}

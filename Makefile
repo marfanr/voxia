@@ -48,7 +48,6 @@ sbin: lib
 	$(MAKE) -C $(ROOT_DIR)/sbin/vxterm
 
 sbin-clean:
-	@rm -rf $(ISO_DIR)/root/sbin
 	$(MAKE) -C $(ROOT_DIR)/sbin/init clean
 	$(MAKE) -C $(ROOT_DIR)/sbin/toolbox clean
 	$(MAKE) -C $(ROOT_DIR)/sbin/vcomp clean

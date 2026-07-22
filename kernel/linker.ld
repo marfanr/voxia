@@ -74,6 +74,7 @@ SECTIONS
         KEEP(*(.init_early.KernelReader))
         KEEP(*(.init_early.Input))
         KEEP(*(.init_early.TTY))
+        KEEP(*(.init_early.PTY))
         KEEP(*(.init_early.Scheduler))
         KEEP(*(.init_early.Sig))
         KEEP(*(.init_early.Thread))
@@ -104,6 +105,13 @@ SECTIONS
         KEEP(*(.per_core.*))
         __per_core_end = .;
     } :rodata
+
+    .syscall_entries : ALIGN(4K)
+    {
+        __syscall_entries_start = .;
+        KEEP(*(.syscall_entries.*))
+        __syscall_entries_end = .;
+    } : rodata
 
     .rela.dyn : ALIGN(8)
     {

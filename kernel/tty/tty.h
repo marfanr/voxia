@@ -1,37 +1,13 @@
 #ifndef __TTY_TTY_H__
 #define __TTY_TTY_H__
 
-#include "spinlock.h"
-#include "vfs/dentry.h"
+#include "termios.h"
 #include <autoconf.h>
+#include <spinlock.h>
 #include <type.h>
+#include <vfs/dentry.h>
 
 struct thread;
-
-typedef unsigned int tcflag_t;
-typedef unsigned char cc_t;
-typedef unsigned int speed_t;
-
-#define NCCS 32
-
-struct termios {
-	tcflag_t c_iflag;
-	tcflag_t c_oflag;
-	tcflag_t c_cflag;
-	tcflag_t c_lflag;
-	cc_t c_line;
-	cc_t c_cc[NCCS];
-	speed_t __c_ispeed;
-	speed_t __c_ospeed;
-};
-
-#define ISIG   0000001
-#define ICANON 0000002
-#define ECHO   0000010
-
-#define INLCR  0000100
-#define IGNCR  0000200
-#define ICRNL  0000400
 
 #define TTY_INVERSE_FLAG_IDX 5
 
@@ -61,7 +37,8 @@ struct tty_internal {
 	uint32_t fg_color;
 	uint32_t bg_color;
 
-	boolean_t alt_screen; /* true while inside \033[?1049h alternate screen */
+	boolean_t
+	    alt_screen; /* true while inside \033[?1049h alternate screen */
 
 	struct termios termios;
 
@@ -76,8 +53,9 @@ struct tty_internal {
 	 */
 	uint8_t _pad[8];
 
-	char last_char[5];    /* Stores the last printed UTF-8/ACS character for REP (repeat) */
-	uint8_t* backbuffer;  /* Per-TTY pixel backbuffer for double buffering */
+	char last_char[5];   /* Stores the last printed UTF-8/ACS character for
+	                        REP (repeat) */
+	uint8_t* backbuffer; /* Per-TTY pixel backbuffer for double buffering */
 	struct tty_cell* cells; /* 2D grid of character cells (cols * rows) */
 	struct tty_cell* alt_cells; /* Backup grid for alternate screen */
 	uint32_t alt_cursorx;
@@ -104,7 +82,8 @@ void tty_check_and_flush();
 void tty_putchar_raw(struct tty_internal* priv, const char* s, int len);
 void tty_putchar_raw_nolock(struct tty_internal* priv, const char* s, int len);
 void tty_clear_area(struct tty_internal* priv, int x, int y, int w, int h);
-void tty_clear_area_nolock(struct tty_internal* priv, int x, int y, int w, int h);
+void tty_clear_area_nolock(struct tty_internal* priv, int x, int y, int w,
+                           int h);
 void tty_redraw_screen_nolock(struct tty_internal* priv);
 void codepoint_to_utf8(uint32_t cp, char* s);
 void do_scroll_nolock(struct tty_internal* priv);

@@ -1,10 +1,11 @@
 #include <console/console.h>
-#include <hal/graphic/graphic.h>
+#include <graphic.h>
 #include <libk/serial.h>
 #include <memory/kalloc.h>
 #include <spinlock.h>
 #include <str.h>
 #include <type.h>
+#include <cpu/irq_lock.h>
 
 #define SLOT_EMPTY 0x00
 #define SLOT_WRITING 0xFE
@@ -36,7 +37,7 @@ static uint32_t fgcolor = 0xFFFFFFFF;
 
 static void do_scroll(void) {
 	int rows = (int)screen_rows();
-	vxScroll(g_font_size);
+	vxScroll(g_font_size, 0);
 	pos_y = rows > 0 ? rows - 1 : 0;
 	pos_x = 0;
 }
@@ -310,7 +311,6 @@ static void vprintf_internal(const char* fmt, __builtin_va_list args) {
 	FLUSH_TEMP();
 }
 
-#include <hal/cpu/irq_lock.h>
 
 void console_printf(const char* fmt, ...) {
 	uintptr_t flags = irq_save();

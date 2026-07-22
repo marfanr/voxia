@@ -278,6 +278,8 @@ typedef struct {
 typedef struct {
 	Elf64_Shdr* symtab;
 	Elf64_Shdr* strtab;
+	Elf64_Shdr* dynsym;
+	Elf64_Shdr* dynstr;
 	Elf64_Shdr* gotplt;
 	Elf64_Shdr* got;
 	Elf64_Shdr* gnuhash;
@@ -313,6 +315,7 @@ struct elf_load_mmap_table {
 	uintptr_t alligned;
 	uintptr_t paddr;
 	size_t size;
+	uint64_t flags;
 	boolean_t mapped;
 };
 

@@ -174,6 +174,10 @@ void elf_section_map_all(uint8_t* data, elf_section_map* map) {
 			map->symtab = s;
 			break;
 
+		case SHT_DYNSYM:
+			map->dynsym = s;
+			break;
+
 		case SHT_GNU_HASH:
 			map->gnuhash = s;
 			break;
@@ -181,6 +185,8 @@ void elf_section_map_all(uint8_t* data, elf_section_map* map) {
 		case SHT_STRTAB:
 			if (strncmp(sec_name, ".strtab", 7) == 0)
 				map->strtab = s;
+			else if (strncmp(sec_name, ".dynstr", 7) == 0)
+				map->dynstr = s;
 			break;
 
 		case SHT_PROGBITS:
@@ -237,10 +243,10 @@ void elf_mmap_got(volatile uintptr_t* page, elf_section_map* map,
 	uint64_t end = map->gotplt->sh_addr + map->gotplt->sh_size;
 	uint64_t total = end - start;
 
-	uint64_t aligned_start = ALIGN_DOWN(start, PAGE_SIZE);
+	uint64_t aligned_start = ALIGN_DOWN(start, PAGE_SIZE_4KB);
 	uintptr_t offset_aligned = start - aligned_start;
 	uint64_t total_aligned =
-	    ALIGN_UP(total + offset_aligned, PAGE_SIZE) / PAGE_SIZE;
+	    ALIGN_UP(total + offset_aligned, PAGE_SIZE_4KB) / PAGE_SIZE_4KB;
 
 	LOG2_INFO("VOXMO", "gotplt found at 0x%x (0x%x), size %d",
 	          base + aligned_start, offset_aligned, total_aligned);
@@ -248,7 +254,7 @@ void elf_mmap_got(volatile uintptr_t* page, elf_section_map* map,
 	uintptr_t phys_addr = (uintptr_t)phys_base_alloc(total_aligned);
 	uint64_t got_flags =
 	    PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER | PAGE_NO_EXECUTE;
-	vxMultipleMmap(page, base + aligned_start, phys_addr, total_aligned,
+	paging_multiple_mmap(page, base + aligned_start, phys_addr, total_aligned,
 	               got_flags);
 }
 
@@ -256,11 +262,11 @@ uintptr_t elf_get_entry(uint8_t* data, uintptr_t base) {
 	Elf64_Ehdr* ehdr =
 	    (Elf64_Ehdr*)ASSUME_ALIGNED(data, alignof(Elf64_Ehdr));
 	return base + ehdr->e_entry;
-}
+	}
 
-size_t elf_load(volatile uintptr_t* page, uint8_t* data,
-                uintptr_t temporary_base, uintptr_t base,
-                struct elf_load_mmap_table* table) {
+	size_t elf_load(volatile uintptr_t* page, uint8_t* data,
+	uintptr_t temporary_base, uintptr_t base,
+	struct elf_load_mmap_table* table) {
 	(void)temporary_base;
 
 	Elf64_Ehdr* ehdr =
@@ -289,44 +295,57 @@ size_t elf_load(volatile uintptr_t* page, uint8_t* data,
 
 		uintptr_t phys_alloc = (uintptr_t)phys_base_alloc(sz);
 		auto kernel_page = paging_get_highest_page_map();
-
-		auto temporary_addr = base + aligned_vaddr;
 		auto mmap_flags = elf_pflags_to_page_flags(p->p_flags);
-		if (kernel_page != page) {
-			temporary_addr = vma_lookup_free_vaddr(
-			    get_kernel_vmm_page(), VMA_REGION_B, sz);
 
-			vxMultipleMmap(kernel_page, temporary_addr, phys_alloc,
-			               sz, 0b11);
+		/* Allocate a temporary virtual address in the current kernel space */
+		uintptr_t temp_vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_B, sz);
+
+		/* Map the physical memory to the temporary virtual address so we can write to it */
+		paging_multiple_mmap(kernel_page, temp_vaddr, phys_alloc, sz, PAGE_PRESENT | PAGE_WRITABLE);
+
+		/* Copy data to the temporary virtual address */
+		memset((void*)(temp_vaddr + vaddr_offset), 0, p->p_memsz);
+		if (p->p_filesz > 0) {
+			memcopy((void*)(temp_vaddr + vaddr_offset),
+			        (void*)((uint8_t*)data + p->p_offset),
+			        p->p_filesz);
 		}
-		vxMultipleMmap(page, base + aligned_vaddr, phys_alloc, sz,
-		               mmap_flags);
-		// vxMultipleMmap(page, base + aligned_vaddr, phys_alloc, sz,
-		//                mmap_flags);
 
-		LOG2_INFO("ELF", "vaddr 0x%x, type %d  %x %x, flags %b",
-		          p->p_vaddr, p->p_type, temporary_addr,
-		          base + aligned_vaddr, mmap_flags);
+		/* Map the physical memory into the TARGET page directory at the correct module base address */
+		if (kernel_page != page) {
+			paging_multiple_mmap(page, base + aligned_vaddr, phys_alloc, sz, mmap_flags);
+		} else {
+			/* If we are loading into the kernel page directory, update the permissions of our temp map 
+			   and treat it as the final destination */
+			paging_multiple_mmap(kernel_page, base + aligned_vaddr, phys_alloc, sz, mmap_flags);
+
+			/* If base+aligned_vaddr is different from temp_vaddr, we need to unmap the temp_vaddr.
+			   However, for modules, base is usually 0, and we want them relocated.
+			   Actually, 'base' is provided by the caller (likely VMA_REGION_KMODULE).
+			   The target is ALWAYS 'base + aligned_vaddr'. */
+			if (temp_vaddr != base + aligned_vaddr) {
+				paging_multiple_unmap(kernel_page, temp_vaddr, sz);
+			}
+		}
 
 		if (table) {
 			auto t = &table[i];
 			t->paddr = phys_alloc;
-			t->vaddr = temporary_addr;
+			t->vaddr = base + aligned_vaddr; 
 			t->alligned = aligned_vaddr;
 			t->size = sz;
+			t->flags = mmap_flags;
 			t->mapped = true;
 		}
 
-		memset((void*)(temporary_addr + vaddr_offset), 0, p->p_memsz);
-		if (p->p_filesz > 0)
-			memcopy((void*)(temporary_addr + vaddr_offset),
-			        (void*)((uint8_t*)data + p->p_offset),
-			        p->p_filesz);
+		LOG2_INFO("ELF", "vaddr 0x%x, type %d mapped at 0x%x, flags %b",
+		          p->p_vaddr, p->p_type, base + aligned_vaddr, mmap_flags);
 	}
 
 	LOG2_INFO("ELF", "module loaded");
 	return max_end;
-}
+	}
+
 
 static uintptr_t
 elf_resolve_external_symbol(symbols_ptr_vector_t* external_syms,

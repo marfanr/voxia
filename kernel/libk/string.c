@@ -19,7 +19,7 @@ KERNEL_API kstring str(const char* src) {
 
 	char* buf = (char*)kalloc(len + 1);
 	if (!buf) {
-		kfree(s, sizeof(*s));
+		kfree2(s);
 		return NULL;
 	}
 
@@ -36,8 +36,8 @@ KERNEL_API void str_release(kstring str) {
 	if (!str)
 		return;
 	if (str->c_str)
-		kfree(str->c_str, str->cap);
-	kfree(str, sizeof(*str));
+		kfree2(str->c_str);
+	kfree2(str);
 }
 
 KERNEL_API boolean_t stringcmp(kstring s1, kstring s2) {
@@ -61,7 +61,7 @@ KERNEL_API kstring str_concat(kstring s, const char* suffix) {
 
 	char* buf = (char*)kalloc(new_len + 1);
 	if (!buf) {
-		kfree(s_new, sizeof(*s_new));
+		kfree2(s_new);
 		return NULL;
 	}
 
@@ -88,7 +88,7 @@ KERNEL_API kstring str_concat_prefix(kstring s, const char* prefix) {
 
 	char* buf = (char*)kalloc(new_len + 1);
 	if (!buf) {
-		kfree(s_new, sizeof(*s_new));
+		kfree2(s_new);
 		return NULL;
 	}
 
