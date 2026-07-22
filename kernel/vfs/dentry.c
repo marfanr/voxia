@@ -14,6 +14,7 @@
 #include "vfs/dev.h"
 #include "vfs/enum.h"
 #include "vfs/rcu.h"
+#include "vfs/vfs.h"
 #include "vfs/vnode.h"
 #include <spinlock.h>
 #include <type.h>
@@ -44,7 +45,8 @@ dentry_ptr KERNEL_API create_dentry(kstring name, vnode_t* vnode,
 	// dentry_t* dentry = (dentry_t*)kalloc(sizeof(struct dentry));
 	memset(dentry, 0, sizeof(dentry_t));
 
-	__atomic_fetch_add(&dentry->refcount.counter, 1, __ATOMIC_RELAXED);
+	/* Refcount dimulai dari 0. Pemilik pertama (cache atau root)
+	 * bertanggung jawab memanggil dentry_get secara eksplisit. */
 	dentry->hash = hash_dentry(name->c_str, parent);
 	dentry->name = name;
 	dentry->vnode = vnode;
@@ -66,12 +68,16 @@ static void dentry_free_rcu(struct rcu_head* head) {
 }
 
 void dentry_get(dentry_ptr dentry) {
+	if (!dentry)
+		return;
 	__atomic_fetch_add(&dentry->refcount.counter, 1, __ATOMIC_RELAXED);
 }
 
 void dentry_put(dentry_ptr dentry) {
+	if (!dentry)
+		return;
 	if (__atomic_fetch_sub(&dentry->refcount.counter, 1,
-	                       __ATOMIC_RELAXED) == 1) {
+	                       __ATOMIC_RELEASE) == 1) {
 		call_rcu(&dentry->rcu, dentry_free_rcu);
 	}
 }
@@ -105,7 +111,6 @@ int KERNEL_API resolve_dentry(const char* path, dentry_ptr parent,
 		if (!component || *component == '\0')
 			continue;
 
-		// strip trailing slash dan whitespace
 		size_t len = strlen(component);
 		while (len > 0 &&
 		       (component[len - 1] == '/' || component[len - 1] == ' '))
@@ -118,7 +123,7 @@ int KERNEL_API resolve_dentry(const char* path, dentry_ptr parent,
 			continue;
 
 		if (strcmp(component, "..") == 0) {
-			dentry_t* up = curr->parent; // baca sekali
+			dentry_t* up = curr->parent;
 			if (up) {
 				dentry_get(up);
 				dentry_put(curr);
@@ -130,48 +135,81 @@ int KERNEL_API resolve_dentry(const char* path, dentry_ptr parent,
 		dentry_t* next = cache_lookup(root_cache, curr, component);
 
 		if (!next) {
+			// First check if the backing filesystem already
+			// contains the entry
+			boolean_t found_in_fs = false;
+			if (curr->vnode && curr->vnode->fs_instance &&
+			    curr->vnode->fs_instance->fs &&
+			    curr->vnode->fs_instance->fs->data.ops &&
+			    curr->vnode->fs_instance->fs->data.ops->lookup) {
+				auto fs_instance = curr->vnode->fs_instance;
+				if (fs_instance->fs && fs_instance->cdev) {
+					if (fs_instance->fs->data.ops->lookup(
+					        fs_instance, component, curr,
+					        &next) == VFS_OK) {
+						found_in_fs = true;
+					}
+				}
+			}
+
+			if (found_in_fs) {
+				vfs_cache_insert(root_cache, next);
+				dentry_get(next);
+				dentry_put(curr);
+				curr = next;
+				continue;
+			}
+
+			// Entry was not found on disk. Try creating it if
+			// CREATE_MISSING_ENTRY is requested
 			if (flag & CREATE_MISSING_ENTRY) {
 				dentry_t* new_entry =
 				    create_dentry(str(component), 0, curr);
 				if (!new_entry)
 					goto fail;
 
+				if (curr->vnode && curr->vnode->fs_instance &&
+				    curr->vnode->fs_instance->fs &&
+				    curr->vnode->fs_instance->fs->data.ops) {
+
+					if (curr->vnode->fs_instance->fs->data
+					        .ops->create) {
+						int ret =
+						    curr->vnode->fs_instance->fs
+						        ->data.ops->create(
+						            curr->vnode
+						                ->fs_instance,
+						            component, curr,
+						            &new_entry);
+						if (ret != VFS_OK ||
+						    !new_entry->vnode) {
+							goto fail;
+						}
+					} else {
+						// Filesystem exists but does
+						// not support create (e.g.
+						// ISO9660)
+						goto fail;
+					}
+				} else {
+					// Pure VFS node (no backing
+					// filesystem), create a RAM vnode
+					if (!new_entry->vnode) {
+						new_entry->vnode =
+						    create_and_attach_vnode();
+					}
+				}
+
 				vfs_cache_insert(root_cache, new_entry);
 				dentry_get(new_entry);
 				dentry_put(curr);
 				curr = new_entry;
-				continue;
 
+				continue;
 			} else {
-				auto curr_vnode = curr->vnode;
-				if (!curr_vnode)
-					goto fail;
-
-				auto fs_instance = curr_vnode->fs_instance;
-				if (!fs_instance)
-					goto fail;
-
-				if (!fs_instance->fs || !fs_instance->cdev)
-					goto fail;
-
-				auto ops = fs_instance->fs->data.ops;
-				if (!ops || !ops->lookup)
-					goto fail;
-
-				serial2_printf("lookup into fs %s\n",
-				               component);
-				if (ops->lookup(fs_instance, component, curr,
-				                &next) != VFS_OK)
-					goto fail;
-
-				serial2_printf("success lokup from fs %s\n",
-				               component);
-
-				vfs_cache_insert(root_cache, next);
-				dentry_get(next);
-				dentry_put(curr);
-				curr = next;
-				continue;
+				// Not found in cache/FS, and
+				// CREATE_MISSING_ENTRY flag is not set
+				goto fail;
 			}
 		}
 
@@ -185,7 +223,7 @@ int KERNEL_API resolve_dentry(const char* path, dentry_ptr parent,
 	return VFS_OK;
 
 fail:
-	LOG2_DEBUG("Dentry", "missing '%s'", path_copy->c_str);
+	LOG2_DEBUG("Dentry", "missing '%s'", path);
 	dentry_put(curr);
 	*out = NULL;
 	str_release(path_copy);
@@ -244,6 +282,11 @@ int KERNEL_API vxnamei(const char* path, dentry_ptr* out) {
 				return -1;
 			}
 
+			// dummy vnode
+			new_entry->vnode = create_and_attach_vnode();
+			new_entry->vnode->type = VNODE_TYPE_DIR;
+			new_entry->vnode->permission = 0755;
+
 			vfs_cache_insert(root_cache, new_entry);
 
 			dentry_get(new_entry);
@@ -289,7 +332,8 @@ void delete_dentry(dentry_t* node) {
 	}
 
 	cache_remove(get_root_cache(), node);
-	dentry_put(node);
+	/* JANGAN dentry_put di sini — cache_remove sudah memanggil
+	 * dentry_put secara internal (melepas cache ref). */
 
 	for (size_t i = 0; i < n; i++)
 		delete_dentry(children[i]);
@@ -322,6 +366,18 @@ void print_dentry_tree(dentry_t* dentry, int depth) {
 			               vnode->device.minor);
 		} else if (vnode->type == VNODE_TYPE_CHR) {
 			serial2_printf("CHAR DEVICE");
+		} else if (vnode->type == VNODE_TYPE_DIR) {
+			serial2_printf("DIRECTORY");
+		} else if (vnode->type == VNODE_TYPE_FILE) {
+			serial2_printf("FILE");
+		} else if (vnode->type == VNODE_TYPE_DEV) {
+			serial2_printf("DEVICE");
+		} else if (vnode->type == VNODE_TYPE_LNK) {
+			serial2_printf("SYMLINK");
+		} else if (vnode->type == VNODE_TYPE_FIFO) {
+			serial2_printf("FIFO");
+		} else if (vnode->type == VNODE_TYPE_SOCK) {
+			serial2_printf("SOCKET");
 		} else {
 			serial2_printf("[%s]",
 			               vnode->fs_instance

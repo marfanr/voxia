@@ -2,6 +2,7 @@
 #include "init/init.h"
 #include "ioforge/ioforge_block.h"
 #include "libk/debug/debug.h"
+#include "libk/fs/fat32.h"
 #include "libk/fs/iso9660.h"
 #include "libk/serial.h"
 #include "llist.h"
@@ -43,7 +44,6 @@ KERNEL_API vnode_t* create_and_attach_vnode() {
 	vnode_t* vnode = create_vnode();
 
 	rbt_node* node = (rbt_node*)vxSlabAlloc(rbt_node_cache);
-	memset(node, 0, sizeof(rbt_node));
 	rbt_insert_node(&vfs_tree, node, vnode, NIL);
 
 	return vnode;
@@ -54,7 +54,7 @@ INIT(Vfs) {
 
 	NIL = (struct rbt_node*)vxSlabAlloc(rbt_node_cache);
 	memset(NIL, 0, sizeof(rbt_node));
-	NIL->data = create_vnode();
+	NIL->color = RBT_BLACK;
 	NIL->left = NIL->right = NIL->parent = NIL;
 	vfs_tree = NIL;
 
@@ -66,10 +66,12 @@ INIT(Vfs) {
 	// create root dentry
 	{
 		auto entry = create_dentry(str("/"), root_inode, 0);
+		dentry_get(entry);
+		entry->flags |= DENTRY_PINNED;
 		vxSetDentryAsRoot(entry);
 	}
 
-	// register fs
+	/* registering filesystem */
 	{
 		auto iso_fs = (struct fs_data){
 		    .magic =
@@ -78,8 +80,22 @@ INIT(Vfs) {
 		            .count = 5,
 		        },
 		    .ops = iso9660_fs_operations(),
+			.file_ops = iso9660_file_operations(),
 		};
 		create_filesystem("ISO9660", &iso_fs);
+	}
+
+	{
+		auto fat32_fs = (struct fs_data){
+		    .magic =
+		        {
+		            .magic = {'F', 'A', 'T', '3', '2', ' ', ' ', ' '},
+		            .count = 8,
+		        },
+		    .ops = fat32_fs_operations(),
+			.file_ops = fat32_file_operations(),
+		};
+		create_filesystem("FAT32", &fat32_fs);
 	}
 
 	// create notify
@@ -101,7 +117,6 @@ INIT(Vfs) {
 	LOG_INFO("vfs", "vfs has been installed");
 }
 
-// TODO: auto detect filesystem
 KERNEL_API int vfs_mount(dentry_ptr dev_dentry, char* fs, dentry_ptr dentry,
                          int flags) {
 	if (!fs || !dev_dentry || !dentry)
@@ -115,8 +130,14 @@ KERNEL_API int vfs_mount(dentry_ptr dev_dentry, char* fs, dentry_ptr dentry,
 		return VFS_ERR;
 	}
 
+	serial2_printf("[DEBUG] vfs_mount: fs %s found at %x, ops is %x\n", fs,
+	               fs_, fs_->data.ops);
+
 	if (!fs_->data.ops) {
 		LOG2_WARN("VFS", "vfs_mount: fs %s ops not found", fs);
+		serial2_printf("vfs fs magic count %d\n",
+		               fs_->data.magic.count);
+		serial2_printf("vfs fs ops 0x%x\n", fs_->data.ops);
 		return VFS_ERR;
 	}
 
@@ -149,7 +170,6 @@ KERNEL_API int vfs_mount(dentry_ptr dev_dentry, char* fs, dentry_ptr dentry,
 		dentry->vnode = dentry_node;
 	}
 
-	// TODO: validate filesystem magic
 	dentry_node->type = VNODE_TYPE_DIR;
 	dentry_node->mountedhere = cdev;
 	dev_vnode->mount = cdev;
@@ -161,14 +181,21 @@ KERNEL_API int vfs_mount(dentry_ptr dev_dentry, char* fs, dentry_ptr dentry,
 	fs_ins->cdev = cdev;
 
 	dentry_node->fs_instance = fs_ins;
+	dentry_node->ops = fs_ins->fs->data.file_ops;
 
-	// first lookup on filesystem
+	/* Pin mount point agar tidak dievict selama masih ada FS di-mount */
+	dentry->flags |= DENTRY_MOUNTPOINT | DENTRY_PINNED;
+
 	fs_->data.ops->lookup(fs_ins, 0, 0, &dentry);
+
+	if (fs_->data.ops->mount) {
+		fs_->data.ops->mount(fs_ins);
+	}
 
 	dentry_get(dev_dentry);
 
-	KDEBUG(DEBUG_LEVEL_OK, "mounted %d:%d on %s with filesystem %s\n",
-	       cdev->major, cdev->minor, dentry->name->c_str, fs_->name);
+	LOG2_DEBUG("VFS", "mounted %d:%d on %s with filesystem %s\n",
+	           cdev->major, cdev->minor, dentry->name->c_str, fs_->name);
 	return VFS_OK;
 }
 
@@ -178,7 +205,7 @@ static int vfs_umount_recursive(dentry_t* dentry) {
 
 	auto ch = dentry->child_list.next;
 	while (ch != &dentry->child_list) {
-		auto next = ch->next; // simpan next sebelum child dilepas
+		auto next = ch->next;
 		dentry_t* child = container_of(ch, dentry_t, siblings);
 
 		int ret = vfs_umount_recursive(child);
@@ -195,22 +222,10 @@ static int vfs_umount_recursive(dentry_t* dentry) {
 		return VFS_ERR_BUSY;
 	}
 
-	// TODO: handle later
-	// auto vnode = dentry->vnode;
-	// if (vnode) {
-	//     auto fs_instance = vnode->fs_instance;
-	//     if (fs_instance && fs_instance->fs &&
-	//         fs_instance->fs->data.ops->umount) {
-	//         fs_instance->fs->data.ops->umount(fs_instance);
-	//     }
-	// }
-
-	llist_del(&dentry->siblings);
-
-	auto root_cache = get_root_cache();
-	cache_remove(root_cache, dentry);
-
-	dentry_put(dentry);
+	if (dentry->flags & DENTRY_IN_CACHE) {
+		dentry->flags &= ~(uint32_t)DENTRY_PINNED;
+		cache_remove(get_root_cache(), dentry);
+	}
 	return VFS_OK;
 }
 
@@ -231,6 +246,10 @@ int vfs_umount(dentry_ptr dentry) {
 		}
 		LOG2_DEBUG("Umount", "mounted here %d:%d", cdev->major,
 		           cdev->minor);
+		auto fs_ins = vnode->fs_instance;
+		if (fs_ins && fs_ins->fs && fs_ins->fs->data.ops->umount) {
+			fs_ins->fs->data.ops->umount(fs_ins);
+		}
 		dentry_put(vnode->fs_instance->block_dentry);
 		dentry->vnode->mountedhere = 0;
 
@@ -245,6 +264,8 @@ int vfs_umount(dentry_ptr dentry) {
 
 	KDEBUG(DEBUG_LEVEL_OK, "mounted %s\n", dentry->name->c_str);
 
+	/* Unpin mount point sebelum put agar auto-evict bisa berjalan */
+	dentry->flags &= ~(uint32_t)(DENTRY_PINNED | DENTRY_MOUNTPOINT);
 	dentry_put(dentry);
 	auto ok = vfs_umount_recursive(dentry);
 	if (ok != VFS_OK)
@@ -280,7 +301,6 @@ detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 		return;
 	}
 
-	// ISO9660 PVD is always at byte sector 16
 	int ret = ops->read(vnode, 16, d_, request_size);
 
 	if (ret < 0) {
@@ -293,7 +313,6 @@ detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 	if (strncmp(pvd->id, "CD001", 5) == 0) {
 		LOG2_INFO("VFS NOTIFY", "terdeteksi ISO9660 CD-ROM");
 
-		// trying to mount
 		boolean_t is_contain_root = false;
 		{
 			dentry_ptr mount_entry;
@@ -316,11 +335,8 @@ detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 
 			dentry_put(out);
 			vfs_umount(mount_entry);
-
-			// TODO: delete temp directory
 		}
 
-		// remount again on /root
 		if (is_contain_root) {
 			dentry_ptr mount_entry;
 			vxnamei("/", &mount_entry);

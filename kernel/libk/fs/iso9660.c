@@ -137,6 +137,38 @@ static int iso9660_get_rr_name(struct iso9660_dir* entry, char* out_name) {
 	return 0;
 }
 
+static int iso9660_get_rr_mode(struct iso9660_dir* entry, uint16_t* out_mode) {
+	uint8_t name_len = entry->name_len;
+	uint8_t sua_offset = 33 + name_len;
+	if (sua_offset % 2 != 0)
+		sua_offset += 1;
+
+	uint8_t total_len = entry->length;
+	if (sua_offset >= total_len)
+		return 0;
+
+	uint8_t* sua = (uint8_t*)entry + sua_offset;
+	uint8_t sua_len = total_len - sua_offset;
+	uint8_t i = 0;
+
+	while (i + 4 <= sua_len) {
+		uint8_t sig0 = sua[i];
+		uint8_t sig1 = sua[i + 1];
+		uint8_t len = sua[i + 2];
+
+		if (len < 4)
+			break;
+
+		if (sig0 == 'P' && sig1 == 'X' && len >= 12) {
+			uint32_t mode = *(uint32_t*)(void *)&sua[i + 4];
+			*out_mode = mode & 0xFFFF;
+			return 1;
+		}
+		i += len;
+	}
+	return 0;
+}
+
 int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
                    dentry_ptr* out) {
 
@@ -222,6 +254,13 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 		(*out)->vnode->vnode_private = iso_node;
 		(*out)->vnode->type = VNODE_TYPE_DIR;
 		(*out)->vnode->fs_instance = instance;
+
+		uint16_t rr_mode = 0;
+		if (iso9660_get_rr_mode(root_dir, &rr_mode)) {
+			(*out)->vnode->permission = rr_mode;
+		} else {
+			(*out)->vnode->permission = 0555;
+		}
 
 		LOG_DEBUG("ISO9660", "root dir extent=0x%x size=%d",
 		          iso_node->extent, iso_node->size);
@@ -329,6 +368,17 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 				int sym_len = iso9660_get_rr_symlink(
 				    entry, symlink_target);
 
+				uint16_t rr_mode = 0;
+				if (iso9660_get_rr_mode(entry, &rr_mode)) {
+					(*out)->vnode->permission = rr_mode;
+				} else {
+					if (entry->flags & iOS9660_DIR_FLAG) {
+						(*out)->vnode->permission = 0555;
+					} else {
+						(*out)->vnode->permission = 0444;
+					}
+				}
+
 				if (sym_len > 0) {
 					serial2_printf(
 					    "found symlink at %s (%d)\n",
@@ -408,12 +458,30 @@ int iso9660_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 	if (!ops)
 		return -3;
 
-	if (ops->read(block_vnode, iso_node->extent, buf, iso_node->size) < 0) {
-		LOG2_ERROR("ISO9660", "failed to read dir extent");
+	if (offset >= iso_node->size) return 0;
+	size_t read_len = len;
+	if (offset + read_len > iso_node->size) {
+		read_len = iso_node->size - offset;
+	}
+	
+	size_t start_lba = iso_node->extent + (offset / 2048);
+	size_t byte_offset_in_lba = offset % 2048;
+	size_t lba_count = (byte_offset_in_lba + read_len + 2047) / 2048;
+	size_t bytes_to_read = lba_count * 2048;
+
+	void* temp_buf = kalloc(bytes_to_read);
+	if (!temp_buf) return -1;
+
+	if (ops->read(block_vnode, start_lba, temp_buf, bytes_to_read) < 0) {
+		LOG2_ERROR("ISO9660", "failed to read file extent");
+		kfree2(temp_buf);
 		return -3;
 	}
+	
+	memcopy(buf, (void*)((uintptr_t)temp_buf + byte_offset_in_lba), read_len);
+	kfree2(temp_buf);
 
-	return 0;
+	return (int)read_len;
 }
 
 int iso9660_readlink(vnode_t* vnode, char* buf, size_t len) {

@@ -1,5 +1,6 @@
 #include "fd.h"
 #include "memory/kalloc.h"
+#include <str.h>
 
 struct fdtable* alloc_fdtable() {
 	struct fdtable* table = kalloc(sizeof(struct fdtable));
@@ -12,6 +13,8 @@ struct fdtable* alloc_fdtable() {
 
 struct file_descriptor* alloc_fd() {
 	struct file_descriptor* fd = kalloc(sizeof(struct file_descriptor));
+	memset(fd, 0, sizeof(struct file_descriptor));
+	fd->count.counter = 1;
 	return fd;
 }
 

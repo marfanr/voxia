@@ -71,6 +71,10 @@ static void hlist_del(struct hlist_node* n, struct hlist_head* h) {
 
 __attribute__((always_inline)) void vfs_cache_insert(struct vfs_cache* cache,
                                                      struct dentry* dentry) {
+	/* Cache memegang satu referensi agar dentry tidak di-free
+	 * selama masih ada di dalam cache. Dilepas di cache_remove. */
+	dentry_get(dentry);
+
 	while (__atomic_test_and_set(&cache->lock, __ATOMIC_ACQUIRE))
 		;
 
@@ -78,6 +82,7 @@ __attribute__((always_inline)) void vfs_cache_insert(struct vfs_cache* cache,
 
 	hlist_add_head(&dentry->hash_node, &cache->buckets[idx]);
 	__atomic_fetch_add(&cache->count, 1, __ATOMIC_RELAXED);
+	dentry->flags |= DENTRY_IN_CACHE;
 
 	bool has_parent = dentry->parent != NULL;
 	if (has_parent)
@@ -120,8 +125,15 @@ void cache_remove(struct vfs_cache* cache, struct dentry* dentry) {
 	uint32_t idx = dentry->hash & (VFS_CACHE_SIZE - 1);
 	hlist_del(&dentry->hash_node, &cache->buckets[idx]);
 	__atomic_fetch_sub(&cache->count, 1, __ATOMIC_RELAXED);
+	dentry->flags &= ~(uint32_t)DENTRY_IN_CACHE;
+
+	if (dentry->siblings.next != NULL && dentry->siblings.next != &dentry->siblings) {
+		llist_del(&dentry->siblings);
+	}
 
 	__atomic_clear(&cache->lock, __ATOMIC_RELEASE);
+
+	dentry_put(dentry);
 }
 
 KERNEL_API struct vfs_cache* get_root_cache() { return cache_; }
