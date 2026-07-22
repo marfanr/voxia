@@ -230,6 +230,7 @@ iso: kernel musl modules sbin limine $(MUSL_CONFIGURED)
 	mkdir -p $(ISO_DIR)/boot/limine
 	cd $(INITRD_DIR) && tar -F ustar -cvf $(realpath $(ISO_DIR))/initrd.tar .
 	cp $(KERNEL_ELF) $(ISO_DIR)/
+	cp -r $(ROOT_DIR)/root $(ROOT_DIR)/etc $(ISO_DIR)/
 	cp limine.conf $(ISO_DIR)/
 	cp limine.conf $(ISO_DIR)/limine.cfg
 	cp limine.conf $(ISO_DIR)/boot/limine/
