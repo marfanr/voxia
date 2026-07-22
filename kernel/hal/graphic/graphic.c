@@ -715,6 +715,9 @@ int graphic_ioctl(vnode_t* vnode, uint32_t request, void* argp) {
 		des->ctx = find_context(g, des->ctx_id);
 		if (!des->ctx)
 			return -1;
+		
+		static uint32_t global_res_id = 100;
+		des->id = __atomic_add_fetch(&global_res_id, 1, __ATOMIC_SEQ_CST);
 
 		struct graphic_resource* res = NULL;
 		if (!g->ops->resource_create)
@@ -733,6 +736,9 @@ int graphic_ioctl(vnode_t* vnode, uint32_t request, void* argp) {
 		    (struct graphic_ioctl_create_context_cmd*)argp;
 
 		auto des = &cmd->desc;
+		static uint32_t global_ctx_id = 10;
+		des->id = __atomic_add_fetch(&global_ctx_id, 1, __ATOMIC_SEQ_CST);
+
 		struct graphic_context* res = NULL;
 		if (!g->ops->create_context)
 			return -1;

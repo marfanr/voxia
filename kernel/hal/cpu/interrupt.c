@@ -2,8 +2,10 @@
 #include "autoconf.h"
 #include "console/console.h"
 #include "hal/apic/apic.h"
+#include "hal/cpu/msr.h"
 #include "hal/cpu/paging.h"
 #include "init/init.h"
+#include "procc/process.h"
 #include <hal/cpu/core.h>
 #include <libk/debug/debug.h>
 #include <libk/io.h>
@@ -57,15 +59,6 @@ static void interrupt_register(interrupt_entry_t* entries, int n, void* handler,
 	entries[n].offset_mid = (uint16_t)((uint64_t)handler >> 16);
 	entries[n].offset_high = (uint64_t)handler >> 32;
 	entries[n].zero = 0;
-
-	// serial_printf("registered interrupt 0x%x\n", n);
-	// serial_printf("low %x\n", entries[n].offset_low);
-	// serial_printf("mid %x\n", entries[n].offset_mid);
-	// serial_printf("high %x\n", entries[n].offset_high);
-	// serial_printf("selector %x\n", entries[n].selector);
-	// serial_printf("ist %x\n", entries[n].ist);
-	// serial_printf("type_attr %x\n", entries[n].type_attr);
-	// serial_printf("handler 0x%x", handler);
 }
 
 void irq_register(uint8_t core, int n, void* handler, boolean_t use_default_isr,
@@ -137,15 +130,12 @@ void irq_setup(uint16_t core) {
 
 	interrupt_reload(&interrupt_per_core_data[core].interrupt_pointers,
 	                 interrupt_per_core_data[core].interrupt_entries);
-
-	// interrupt_register(interrupt_per_core_data[core].interrupt_entries,
-	// 		   0x73, (void*) (uint64_t) syscall_interupt, 0x28, 0,
-	// 		   INTERRUPT_ATTR_USER);
 }
 
 INIT(Interrupt) {
-	update_core_gs(0);
-	irq_setup(0);
+	uint8_t bsp_id = (uint8_t)vxGetApicID();
+	update_core_gs(bsp_id);
+	irq_setup(bsp_id);
 }
 
 static const char* exception_messages[] = {
@@ -213,7 +203,6 @@ enum EXCEPTION_ID {
 boolean_t is_running_program = 0;
 extern void jump_usermode(uintptr_t addr);
 extern void init_runtime();
-extern boolean_t g__scheduler__is__running;
 extern void timer_handle(void);
 extern void virtio_irq();
 extern boolean_t elf_has_running;
@@ -236,6 +225,23 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 			asm volatile("mov %%cr2, %0" : "=r"(cr2));
 			auto err = rsp->err_code;
 
+			if (cr2 >= 0xFFFF800000000000ULL && !(err & 1)) {
+				paging_sync_kernel_entry(cr2);
+				int level;
+				uint64_t entry = paging_get_entry_ext(
+				    paging_get_highest_page_map(), cr2, &level);
+				if (entry & PAGE_PRESENT) {
+					goto end;
+				}
+			}
+
+			if (err & (1 << 3)) {
+				uint64_t efer = vxRDMSR(0xC0000080);
+				serial2_printf(
+				    "[DEBUG] RSVD Page Fault. EFER: 0x%lx\n",
+				    efer);
+			}
+
 			// Present (err & 1) and Write fault ((err >> 1) & 1)
 			if ((err & 1) && ((err >> 1) & 1)) {
 				const scheduler_queue_t* queue =
@@ -251,7 +257,7 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 						uintptr_t new_phys =
 						    (uintptr_t)phys_base_alloc(
 						        1);
-								
+
 						if (new_phys) {
 							auto curr_page =
 							    curr_proc->page;
@@ -264,7 +270,7 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 							        get_kernel_vmm_page(),
 							        VMA_REGION_A,
 							        1);
-							vxMmap(
+							paging_mmap(
 							    curr_page,
 							    temp_vaddr,
 							    new_phys,
@@ -281,7 +287,7 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 							    curr_page,
 							    temp_vaddr);
 
-							vxMmap(
+							paging_mmap(
 							    curr_proc->page,
 							    fault_page,
 							    new_phys,
@@ -297,7 +303,7 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 				}
 			}
 
-			serial2_printf("page fault 0x%x\n", cr2);
+			serial2_printf("page fault 0x%lx\n", cr2);
 			serial2_printf(
 			    "  err bits: present=%d write=%d user=%d nx=%d\n",
 			    err & 1, (err >> 1) & 1, (err >> 2) & 1,
@@ -306,9 +312,9 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 
 		serial2_printf("\n\n[EXCEPTION] %s (vector %d)\n",
 		               exception_messages[int_number], int_number);
-		serial2_printf("  rip=0x%x  rsp=0x%x  err=0x%x  cr2=0x%x\n",
+		serial2_printf("  rip=0x%lx  rsp=0x%lx  err=0x%lx  cr2=0x%lx\n",
 		               rsp->rip, rsp->rsp, rsp->err_code, cr2);
-		serial2_printf("  rax=0x%x  rbp=0x%x  rcx=0x%x  rdx=0x%x\n",
+		serial2_printf("  rax=0x%lx  rbp=0x%lx  rcx=0x%lx  rdx=0x%lx\n",
 		               rsp->rax, rsp->rbp, rsp->rcx, rsp->rdx);
 
 		// console_printf("\n\n[EXCEPTION] %s (vector %d)\n",
@@ -326,10 +332,101 @@ vxInterruptHandler(interrupt_stack_frame_t* rsp, fpu_state_t* fpu) {
 			           "cr2=0x%x",
 			           exception_messages[int_number],
 			           queue->thread->id, rsp->rip, cr2);
-			queue->thread->state = THREAD_STATE_TERMINATED;
-			sch_restore_to_next_thread(rsp, cpu_id);
+			auto thr = queue->thread;
 
-			goto end;
+			// Check if exception occurred in user space (Ring 3)
+			if ((rsp->cs & 3) != 0) {
+				int sig = SIGSEGV;
+				if (int_number == 0) {
+					sig = SIGFPE;
+				} else if (int_number == 6) {
+					sig = SIGILL;
+				}
+
+				sig_handle_ptr_t handler = 0;
+				if (thr->signal) {
+					handler = thr->signal->handler[sig - 1];
+				}
+
+				if (handler && (uintptr_t)handler != 1) {
+					// Deliver signal to user space
+					serial2_printf(
+					    "EXCEPTION: Custom signal %d "
+					    "handler %p restorer %p for thread "
+					    "%d\n",
+					    sig, handler,
+					    thr->signal->restorer[sig - 1],
+					    thr->id);
+					vxSaveRegister(rsp, &thr->saved_reg);
+					thr->has_saved_reg = true;
+
+					uint64_t* user_sp =
+					    (uint64_t*)((rsp->rsp & ~15ULL) -
+					                8);
+					*user_sp =
+					    (uint64_t)
+					        thr->signal->restorer[sig - 1];
+
+					rsp->rsp = (uint64_t)user_sp;
+					rsp->rdi = (uint64_t)sig;
+					rsp->rsi = 0;
+					rsp->rdx = 0;
+					rsp->rip = (uintptr_t)handler;
+					goto end;
+				} else {
+					// Default action or ignore: Terminate
+					// process
+					thr->state = THREAD_STATE_TERMINATED;
+					auto procc = thr->process;
+					if (procc) {
+						procc->exited = true;
+						procc->exit_code =
+						    (int)(128 + sig);
+						auto parent =
+						    find_process_by_pid(
+						        procc->parent_pid);
+						if (parent &&
+						    parent->main_thread) {
+							serial2_printf(
+							    "waking parent "
+							    "process %d "
+							    "(current %d) due "
+							    "to exception "
+							    "signal %d\n",
+							    parent->pid,
+							    procc->pid, sig);
+							vxThreadWake(
+							    parent
+							        ->main_thread);
+						}
+					}
+					sch_restore_to_next_thread(rsp, cpu_id);
+					goto end;
+				}
+			} else {
+				// Kernel space exception -> terminate thread
+				// directly
+				thr->state = THREAD_STATE_TERMINATED;
+				auto procc = thr->process;
+				if (procc) {
+					procc->exited = true;
+					procc->exit_code =
+					    (int)(128 + int_number);
+					auto parent = find_process_by_pid(
+					    procc->parent_pid);
+					if (parent && parent->main_thread) {
+						serial2_printf(
+						    "waking parent process %d "
+						    "(current %d) due to "
+						    "kernel exception\n",
+						    parent->pid, procc->pid);
+						vxThreadWake(
+						    parent->main_thread);
+					}
+				}
+				sch_restore_to_next_thread(rsp, cpu_id);
+				goto end;
+			}
 		}
 		INFLOOP;
 	}

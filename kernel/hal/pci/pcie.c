@@ -58,7 +58,7 @@ void mcfg_parse(uintptr_t addr) {
 
 		size_t mapping_size = (size_t) (end - start + 1) * 1024 * 1024;
 		size_t mapping_pages =
-			(mapping_size + PAGE_SIZE - 1) / PAGE_SIZE;
+			(mapping_size + PAGE_SIZE_4KB - 1) / PAGE_SIZE_4KB;
 
 		uintptr_t vaddr =
 			vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_C, mapping_pages);
@@ -68,7 +68,7 @@ void mcfg_parse(uintptr_t addr) {
 		LOG_INFO("PCIE CONF", "found vaddr : 0x%lx (%d KB)", vaddr,
 			 mapping_pages * 4);
 
-		vxMultipleMmap(paging_get_highest_page_map(), vaddr,
+		paging_multiple_mmap(paging_get_highest_page_map(), vaddr,
 			       cs->base_addr, mapping_pages, 0b10011);
 		paging_reload(paging_get_highest_page_map());
 

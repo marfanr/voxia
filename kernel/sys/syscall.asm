@@ -65,7 +65,7 @@ syscall_entry:
     mov r11, [rsp + 16] ; RFLAGS
 
     cli
-    cmp qword [gs:0x20], 1
+    cmp dword [gs:0x20], 1
     je .to_user
     
     swapgs

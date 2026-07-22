@@ -17,13 +17,12 @@
 #include <libk/serial.h>
 #include <str.h>
 
+#include <autoconf.h>
 #include <memory/kalloc.h>
 #include <memory/memory_utils.h>
 #include <memory/phys_base_allocator.h>
 #include <memory/slab.h>
 #include <memory/vm_manager.h>
-#include <autoconf.h>
-
 
 struct initrd_internal_data {
 	uint64_t raw_addr;
@@ -51,10 +50,15 @@ INIT(initrd) {
 	uint64_t page_count =
 	    (initrd_module->size + offset + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
-	vxMultipleMmap(paging_get_highest_page_map(), 0xFFFFE00000000000,
-	               paddr_alligned, page_count, 0b111);
+	uint64_t vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(),
+	                                       VMA_REGION_A, page_count);
+	vma_register(get_kernel_vmm_page(), paddr_alligned, vaddr, page_count,
+	             PAGE_PRESENT | PAGE_WRITABLE | PAGE_NO_EXECUTE);
+
+	paging_multiple_mmap(paging_get_highest_page_map(), vaddr,
+	                     paddr_alligned, page_count, PAGE_PRESENT | PAGE_WRITABLE);
 	paging_reload(paging_get_highest_page_map());
-	__initrd_data.virt_addr = 0xFFFFE00000000000 + offset;
+	__initrd_data.virt_addr = vaddr + offset;
 
 	LOG_INFO("INITRD", "paddr 0x%x aligned to 0x%x off 0x%x", paddr, paddr,
 	         paddr_alligned - paddr);
@@ -128,7 +132,13 @@ KERNEL_API void LoadIntoVfs(dentry_ptr dentry) {
 			break;
 		}
 
-		LOG2_INFO("INITRD", "registering file %s", header.filename);
+		char* filename = header.filename;
+		/* Strip leading './' if present */
+		if (filename[0] == '.' && filename[1] == '/') {
+			filename += 2;
+		}
+
+		LOG2_INFO("INITRD", "registering file %s", filename);
 
 		uint64_t data_size_aligned =
 		    ((uint64_t)size + 511u) & ~(uint64_t)511u;
@@ -142,11 +152,11 @@ KERNEL_API void LoadIntoVfs(dentry_ptr dentry) {
 
 		{
 			dentry_ptr last_dentry = NULL;
-			if (resolve_dentry(header.filename, dentry,
+			if (resolve_dentry(filename, dentry,
 			                   &last_dentry,
 			                   CREATE_MISSING_ENTRY) != VFS_OK) {
 				LOG_ERROR("VFS", "failed create dentry for %s",
-				          header.filename);
+				          filename);
 			}
 
 			if (last_dentry) {
@@ -179,7 +189,7 @@ KERNEL_API void LoadIntoVfs(dentry_ptr dentry) {
 					         "unhandled typeflag '%c' for "
 					         "%s",
 					         header.typeflag,
-					         header.filename);
+					         filename);
 					break;
 				}
 			}

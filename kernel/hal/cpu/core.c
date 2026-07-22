@@ -13,6 +13,7 @@
 #include "memory/vm_manager.h"
 #include "procc/scheduler.h"
 #include "sys/syscall.h"
+#include <cpu/core.h>
 #include <ioforge/ioforge.h>
 #include <str.h>
 #include <type.h>
@@ -48,9 +49,22 @@ void update_core_gs(uint8_t id) {
 	msrSetKernelGSBase(0);
 }
 
+KERNEL_API
 each_core_data* get_current_core_data(void) {
 	each_core_data* core = (each_core_data*)msrReadGSBase();
+	if (!core) {
+		return &core_data[0];
+	}
 	return core;
+}
+
+KERNEL_API
+thread_t* get_current_thread(void) {
+	each_core_data* core = (each_core_data*)msrReadGSBase();
+	if (!core) {
+		return core_data[0].active_thread;
+	}
+	return core->active_thread;
 }
 
 KERNEL_API
@@ -79,10 +93,10 @@ cpuTrampolinePhase2(uint64_t core_id) {
 
 	serial_setup();
 	setup_gdt((uint8_t)core_id);
+	irq_setup((uint8_t)core_id);
 	update_core_gs((uint8_t)core_id);
 	__stack_chk_guard = get_current_core_data()->canary;
 
-	irq_setup((uint8_t)core_id);
 	apicInitialize();
 	init_simd();
 	vxInitializeAPICTimer();
@@ -101,13 +115,15 @@ cpuTrampolinePhase2(uint64_t core_id) {
 
 boolean_t multicore_start = false;
 
-static uint32_t get_bsp_apic_id(void) {
+uint32_t vxGetApicID(void) {
 	uint32_t eax, ebx, ecx, edx;
 	__asm__ volatile("cpuid"
 	                 : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
 	                 : "a"(1));
 	return (ebx >> 24) & 0xFF;
 }
+
+static uint32_t get_bsp_apic_id(void) { return vxGetApicID(); }
 
 static void sipi_sequential(uint32_t apic_id, uint64_t entrypoint_addr) {
 	__asm__ volatile("mfence" ::: "memory");
@@ -155,35 +171,35 @@ static void sipi_sequential(uint32_t apic_id, uint64_t entrypoint_addr) {
 		icr |= (0b101ULL << 8);
 		icr |= (1ULL << 14);
 		icr |= ((uint64_t)apic_id << 32);
-		LOG_DEBUG("APIC", "ICR INIT assert  = 0x%x", icr);
+		LOG2_DEBUG("APIC", "ICR INIT assert  = 0x%x", icr);
 		vxWRSR(0x830, icr);
 		vxHPETSleep(ms2ns(10));
-		LOG_DEBUG("APIC", "INIT assert OK");
+		LOG2_DEBUG("APIC", "INIT assert OK");
 
 		// SIPI #1
 		icr = 0;
 		icr |= (0b110ULL << 8);
 		icr |= (uint8_t)vector;
 		icr |= ((uint64_t)apic_id << 32);
-		LOG_DEBUG("APIC", "ICR SIPI #1      = 0x%x", icr);
+		LOG2_DEBUG("APIC", "ICR SIPI #1      = 0x%x", icr);
 		vxWRSR(0x830, icr);
 		vxHPETSleep(ms2ns(1));
-		LOG_DEBUG("APIC", "SIPI #1 OK");
+		LOG2_DEBUG("APIC", "SIPI #1 OK");
 
 		// SIPI #2
 		icr = 0;
 		icr |= (0b110ULL << 8);
 		icr |= (uint8_t)vector;
 		icr |= ((uint64_t)apic_id << 32);
-		LOG_DEBUG("APIC", "ICR SIPI #2      = 0x%x", icr);
+		LOG2_DEBUG("APIC", "ICR SIPI #2      = 0x%x", icr);
 		vxWRSR(0x830, icr);
 		vxHPETSleep(ms2ns(1));
-		LOG_DEBUG("APIC", "SIPI #2 OK");
+		LOG2_DEBUG("APIC", "SIPI #2 OK");
 	}
 }
 
 INIT(Core) {
-	LOG_INFO("CORE", "preparing to send IPI");
+	LOG2_INFO("CORE", "preparing to send IPI");
 	multicore_start = true;
 
 	// 0x8000 - 0x9000 used for entry point in each core
@@ -192,8 +208,8 @@ INIT(Core) {
 	              (uintptr_t)_binary_hal_cpu_core_ap_bin_start;
 	size_t aligned_size = (size + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
-	vxMultipleMmap(paging_get_highest_page_map(), entrypoint_addr,
-	               entrypoint_addr, aligned_size, 0x3);
+	paging_multiple_mmap(paging_get_highest_page_map(), entrypoint_addr,
+	                     entrypoint_addr, aligned_size, 0x3);
 	paging_reload(paging_get_highest_page_map());
 	memcopy((void*)entrypoint_addr,
 	        (void*)_binary_hal_cpu_core_ap_bin_start, size);
@@ -207,7 +223,7 @@ INIT(Core) {
 	auto bsp_id = (int)get_bsp_apic_id();
 
 	auto jum_core = vxGetNumberOfCores();
-	LOG_DEBUG("CORE", "terdeteksi %d core", jum_core);
+	LOG2_DEBUG("CORE", "terdeteksi %d core", jum_core);
 	for (uint8_t i = 0; i < jum_core; i++) {
 		if (i == bsp_id)
 			continue;
@@ -216,25 +232,27 @@ INIT(Core) {
 		auto cpu_id = core_info->apicid;
 
 		uint64_t pstack = (uint64_t)phys_base_alloc(5);
-		uint64_t stack = (uint64_t)vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A,
-		                                                 5); // 8kb
-		vxMultipleMmap(paging_get_highest_page_map(), stack, pstack, 5,
-		               0b111);
+		uint64_t stack = (uint64_t)vma_lookup_free_vaddr(
+		    get_kernel_vmm_page(), VMA_REGION_A,
+		    5); // 8kb
+		paging_multiple_mmap(paging_get_highest_page_map(), stack,
+		                     pstack, 5, 0b111);
 		paging_reload(paging_get_highest_page_map());
 
-		LOG_DEBUG("CORE", "stack untuk core %d = 0x%x", cpu_id, stack);
+		LOG2_DEBUG("CORE", "stack untuk core %d = 0x%x", cpu_id, stack);
 		auto stack_top = stack + 5 * BLOCK_SIZE;
 
 		// Allocate separate data page for each core to avoid collisions
 		uintptr_t per_core_data_paddr = (uintptr_t)phys_base_alloc(1);
-		uintptr_t per_core_data_vaddr =
-		    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, 1);
-		vxMultipleMmap(paging_get_highest_page_map(),
-		               per_core_data_vaddr, per_core_data_paddr, 1,
-		               0b111);
+		uintptr_t per_core_data_vaddr = vma_lookup_free_vaddr(
+		    get_kernel_vmm_page(), VMA_REGION_A, 1);
+		paging_multiple_mmap(paging_get_highest_page_map(),
+		                     per_core_data_vaddr, per_core_data_paddr,
+		                     1, 0b111);
 		paging_reload(paging_get_highest_page_map());
-		vma_register(get_kernel_vmm_page(), per_core_data_paddr, per_core_data_vaddr,
-		             BLOCK_SIZE);
+		vma_register(get_kernel_vmm_page(), per_core_data_paddr,
+		             per_core_data_vaddr, BLOCK_SIZE,
+		             PAGE_PRESENT | PAGE_WRITABLE | PAGE_NO_EXECUTE);
 
 		volatile uint64_t* core_handshake =
 		    (volatile uint64_t*)per_core_data_vaddr;
@@ -245,7 +263,7 @@ INIT(Core) {
 		// Update trampoline data for this core
 		trampoline_data[3] = (uint64_t)per_core_data_vaddr;
 
-		LOG_DEBUG("CORE", "kirim sipi ke CPU Core %d", cpu_id);
+		LOG2_DEBUG("CORE", "kirim sipi ke CPU Core %d", cpu_id);
 
 		sipi_sequential(cpu_id, entrypoint_addr);
 
@@ -255,8 +273,7 @@ INIT(Core) {
 		}
 	}
 
-	LOG_INFO("core", "active core count %d", active_core_count);
-	vxStartScheduler();
+	LOG2_INFO("core", "active core count %d", active_core_count);
 }
 
 uint8_t vxGetActiveCoreCount() { return active_core_count; }

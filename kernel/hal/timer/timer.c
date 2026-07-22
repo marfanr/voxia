@@ -6,10 +6,10 @@
 #include <type.h>
 #include <hal/acpi/hpet.h>
 #include <hal/timer/timer.h>
+#include <procc/scheduler.h>
 
 extern void vxInitializeAPICTimer();
 extern uint64_t calibrated_ticks_1us;
-extern boolean_t g__scheduler__is__running;
 
 static boolean_t trigerred = 0;
 
@@ -18,31 +18,35 @@ static void usleep_backend(interrupt_stack_frame_t* _) {
 	core->usleep_trigerred = true;
 	trigerred = true;
 
-	if (core->core_id > 1)
-		LOG2_DEBUG("TIMER", "usleep backend triggerred on core %d",
-			   core->core_id);
+	// if (core->core_id > 1)
+	// 	LOG2_DEBUG("TIMER", "usleep backend triggerred on core %d",
+	// 		   core->core_id);
 }
 
 void setup_timer_interrupt() {
-	irq_register(get_current_core_cpuid(), 0x24, (void*) usleep_backend, true, 0x28,
+	irq_register(get_current_core_cpuid(), 0xE4, (void*) usleep_backend, true, 0x28,
 		     0, INTERRUPT_ATTR_KERNEL);
 }
 
-void usleep(const uint64_t time_ns) {
-	if (time_ns < 1000000 || !g__scheduler__is__running) {
+KERNEL_API void usleep(const uint64_t time_ns) {
+	if (time_ns < 1000000 || !vxIsSchedulerRunning() || !vxHPETIsAvailable()) {
 		if (vxHPETIsAvailable()) {
 			vxHPETSleep(time_ns);
-			return;
+		} else {
+			// Basic fallback if HPET is not available
+			for (volatile uint64_t i = 0; i < time_ns / 10; i++) {
+				__asm__ volatile("sti\npause");
+			}
 		}
+		return;
 	}
 
-	each_core_data* core = get_current_core_data();
-	core->usleep_trigerred = false;
+	uint64_t start = vxHPETGetMainCount();
+	uint64_t ticks = time_ns / vxHPETMinTickNs();
 
-	vxAPICCreateTimer(APIC_TIMER_ONE_SHOT, time_ns / 1000, 0x24);
-
-	while (!core->usleep_trigerred)
-		__asm__ volatile("pause");
+	while ((vxHPETGetMainCount() - start) < ticks) {
+		schedule_yield();
+	}
 }
 
 INIT(Timer) {
@@ -69,3 +73,4 @@ uint64_t get_timer_counter_count_ms(time_counter_t* counter) {
 uint64_t get_timer_counter_count_ns(time_counter_t* counter) {
 	return (get_timer_counter_count(counter) * vxHPETMinTickNs());
 }
+

@@ -40,20 +40,20 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 	spin_acquire(&module->lock);
 	if (module->loaded) {
 		spin_release(&module->lock);
-		LOG_INFO("VOXMO", "module %s already loaded",
+		LOG2_INFO("VOXMO", "module %s already loaded",
 		         module->name->c_str);
 		return;
 	}
 
 	uint8_t* data = (uint8_t*)module->main_data;
 	size_t loaded_size = elf_count_load_size(data);
-	LOG_INFO("VOXMO", "loaded size %d (%d kb)", loaded_size,
+	LOG2_INFO("VOXMO", "loaded size %d (%d kb)", loaded_size,
 	         loaded_size / 1024);
 
 	size_t size_4k = ALIGN_UP(1 + loaded_size, BLOCK_SIZE) / BLOCK_SIZE;
 	uintptr_t base_addr =
 	    vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_KMODULE, size_4k);
-	LOG_INFO("VOXMO", "base addr : 0x%x", base_addr);
+	LOG2_INFO("VOXMO", "base addr : 0x%x", base_addr);
 
 	Elf64_Ehdr ehdr;
 	memcopy(&ehdr, (void*)data, sizeof(Elf64_Ehdr));
@@ -78,10 +78,10 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 	symbols_ptr_vector_t voxmo_load_syms;
 	vector_init(&voxmo_load_syms);
 	vector_push_back(&voxmo_load_syms, kernel_get_symbols());
-	LOG_INFO("VOXMO", "voxmo load external symbol count %d",
+	LOG2_INFO("VOXMO", "voxmo load external symbol count %d",
 	         voxmo_load_syms.size);
 	for (size_t i = 0; i < voxmo_load_syms.size; i++) {
-		LOG_INFO("VOXMO", "external symbol [%d] name %s, item count %d",
+		LOG2_INFO("VOXMO", "external symbol [%d] name %s, item count %d",
 		         i, voxmo_load_syms.data[i]->name,
 		         voxmo_load_syms.data[i]->items.size);
 	}
@@ -92,12 +92,12 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 
 	Elf64_Dyn* dyn = elf_get_phdr_dynamic(data);
 	if (dyn) {
-		LOG_INFO("VOXMO", "dynamic section found at 0x%x", dyn);
+		LOG2_INFO("VOXMO", "dynamic section found at 0x%x", dyn);
 		elf_dynamic_map dyn_map = {0};
 		elf_dyn_map_all(dyn, data, &dyn_map);
 
-		LOG_INFO("VOXMO", "strtab found at 0x%x", dyn_map.strtab);
-		LOG_INFO("VOXMO", "needed size %d", dyn_map.needed.size);
+		LOG2_INFO("VOXMO", "strtab found at 0x%x", dyn_map.strtab);
+		LOG2_INFO("VOXMO", "needed size %d", dyn_map.needed.size);
 
 		/*
 		 * Pass mmap_table + phnum so elf_relocate_dyn can resolve
@@ -112,7 +112,7 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 
 	uintptr_t load_addr =
 	    elf_find_symbol("load", &gnu_hash, base_addr, &sh_map, data);
-	LOG_INFO("VOXMO", "load : 0x%x", load_addr);
+	LOG2_INFO("VOXMO", "load : 0x%x", load_addr);
 
 	/*
 	 * mmap_table is only needed during load + relocation.
@@ -158,20 +158,22 @@ static void proccess_elf(voxmo_loaded_module_t_ptr module) {
 			return;
 		}
 
+		__atomic_fetch_add(&dep_module->queue->refcount, 1, __ATOMIC_SEQ_CST);
 		vector_push_back(dependency_workqueue, dep_module->queue);
-		LOG_INFO("VOXMO", "dependency %s added to queue 0x%x",
+		LOG2_INFO("VOXMO", "dependency %s added to queue 0x%x",
 		         dep_module->name->c_str, dep_module->queue);
 	}
 
-	LOG_INFO("VOXMO", "dependency workqueue size %d",
+	LOG2_INFO("VOXMO", "dependency workqueue size %d",
 	         dependency_workqueue->size);
 
 	void (*load_fn)(void*) = (void (*)(void*))(void*)load_addr;
 	auto queue = vxAddWorkqueueTask(load_fn, nullptr, dependency_workqueue);
 	module->queue = queue;
 	module->loaded = true;
+	module->queue_ref_held = true;
 
-	LOG_INFO("VOXMO", "module %s task created, queue=0x%x",
+	LOG2_INFO("VOXMO", "module %s task created, queue=0x%x",
 	         module->name->c_str, module->queue);
 
 	spin_release(&module->lock);
@@ -183,7 +185,7 @@ void vxVoxmoInstall(const char* path) {
 	kstring full_path_with_ext = str_concat(full_path, ".voxmo");
 	str_release(full_path);
 
-	LOG_INFO("VOXMO", "installing module from %s",
+	LOG2_INFO("VOXMO", "installing module from %s",
 	         full_path_with_ext->c_str);
 
 	dentry_ptr dentry = 0;
@@ -196,7 +198,7 @@ void vxVoxmoInstall(const char* path) {
 
 	size_t file_size = dentry->vnode->size;
 	uint8_t* data = kalloc(file_size);
-	LOG_INFO("VOXMO", "allocated at 0x%x for size %d kb", data,
+	LOG2_INFO("VOXMO", "allocated at 0x%x for size %d kb", data,
 	         file_size / 1024);
 
 	auto a = ((vops_file_t*)dentry->vnode->ops)
@@ -227,7 +229,7 @@ void vxVoxmoInstall(const char* path) {
 	module->queue = nullptr;
 
 	char* main_file = (char*)((uintptr_t)data + header->main_file.pos);
-	LOG_INFO("VOXMO", "main file %s", main_file);
+	LOG2_INFO("VOXMO", "main file %s", main_file);
 
 	uint16_t cap_count = header->capability.count;
 	struct voxmo_metadata_string* cap_array =
@@ -240,7 +242,7 @@ void vxVoxmoInstall(const char* path) {
 	for (uint16_t i = 0; i < cap_count; i++) {
 		struct voxmo_metadata_string* cap = &cap_array[i];
 		char* cap_name = (char*)((uintptr_t)data + cap->pos);
-		LOG_INFO("VOXMO", "capability name %s", cap_name);
+		LOG2_INFO("VOXMO", "capability name %s", cap_name);
 		module->capability[i] = str(cap_name);
 	}
 
@@ -249,14 +251,14 @@ void vxVoxmoInstall(const char* path) {
 	    (kstring*)kalloc(sizeof(kstring) * module->dependency_count);
 
 	uint16_t dep_count = header->dependency.count;
-	LOG_INFO("VOXMO", "dependency count %d", dep_count);
+	LOG2_INFO("VOXMO", "dependency count %d", dep_count);
 	struct voxmo_metadata_string* dep_array =
 	    (struct voxmo_metadata_string*)((uint64_t)data +
 	                                    header->dependency.pos);
 	for (uint16_t i = 0; i < dep_count; i++) {
 		struct voxmo_metadata_string* dep = &dep_array[i];
 		char* dep_name = (char*)((uintptr_t)data + dep->pos);
-		LOG_INFO("VOXMO", "dependency name %s", dep_name);
+		LOG2_INFO("VOXMO", "dependency name %s", dep_name);
 		module->dependency[i] = str(dep_name);
 	}
 
@@ -268,14 +270,14 @@ void vxVoxmoInstall(const char* path) {
 
 		char* file_name =
 		    (char*)((uintptr_t)data + file->nama_file.pos);
-		LOG_INFO("VOXMO", "file name %s", file_name);
-		LOG_INFO("VOXMO", "main file found at offset 0x%x, size %d",
+		LOG2_INFO("VOXMO", "file name %s", file_name);
+		LOG2_INFO("VOXMO", "main file found at offset 0x%x, size %d",
 		         file->offset, file->size);
 
 		if (strncmp(file_name, main_file, header->main_file.length) ==
 		    0) {
 			uint8_t* main_data = (uint8_t*)kalloc(file->size);
-			LOG_INFO("VOXMO", "main data buffer allocated at 0x%x",
+			LOG2_INFO("VOXMO", "main data buffer allocated at 0x%x",
 			         main_data);
 			memset(main_data, 0, file->size);
 			memcopy((void*)main_data, (void*)(data + file->offset),
@@ -308,8 +310,8 @@ void vxVoxmoInstall(const char* path) {
 	}
 	spin_release(&voxmo_list_lock);
 
-	KDEBUG(DEBUG_LEVEL_OK, "module %s installed\n", module->name->c_str);
-	LOG_INFO("VOXMO", "module %s installed", module->name->c_str);
+	KDEBUG(DEBUG_LEVEL_OK, "module %s running\n", module->name->c_str);
+	LOG2_INFO("VOXMO", "module %s installed", module->name->c_str);
 
 	kfree(data, file_size);
 }
@@ -317,7 +319,7 @@ void vxVoxmoInstall(const char* path) {
 void vxSetDefaultVoxmoPath(const char* path) { default_voxmo_path = str(path); }
 
 static void vxVoxmoProbe(kstring name) {
-	LOG_INFO("VOXMO", "probing module %s", name->c_str);
+	LOG2_INFO("VOXMO", "probing module %s", name->c_str);
 	voxmo_loaded_module_t_ptr module = vxGetVoxmoModule(name);
 	if (!module) {
 		LOG2_ERROR("VOXMO", "module %s not found", name->c_str);
@@ -325,20 +327,20 @@ static void vxVoxmoProbe(kstring name) {
 	}
 
 	if (module->loaded) {
-		LOG_INFO("VOXMO", "module %s already loaded", name->c_str);
+		LOG2_INFO("VOXMO", "module %s already loaded", name->c_str);
 		return;
 	}
 
 	if (module->dependency_count) {
 		for (size_t i = 0; i < module->dependency_count; i++) {
-			LOG_INFO("VOXMO", "dependency %s",
+			LOG2_INFO("VOXMO", "dependency %s",
 			         module->dependency[i]->c_str);
 			vxVoxmoProbe(module->dependency[i]);
 		}
 	}
 
 	proccess_elf(module);
-	LOG_INFO("VOXMO", "module %s loaded", module->name->c_str);
+	LOG2_INFO("VOXMO", "module %s loaded", module->name->c_str);
 }
 
 void vxVoxmoReload() {
@@ -348,7 +350,7 @@ void vxVoxmoReload() {
 
 	while (m != nullptr) {
 		if (!m->loaded) {
-			LOG_INFO("VOXMO", "load module %s", m->name->c_str);
+			LOG2_INFO("VOXMO", "load module %s", m->name->c_str);
 			vxVoxmoProbe(m->name);
 		}
 
@@ -356,5 +358,25 @@ void vxVoxmoReload() {
 		m = m->next;
 		spin_release(&voxmo_list_lock);
 	}
-	LOG_INFO("VOXMO", "all module reloaded");
+
+	spin_acquire(&voxmo_list_lock);
+	m = voxmo_modules;
+	spin_release(&voxmo_list_lock);
+
+	while (m != nullptr) {
+		if (m->queue_ref_held && m->queue) {
+			uint32_t current_ref = __atomic_fetch_sub(&m->queue->refcount, 1, __ATOMIC_RELEASE);
+			if (current_ref == 1) {
+				if (__atomic_load_n(&m->queue->in_use, __ATOMIC_ACQUIRE) == SLOT_FINISHED) {
+					__atomic_store_n(&m->queue->in_use, SLOT_EMPTY, __ATOMIC_RELEASE);
+				}
+			}
+			m->queue_ref_held = false;
+		}
+		spin_acquire(&voxmo_list_lock);
+		m = m->next;
+		spin_release(&voxmo_list_lock);
+	}
+
+	LOG2_INFO("VOXMO", "all module reloaded");
 }

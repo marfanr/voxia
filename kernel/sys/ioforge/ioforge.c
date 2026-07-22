@@ -205,11 +205,17 @@ KERNEL_API void* ioforge_dma_alloc(size_t size, uintptr_t* paddr) {
 	size_t aligned_size = ALIGN_UP(size, BLOCK_SIZE) / BLOCK_SIZE;
 	// LOG_DEBUG("IOFORGE DMA", "alloc size %d", aligned_size);
 	uintptr_t paddr_ = (uintptr_t)phys_base_alloc(aligned_size);
-	uintptr_t vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, aligned_size);
-	vxMultipleMmap(paging_get_highest_page_map(), vaddr, paddr_,
-	               aligned_size, 0b111);
+	uintptr_t vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(),
+	                                        VMA_REGION_A, aligned_size);
+	paging_multiple_mmap(paging_get_highest_page_map(), vaddr, paddr_,
+	                     aligned_size,
+	                     PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER |
+	                         PAGE_WRITE_THROUGH | PAGE_CACHE_DISABLE);
 	paging_reload(paging_get_highest_page_map());
-	vma_register(get_kernel_vmm_page(), paddr_, vaddr, aligned_size * BLOCK_SIZE);
+	vma_register(
+	    get_kernel_vmm_page(), paddr_, vaddr, aligned_size * BLOCK_SIZE,
+	    PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER | PAGE_WRITE_THROUGH |
+	        PAGE_CACHE_DISABLE | PAGE_NO_EXECUTE);
 	if (paddr != 0) {
 		*paddr = paddr_;
 	}
@@ -220,38 +226,22 @@ KERNEL_API
 void ioforge_dma_free(void* paddr, void* vaddr, size_t size) {
 	size_t aligned_size = ALIGN_UP(size, BLOCK_SIZE) / BLOCK_SIZE;
 	vxPhysBaseFree(paddr, aligned_size);
-	paging_unmap_fill(paging_get_highest_page_map(), (uintptr_t)vaddr,
-	                  aligned_size);
+	paging_multiple_unmap(paging_get_highest_page_map(), (uintptr_t)vaddr,
+	                      aligned_size);
 	paging_reload(paging_get_highest_page_map());
 	vma_unregister(get_kernel_vmm_page(), (uintptr_t)vaddr);
 }
 
-KERNEL_API
-uintptr_t IOforgeMMapPhys(uintptr_t paddr, size_t size) {
-	auto paddr_base = ALIGN_DOWN(paddr, PAGE_SIZE);
-	auto offset_paddr = paddr - paddr_base;
-	size_t aligned_size = ALIGN_UP(size, PAGE_SIZE);
-	size_t pages = aligned_size / PAGE_SIZE;
-	auto vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, pages);
-	vxMultipleMmap(paging_get_highest_page_map(), vaddr, paddr_base, pages,
-	               0b111);
-	paging_reload(paging_get_highest_page_map());
-	vma_register(get_kernel_vmm_page(), paddr, vaddr, aligned_size);
-	return vaddr + offset_paddr;
-}
-
 KERNEL_API void ioforge_sleep(uint32_t ms) { usleep(ms2ns(ms)); }
-
-// KERNEL_API void ioforge_mmio_outl(uint32_t port, uint32_t value) {
-// 	mmio_outl(port, value);
-// }
-
-// KERNEL_API uint32_t ioforge_mmio_inl(uint32_t port) {
-// 	return mmio_inl(port);
-// }
 
 KERNEL_API uint16_t ioforge_irq_alloc_entry() {
 	auto core_id = get_current_core_cpuid();
+	auto irq = irq_alloc_entry(core_id);
+	LOG2_INFO("IOFORGE", "allocating irq on core %d = %d", core_id, irq);
+	return irq;
+}
+
+KERNEL_API uint16_t ioforge_irq_alloc_on_core(uint8_t core_id) {
 	auto irq = irq_alloc_entry(core_id);
 	LOG2_INFO("IOFORGE", "allocating irq on core %d = %d", core_id, irq);
 	return irq;
@@ -267,6 +257,12 @@ KERNEL_API void ioforge_irq_register(uint8_t n, void* handler) {
 	irq_register(core_id, n, handler, true, 0x28, 0, INTERRUPT_ATTR_KERNEL);
 }
 
+KERNEL_API void ioforge_irq_register_on_core(uint8_t core_id, uint8_t n,
+                                             void* handler) {
+	LOG2_INFO("IOFORGE", "registering irq %d on core %d", n, core_id);
+	irq_register(core_id, n, handler, true, 0x28, 0, INTERRUPT_ATTR_KERNEL);
+}
+
 KERNEL_API uint32_t isr_irq_register(uint8_t irq, void* handler) {
 	auto curr_isr = ioapic_isr_get_vector(irq);
 	auto core_id = get_current_core_cpuid();
@@ -274,14 +270,12 @@ KERNEL_API uint32_t isr_irq_register(uint8_t irq, void* handler) {
 
 	if (curr_isr & (uint32_t) ~(1 << 16) || curr_vector != 0) {
 		auto current_apic_id = ioapic_isr_get_apic_id(irq);
-		LOG2_INFO("ISR", "isr %d already used \n", curr_isr);
+		LOG2_INFO("ISR",
+		          "isr %d already used, updating configuration\n",
+		          curr_isr);
 
-		if (current_apic_id != core_id) {
-			LOG2_INFO("ISR",
-			          "isr %d is used on another core, running on "
-			          "lapic id %d\n",
-			          curr_isr, current_apic_id);
-		}
+		vxIOAPICMapISR(irq, (uint8_t)curr_vector, current_apic_id, 1,
+		               1);
 
 		irq_register(current_apic_id, (uint8_t)curr_vector, handler,
 		             true, 0x28, 0, INTERRUPT_ATTR_KERNEL);
@@ -290,7 +284,7 @@ KERNEL_API uint32_t isr_irq_register(uint8_t irq, void* handler) {
 	}
 
 	auto vector = (uint8_t)ioforge_irq_alloc_entry();
-	vxIOAPICMapISR(irq, vector, core_id);
+	vxIOAPICMapISR(irq, vector, core_id, 1, 1);
 
 	irq_register(core_id, vector, handler, true, 0x28, 0,
 	             INTERRUPT_ATTR_KERNEL);
@@ -302,7 +296,7 @@ __attribute__((deprecated("deprecated"))) KERNEL_API void
 ioforge_map_isr(uint8_t irq, uint8_t vector) {
 	auto core_id = get_current_core_cpuid();
 	LOG2_INFO("IOFORGE", "mapping isr %d on core %d", irq, core_id);
-	vxIOAPICMapISR(irq, vector, core_id);
+	vxIOAPICMapISR(irq, vector, core_id, 1, 1);
 }
 
 KERNEL_API void IOforgeStrCopy(char* dst, char* src) { strcpy(dst, src); }
@@ -313,4 +307,28 @@ KERNEL_API void IOforgeStrnCopy(char* dst, char* src, size_t len) {
 
 KERNEL_API uint8_t ioforge_get_current_core_id() {
 	return get_current_core_cpuid();
+}
+
+KERNEL_API uint8_t ioforge_get_active_core_count() {
+	return vxGetActiveCoreCount();
+}
+
+KERNEL_API struct dma_alloc_aligned_result dma_alloc_aligned(size_t size,
+                                                             size_t align) {
+	// align must be a power of two
+	size_t raw_size = size + align - 1;
+	uintptr_t raw_paddr = 0;
+	void* raw_vaddr = ioforge_dma_alloc(raw_size, &raw_paddr);
+	memset(raw_vaddr, 0, raw_size);
+
+	uintptr_t aligned_paddr = (raw_paddr + align - 1) & ~(align - 1);
+	uintptr_t offset = aligned_paddr - raw_paddr;
+	void* aligned_vaddr = (void*)((uintptr_t)raw_vaddr + offset);
+
+	if (((uint64_t)aligned_vaddr & (align - 1ULL)) != 0) {
+		serial2_printf("dma aloc alignment %d failed\n", align);
+	}
+
+	return (struct dma_alloc_aligned_result){
+	    aligned_vaddr, aligned_paddr, raw_vaddr, raw_paddr, raw_size};
 }

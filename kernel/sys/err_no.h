@@ -32,5 +32,9 @@
 #define EDOM 33    /* Math argument out of domain */
 #define ERANGE 34  /* Math result out of range */
 #define ENOSYS 38  /* Function not implemented */
+#define ETIMEDOUT 110 /* Connection timed out */
+#define EADDRINUSE 98 /* Address already in use */
+#define EAFNOSUPPORT 97 /* Address family not supported by protocol */
+#define ECONNREFUSED 111 /* Connection refused */
 
 #endif /* __SYS__ERR_NO_H__ */

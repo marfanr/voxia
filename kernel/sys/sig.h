@@ -43,21 +43,37 @@ typedef struct __sigset_t {
 #define SIGPWR 30
 #define SIGSYS 31
 
+#define SA_RESTART 0x10000000
+
 #define SIGBIT(x) (1ULL << (x - 1))
 #define MAX_SIGNAL_AVAILABLE 64
 
 typedef void (*sig_handle_ptr_t)(int sig_num);
 
+// musl
+struct k_sigaction {
+	void (*handler)(int);
+	unsigned long flags;
+	void (*restorer)(void);
+	unsigned int mask[2];
+};
+
 typedef struct sig_han {
 	sigset_t pending;
 	sigset_t mask;
 	sig_handle_ptr_t handler[MAX_SIGNAL_AVAILABLE];
+	unsigned long flags[MAX_SIGNAL_AVAILABLE];
+	void (*restorer[MAX_SIGNAL_AVAILABLE])(void);
+	uint64_t signal_mask[MAX_SIGNAL_AVAILABLE];
 } __attribute__((aligned(64))) sig_han_t;
 
 sig_han_t* alloc_sig_handle(void);
+void free_sig_handle(sig_han_t* handle);
 void sig_send(sig_han_t* handle, int sig);
 void sig_wait(sig_han_t* handle, uint64_t mask);
 void sig_register_handler(sig_han_t* handle, int sig,
                           sig_handle_ptr_t handler);
+int sig_action(sig_han_t* handle, int sig, const struct k_sigaction* act,
+               struct k_sigaction* oact);
 
 #endif // __SYS__SIG_H__

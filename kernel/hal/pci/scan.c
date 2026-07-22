@@ -12,7 +12,7 @@
 
 static pci_segment_t segments[PCI_MAX_SEGMENTS];
 static size_t segment_count = 0;
-static boolean_t has_ecam = false;
+extern boolean_t has_ecam;
 
 static pci_segment_t* find_segment(uint8_t bus) {
 	for (size_t i = 0; i < segment_count; i++) {
@@ -54,9 +54,9 @@ uint32_t pci_read32(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off) {
 }
 
 uint64_t pci_read64(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off) {
-	uint32_t dword1 = pci_read32(bus, dev, func, off & ~3);
-	uint32_t dword2 = pci_read32(bus, dev, func, (off & ~3) + 4);
-	return ((uint64_t) dword1 << 32) | dword2;
+	uint32_t low = pci_read32(bus, dev, func, off & ~3);
+	uint32_t high = pci_read32(bus, dev, func, (off & ~3) + 4);
+	return ((uint64_t) high << 32) | low;
 }
 
 uint16_t pci_read16(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off) {
@@ -79,10 +79,10 @@ void pci_write32(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off,
 
 void pci_write64(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off,
 		 uint64_t val) {
-	uint32_t dword1 = val >> 32;
-	uint32_t dword2 = val & 0xFFFFFFFF;
-	pci_write32(bus, dev, func, off & ~3, dword1);
-	pci_write32(bus, dev, func, (off & ~3) + 4, dword2);
+	uint32_t low = val & 0xFFFFFFFF;
+	uint32_t high = val >> 32;
+	pci_write32(bus, dev, func, off & ~3, low);
+	pci_write32(bus, dev, func, (off & ~3) + 4, high);
 }
 
 void pci_write16(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off,
@@ -90,6 +90,15 @@ void pci_write16(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off,
 	uint32_t dword = pci_read32(bus, dev, func, off & ~3);
 	uint32_t shift = (off & 2) * 8;
 	dword = (dword & (uint32_t) ~(0xFFFF << shift))
+		| ((uint32_t) val << shift);
+	pci_write32(bus, dev, func, off & ~3, dword);
+}
+
+void pci_write8(uint8_t bus, uint8_t dev, uint8_t func, uint16_t off,
+		uint8_t val) {
+	uint32_t dword = pci_read32(bus, dev, func, off & ~3);
+	uint32_t shift = (off & 3) * 8;
+	dword = (dword & (uint32_t) ~(0xFF << shift))
 		| ((uint32_t) val << shift);
 	pci_write32(bus, dev, func, off & ~3, dword);
 }
@@ -132,81 +141,89 @@ static void vxPCIGatheringBusInfo(uint8_t bus, uint8_t device, uint8_t func) {
 	// uint8_t bist = pci_read16(bus, device, func, 15) & 0xFF;
 
 	for (int i = 0; i < 6; i++) {
+		uint32_t bar_low = pci_read32(bus, device, func, (uint16_t)(0x10 + i * 4));
+		if (bar_low == 0) continue;
 
-		// Fix: disable command register dulu
+		// Disable memory/IO space during probing
 		uint16_t cmd = pci_read16(bus, device, func, 0x04);
 		pci_write16(bus, device, func, 0x04, cmd & ~0x7);
 
-		uint32_t bar = pci_read32(bus, device, func,
-					  (uint16_t) (0x10 + i * 4));
-		int bar_idx = i; // simpan index asli sebelum i++
+		int bar_idx = i;
+		uint64_t addr = 0;
+		uint64_t size = 0;
+		boolean_t is_io = (bar_low & 1);
+		boolean_t is_64bit = false;
 
-		if (bar & 1) {
-			// I/O space
-			pci->bar[i].iospace = 1;
-			pci->bar[i].address = bar & ~3UL;
-			LOG_INFO("PCI", "[%d] BAR IO 0x%x (0x%x)", i, bar,
-				 pci->bar[i].address);
-			continue;
+		if (is_io) {
+			addr = bar_low & ~3U;
+			pci_write32(bus, device, func, (uint16_t)(0x10 + i * 4), 0xFFFFFFFF);
+			uint32_t val = pci_read32(bus, device, func, (uint16_t)(0x10 + i * 4));
+			size = (uint32_t)(~(val & ~3U) + 1);
+			pci_write32(bus, device, func, (uint16_t)(0x10 + i * 4), bar_low);
+
+			pci->bar[bar_idx].iospace = 1;
+			pci->bar[bar_idx].address = addr;
+			LOG_INFO("PCI", "[%d] BAR IO 0x%lx size: %ld", bar_idx, addr, size);
+		} else {
+			addr = bar_low & ~0xFUL;
+			is_64bit = ((bar_low & 0x6) == 0x4);
+			
+			uint32_t bar_high = 0;
+			if (is_64bit && i < 5) {
+				bar_high = pci_read32(bus, device, func, (uint16_t)(0x10 + (i + 1) * 4));
+				addr |= ((uint64_t)bar_high << 32);
+			}
+
+			// Probe size
+			pci_write32(bus, device, func, (uint16_t)(0x10 + i * 4), 0xFFFFFFFF);
+			if (is_64bit && i < 5) {
+				pci_write32(bus, device, func, (uint16_t)(0x10 + (i + 1) * 4), 0xFFFFFFFF);
+				uint64_t val64 = (uint64_t)pci_read32(bus, device, func, (uint16_t)(0x10 + i * 4)) |
+								 ((uint64_t)pci_read32(bus, device, func, (uint16_t)(0x10 + (i + 1) * 4)) << 32);
+				size = ~(val64 & ~0xFUL) + 1;
+				pci_write32(bus, device, func, (uint16_t)(0x10 + (i + 1) * 4), bar_high);
+			} else {
+				uint32_t val = pci_read32(bus, device, func, (uint16_t)(0x10 + i * 4));
+				size = (uint32_t)(~(val & ~0xFUL) + 1);
+			}
+			pci_write32(bus, device, func, (uint16_t)(0x10 + i * 4), bar_low);
+
+			// MMIO Mapping
+			if (size > 0) {
+				uint64_t map_size = size;
+
+				uintptr_t paddr_aligned = ALIGN_DOWN(addr, PAGE_SIZE_4KB);
+				uint32_t offset = (uint32_t)(addr - paddr_aligned);
+				uint64_t total_pages = (offset + map_size + PAGE_SIZE_4KB - 1) / PAGE_SIZE_4KB;
+
+				uintptr_t vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_B, (size_t)total_pages);
+				if (!vaddr) {
+					LOG_ERROR("PCI", "Failed to allocate VMA for BAR %d", bar_idx);
+					continue;
+				}
+				uint64_t map_flags = PAGE_PRESENT | PAGE_WRITABLE | PAGE_CACHE_DISABLE | PAGE_WRITE_THROUGH | PAGE_NO_EXECUTE;
+				
+				paging_multiple_mmap(paging_get_highest_page_map(), vaddr, paddr_aligned, total_pages, map_flags);
+				paging_reload(paging_get_highest_page_map());
+				vma_register(get_kernel_vmm_page(), paddr_aligned, vaddr, total_pages * PAGE_SIZE_4KB, map_flags);
+
+				pci->bar[bar_idx].iospace = 0;
+				pci->bar[bar_idx].address = vaddr + offset;
+				
+				LOG_INFO("PCI", "[%d] BAR %s 0x%lx -> 0x%lx size: %ld KB (mapped %ld KB)", 
+						 bar_idx, is_64bit ? "MEM64" : "MEM32", addr, (uintptr_t)pci->bar[bar_idx].address, (uint32_t)size / 1024, (uint32_t)total_pages * 4);
+			}
+
+			if (is_64bit) i++;
 		}
-
-		// Memory space
-		pci->bar[i].iospace = 0;
-		pci->bar[i].address = bar & ~0xFUL;
-
-		// Check 64-bit BAR
-		uint64_t addr = pci->bar[i].address;
-		if ((bar & 0x6) == 0x4) {
-			uint32_t bar_high =
-				pci_read32(bus, device, func,
-					   (uint16_t) (0x10 + (i + 1) * 4));
-			addr |= ((uint64_t) bar_high << 32);
-			LOG_INFO("PCI",
-				 "  64-bit BAR detected at index %d (0x%lx)", i,
-				 addr);
-			i++; // skip next BAR
-		}
-
-		uint32_t original_bar = bar;
-		pci_write32(bus, device, func, (uint16_t) (0x10 + bar_idx * 4),
-			    0xFFFFFFFF);
-		uint32_t value = pci_read32(bus, device, func,
-					    (uint16_t) (0x10 + bar_idx * 4));
-		uint32_t size = (uint32_t) (~(value & ~0xFUL) + 1);
-		pci_write32(bus, device, func, (uint16_t) (0x10 + bar_idx * 4),
-			    original_bar);
-
-		uint32_t size_4kb = (size + PAGE_SIZE - 1) / PAGE_SIZE;
-
-		uintptr_t vaddr = bar;
-		if (original_bar) {
-			vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_C, size_4kb);
-			vxMultipleMmap(paging_get_highest_page_map(), vaddr,
-				       addr, size_4kb, 0b10011);
-			paging_reload(paging_get_highest_page_map());
-			vma_register(get_kernel_vmm_page(), addr, vaddr, size_4kb * PAGE_SIZE);
-		}
-		uint32_t offset =
-			(uint32_t) (addr - ALIGN_DOWN(addr, PAGE_SIZE));
-		LOG_INFO("PCI", "[%d] BAR 0x%lx [0x%lx] (0x%lx) size: %d KB",
-			 bar_idx, addr, vaddr, offset, size_4kb * 4);
-
-		pci->bar[bar_idx].address = vaddr;
-
-		pci_write16(bus, device, func, 0x04, cmd); // restore
+		pci_write16(bus, device, func, 0x04, cmd); // Restore command
 	}
 
-	// TODO: turn on bus mastering only if needed by module
-	// sementara untuk e1000 saja
-	// if (pci->vendor_id == 0x8086 && pci->device_id == 0x100C) {
-	if ((pci->vendor_id == 0x8086 && pci->device_id == 0x10D3)
-	    || (pci->vendor_id == 0x8086 && pci->device_id == 0x24C2)
-	    || (pci->vendor_id == 0x8086 && pci->device_id == 0x2922)
-	    || (pci->vendor_id == 0x1AF4)) {
+	// Enable Bus Master and Memory Space for all devices by default
+	{
 		auto cmd = pci->command;
 		cmd |= (1 << 2); // Bus Master
-		// cmd |= (1 << 1);   // Memory Space
-		// cmd |= ~(1 << 10); // Memory Space
+		cmd |= (1 << 1); // Memory Space
 		pci_write16(bus, device, func, 4, cmd);
 
 		// check
@@ -229,15 +246,15 @@ static void vxPCIGatheringBusInfo(uint8_t bus, uint8_t device, uint8_t func) {
 
 	uint8_t interrupt_line = pci_read16(bus, device, func, 60) & 0xFF;
 	uint8_t interrupt_pin = (pci_read16(bus, device, func, 60) >> 8) & 0xFF;
-	LOG_INFO("PCI", "IRQ %d pin : %d", interrupt_line, interrupt_pin);
+	LOG_INFO("PCI", "IRQ %d pin : %d", (int)interrupt_line, (int)interrupt_pin);
 	pci->interrupt_line = interrupt_line;
 	pci->interrupt_pin = interrupt_pin;
 
 	// uint8_t min_grant = pci_read16(bus, device, func, 62) & 0xFF;
 	// uint8_t max_latency = pci_read16(bus, device, func, 63) & 0xFF;
 
-	LOG_INFO("PCI", "class : 0x%x subclass : 0x%x", pci->classes,
-		 pci->subclass);
+	LOG_INFO("PCI", "class : 0x%x subclass : 0x%x", (uint32_t)pci->classes,
+		 (uint32_t)pci->subclass);
 
 	// initialize standard supported device
 	switch (pci->classes) {
@@ -411,23 +428,25 @@ static void pci_scan_bus(pci_segment_t* s) {
 	uint8_t host_header = pci_read8(s->bus_start, 0, 0, 0x0E);
 
 	if (host_header & 0x80) {
+		// Multi-function host bridge: scan each function on device 0
 		for (uint8_t func = 0; func < 8; func++) {
 			if (pci_read16(s->bus_start, 0, func, 0) == 0xFFFF)
-				break;
-			pci_check_bus(func);
+				continue;
+			pci_check_func(s->bus_start, 0, func);
 		}
 	} else {
-		// Mulai dari bus_start — bus lain via bridge traversal
+		// Single-function host bridge: start normal traversal
 		pci_check_bus(s->bus_start);
 	}
 }
 
 void pci_scan() {
-	if (has_ecam) {
-		LOG_INFO("pci", "No MCFG, fallback to PCI");
+	LOG_INFO("PCI", "PCI scan sequence starting...");
+	if (!has_ecam) {
+		LOG_INFO("PCI", "No MCFG found, falling back to legacy PCI (I/O ports)");
 		register_segment(0, 0, 255, 0, &legacy_ops, PCI_SEGMENT_LEGACY);
 	} else {
-		LOG_INFO("pci", "Found MCFG, using pcie");
+		LOG_INFO("PCI", "MCFG found, using PCIe ECAM for configuration space");
 	}
 
 	for (size_t i = 0; i < segment_count; i++) {

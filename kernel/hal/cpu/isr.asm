@@ -35,6 +35,7 @@
 %endmacro
 
 extern vxInterruptHandler
+extern g_xsave_size
 
 ; Stack layout at int_common entry:
 ;   [rsp+ 0] = error code   (pushed by isr macro or CPU)
@@ -54,25 +55,12 @@ int_common:
 
     pushall
     ; After pushall: 15 regs * 8 = 120 bytes pushed
-    ; CS is now at [rsp + 120 + 24] = [rsp+144]
 
     mov rbx, rsp            ; rbx = pointer to saved-regs frame (interrupt_stack_frame_t)
 
-    ; Disable x87 EM + TS so fxsave doesn't #NM
-    mov rax, cr0
-    and rax, ~((1 << 2) | (1 << 3))
-    mov cr0, rax
-
-    ; Allocate 512-byte fxsave buffer, 64-byte aligned (safe for fxsave/xsave)
-    sub rsp, 512
-    and rsp, -64
-    fxsave [rsp]
-
     mov rdi, rbx            ; arg1: interrupt_stack_frame_t*
-    mov rsi, rsp            ; arg2: fxsave area* (optional, can be ignored in handler)
+    xor rsi, rsi            ; arg2: fxsave area* (null since we use eager FPU)
     call vxInterruptHandler
-
-    fxrstor [rsp]           ; restore FPU — rsp unchanged since fxsave
 
     mov rsp, rbx            ; restore to post-pushall stack position
 
