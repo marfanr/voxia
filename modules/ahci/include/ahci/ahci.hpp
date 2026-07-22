@@ -25,6 +25,7 @@ class AHCIModule : public IOforgePCI {
 	void port_power_off(ahci_port_t* port);
 	void port_power_on(ahci_port_t* port);
 	void port_reset(ahci_port_t* port);
+	void port_recover_error(ahci_port_t* port);
 	void setup();
 	void probe();
 	void
@@ -52,5 +53,10 @@ class AHCIModule : public IOforgePCI {
 // prototype
 extern "C" int
 submit(struct ioforge_block_device* dev, struct ioforge_block_request* req);
+
+#define AHCI_HBA_S64A (1UL << 31)
+
+#define AHCI_GHC_ENABLE (1UL << 31)
+#define AHCI_GHC_HBA_RESET (1UL << 0)
 
 #endif //__USB_AHCI__AHCI_HPP__

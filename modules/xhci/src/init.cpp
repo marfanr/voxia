@@ -121,6 +121,7 @@ extern "C" void xhci_send_async_stub(uint32_t addr, uint8_t endpoint,
 		setup_data = *(uint64_t*)data_virt;
 	}
 
+	// transfer ring
 	XHCIModule::getInstance()->send_async_with_response(
 	    addr, endpoint, setup_data, request_size, response_phys,
 	    response_size);

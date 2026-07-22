@@ -44,6 +44,45 @@ void ATAPIModule::build_acmd(uint8_t opcode, uint32_t lba,
 
 void ATAPIModule::probe(struct ioforge_block_device* block) { identify(block); }
 
+void ATAPIModule::request_sense(struct ioforge_block_device* block) {
+	uintptr_t sense_phys = 0;
+	uint8_t* sense = (uint8_t*)IOUtils::DMAAlloc(18, &sense_phys);
+	memset(sense, 0, 18);
+	uint8_t packet[12] = {0x03, 0, 0, 0, 18, 0, 0, 0, 0, 0, 0, 0}; // REQUEST SENSE
+	struct ioforge_block_request req = {
+	    .op = IOFORGE_BLOCK_OP_PACKET,
+	    .lba = 0,
+	    .buffer = (void*)sense_phys,
+	    .buffer_size = 18,
+	    .block_count = 1,
+	    .flags = 0,
+	    .packet_cmd = packet,
+	    .packet_cmd_len = 12,
+	    .timeout_ms = 1000,
+	};
+	if (block->ops.submit(block, &req)) {
+		// TODO: refer into table 124 ATAPI Sense
+		log(mod, "Sense Key: 0x%x, ASC: 0x%x, ASCQ: 0x%x", sense[2] & 0x0F, sense[12], sense[13]);
+	}
+	IOUtils::DMAFree((void*)sense_phys, sense, 18);
+}
+
+bool ATAPIModule::test_unit_ready(struct ioforge_block_device* block) {
+	uint8_t packet[12] = {0x00}; // TEST UNIT READY
+	struct ioforge_block_request req = {
+	    .op = IOFORGE_BLOCK_OP_PACKET,
+	    .lba = 0,
+	    .buffer = 0,
+	    .buffer_size = 0,
+	    .block_count = 0,
+	    .flags = 0,
+	    .packet_cmd = packet,
+	    .packet_cmd_len = 12,
+	    .timeout_ms = 1000,
+	};
+	return block->ops.submit(block, &req) != 0;
+}
+
 void ATAPIModule::read_sector_size(struct ioforge_block_device* block) {
 	uintptr_t resp_phys = 0;
 
@@ -61,14 +100,22 @@ void ATAPIModule::read_sector_size(struct ioforge_block_device* block) {
 	    .buffer = (void*)resp_phys,
 	    .buffer_size = sizeof(*resp),
 	    .block_count = 1,
-	    .flags = IOFORGE_FLAG_DMA,
+	    .flags = 0, // PIO for READ CAPACITY
 	    .packet_cmd = packet,
 	    .packet_cmd_len = 12,
 	    .timeout_ms = 5000,
 	};
 
+	// Try TEST UNIT READY a few times to give it time to spin up
+	for (int i = 0; i < 5; i++) {
+		if (test_unit_ready(block)) break;
+		request_sense(block); // Clear UNIT ATTENTION or print sense
+		IOUtils::sleep(500);
+	}
+
 	if (!block->ops.submit(block, &cap_req)) {
-		log(mod, "failed to idenitify device");
+		log(mod, "failed to read capacity (maybe no medium?)");
+		request_sense(block);
 	}
 
 	block->sector_size = __builtin_bswap32(resp->block_size);
@@ -103,6 +150,8 @@ void ATAPIModule::identify(struct ioforge_block_device* block) {
 	if (info & (1 << 15)) {
 		log(mod, "ATAPI Device");
 	}
+
+	// TODO: save to dev or block
 	uint8_t method = (info & (0b1100000)) >> 5;
 	log(mod, "method %b", method);
 
@@ -232,7 +281,7 @@ extern "C" int ATAPIModule::read(vnode_t* vnode, uintptr_t addr, void* buf,
 
 	IOUtils::DMAFree((void*)buff_phys, buff_, sector_count * sector_size);
 
-	log(i->mod, "read: success (lba=%d, sectors=%d)", lba, sector_count);
+	// log(i->mod, "read: success (lba=%d, sectors=%d)", lba, sector_count);
 	return (int)count;
 }
 

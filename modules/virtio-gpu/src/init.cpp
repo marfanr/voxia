@@ -3,9 +3,13 @@
 #include "virtio-gpu/virtio-gpu.hpp"
 #include "virtio/virtio.h"
 
+#include <str.h>
+
 IoForgeModuleConstructor(VirtioGpu);
 
 VirtioGpu::VirtioGpu() : IoForgeVirtio("Virtio-GPU") {
+	dev_ = nullptr;
+	memset(waiting_threads, 0, sizeof(waiting_threads));
 }
 
 VirtioGpu* VirtioGpu::getInstance() {
@@ -23,6 +27,8 @@ void VirtioGpu::load() {
 		log(mod, "No Virtio-GPU device found");
 		return;
 	}
+
+	serial2_printf("virtio gpu commong cfg at 0x%lx\n", &dev_->common_cfg);
 
 	log(mod, "Found Virtio-GPU device at %d:%d:%d", dev_->pci.pci_bus,
 	    dev_->pci.pci_dev, dev_->pci.pci_func);

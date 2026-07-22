@@ -12,7 +12,7 @@ OUT_VOXMO   := ../../initrd/modules/$(MODULE_NAME).voxmo
 CXX := clang++
 LD  := ld
 
-CXXFLAGS := -Wall -Wextra -O2 -pipe \
+CXXFLAGS := -Wall -Wextra -O3 -pipe \
     -ffreestanding -nostdlib -fno-exceptions -fno-rtti -fno-builtin \
     -fno-use-cxa-atexit -fno-asynchronous-unwind-tables -fno-common \
     -mno-red-zone -std=c++20 -ggdb -g -fPIC \
