@@ -38,13 +38,14 @@ int syscall_mprotect(void* addr, size_t len, int prot) {
 	auto addr_4kb = ALIGN_DOWN((uintptr_t)addr, 0x1000);
 	serial2_printf("mrpotect: base aligned 0x%x\n", addr_4kb);
 
-	auto mm = vma_find(proc->vm_page, (uintptr_t)addr);
+	auto mm = vma_find_contains(proc->vm_page, (uintptr_t)addr);
 	if (!mm) {
 		return -1;
 	}
 
+	uintptr_t phys_offset = (uintptr_t)addr - mm->start_address;
 	auto len_4kb = ALIGN_UP(len, 0x1000) / 0x1000;
-	vxMultipleMmap(proc->page, (uint64_t)addr, (uint64_t)mm->phys_address,
+	paging_multiple_mmap(proc->page, (uint64_t)addr, (uint64_t)(mm->phys_address + phys_offset),
 	               len_4kb, mmap_flags);
 
 	return 0;

@@ -8,6 +8,7 @@
 struct slab {
 	uint32_t magic;	      // For validation
 	struct slab* next;    // Next slab in the list
+	struct slab* prev;    // Previous slab in the list
 	void* first_obj;      // Pointer to first object in slab
 	void* free_list;      // List of free objects
 	size_t total_objects; // Total objects in this slab
