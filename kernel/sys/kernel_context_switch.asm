@@ -26,6 +26,10 @@ kernel_context_save:
 kernel_context_restore:
     mov rsp, rdi
 
+    pop rax
+    and rax, 0xFFFFFEFF
+    push rax
+
     popfq
     pop r15
     pop r14

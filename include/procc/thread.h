@@ -35,9 +35,10 @@ struct thread {
 	uint8_t priority;	// 1B
 	uint16_t flags;		// 2B
 	uint64_t last_run_time; // 8B profiling
+	uint64_t total_run_time_ns; // 8B CPU Usage profiling
 	uint32_t uuid;
 	boolean_t has_update_run_time;
-	uint8_t _pad1[64 - 29]; // align ke 64B (cache line 1 penuh)
+	uint8_t _pad1[64 - 37]; // align ke 64B
 
 	// --- Cache line 2–4 (context, jarang diakses) ---
 	uintptr_t entry_addr; // 8B
@@ -64,6 +65,10 @@ typedef struct thread_bucket {
 thread_id vxCreateThread(const uintptr_t entry, uint16_t core_affinity,
 			 uint8_t priority, uint16_t flags);
 void vxThreadExit();
+thread_t* vxGetThreadByIndex(uint32_t idx);
+uint64_t vxGetThreadTotalRunTime(thread_t* thread);
+uint16_t vxGetThreadCurrentCore(thread_t* thread);
+void thread_sleep(uint64_t ms);
 
 #ifdef __cplusplus
 }

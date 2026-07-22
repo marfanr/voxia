@@ -36,6 +36,7 @@ struct thread {
 	uint64_t stack_top;
 	uint64_t stack_base;
 	uint64_t last_run_time;
+	uint64_t total_run_time_ns;
 	boolean_t has_update_run_time;
 	uint16_t current_core_id;
 	uintptr_t entry_addr;
@@ -43,19 +44,26 @@ struct thread {
 	// 1 cache line
 
 	process_t* process;
+	struct thread* process_thread_next;
+	struct thread* process_thread_prev;
 	uint32_t uuid;
 	uint64_t fs_base;
 	uint64_t gs_base;	
-	uintptr_t kernel_rsp; /* RSP saat switch keluar */
+	uintptr_t kernel_rsp;
 	uintptr_t kernel_stack_base;
 	uintptr_t kernel_stack_top;
 	bool in_kernel_sleep;
 	bool wake_pending;
 	// 1 cache line
-	
 	sig_han_t* signal;
 
 	cpu_register_t reg;
+	uint64_t wakeup_time;
+	cpu_register_t saved_reg;
+	bool has_saved_reg;
+
+	uint8_t* raw_fpu_ptr;
+	uint8_t* fpu_state;
 } __attribute__((aligned(64)));
 
 typedef struct {
@@ -79,6 +87,13 @@ thread_t* create_thread(uintptr_t entry,
                         uint16_t core_affinity, uint8_t priority,
                         uint16_t flags);
 void thread_exit(void);
-thread_t* fork_process(thread_t* parent, uintptr_t entry);
+thread_t* vxGetThreadByIndex(uint32_t idx);
+uint64_t vxGetThreadTotalRunTime(thread_t* thread);
+uint16_t vxGetThreadCurrentCore(thread_t* thread);
+thread_t* fork_process(thread_t* parent, interrupt_stack_frame_t* rsp);
+void destroy_thread(thread_t* thr);
+thread_id thrAcquireNewSlot();
+void vxUpdateThreadSlot(const thread_id id, thread_t* thr);
+thread_t* thrCreateInstance();
 
 #endif /* __PROCC__THREAD_H__ */
