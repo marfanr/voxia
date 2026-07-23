@@ -8,20 +8,6 @@ static int current_mode = 0;
 
 enum { MODE_NONE = 0, MODE_MOUNT, MODE_UNMOUNT, MODE_LS, MODE_ECHO };
 
-static int detect_mode(int argc, char* argv[], const char* name) {
-	char* cmd = basename(argv[0]);
-
-	// dipanggil langsung: ./ls
-	if (strcmp(cmd, name) == 0)
-		return 0;
-
-	// dipanggil: ./toolbox ls
-	if (argc > 1 && strcmp(argv[1], name) == 0)
-		return 1;
-
-	return -1;
-}
-
 static void mode_select(int* argc, char*** argv) {
 	struct {
 		const char* name;
@@ -33,19 +19,27 @@ static void mode_select(int* argc, char*** argv) {
 	    {"echo", MODE_ECHO},
 	};
 
+	if (*argc == 0) return;
+
+	char* cmd = basename((*argv)[0]);
+
+	// 1. dipanggil langsung: ./ls
 	for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
-
-		int ret = detect_mode(*argc, *argv, modes[i].name);
-
-		if (ret >= 0) {
+		if (strcmp(cmd, modes[i].name) == 0) {
 			current_mode = modes[i].id;
+			return;
+		}
+	}
 
-			if (ret == 1) {
+	// 2. dipanggil: ./toolbox ls
+	if (*argc > 1) {
+		for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
+			if (strcmp((*argv)[1], modes[i].name) == 0) {
+				current_mode = modes[i].id;
 				(*argc)--;
 				(*argv)++;
+				return;
 			}
-
-			return;
 		}
 	}
 }
