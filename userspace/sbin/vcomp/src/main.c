@@ -198,7 +198,7 @@ static void render_debug_overlay(worker_args_t* args, window_scene_t* window);
 #define OVERLAY_X 0
 #define OVERLAY_Y 0
 #define OVERLAY_W 520
-#define OVERLAY_H 320
+#define OVERLAY_H 500
 
 #include <math.h>
 
@@ -405,7 +405,7 @@ static void render_debug_overlay(worker_args_t* args, window_scene_t* window) {
 		return;
 
 	char debug_text[1024];
-	// int off = sprintf(debug_text, "input : %s\n", last_key_str);
+	debug_text[0] = '\0';
 	int off = 0;
 
 	/* append socket debug lines */
