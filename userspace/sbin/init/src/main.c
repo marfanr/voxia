@@ -29,6 +29,7 @@ void run(const char* path, ...) {
 		execve(path, argv, NULL);
 		exit(0);
 	}
+	sleep(1);
 }
 
 int main(void) {
