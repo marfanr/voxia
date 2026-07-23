@@ -25,4 +25,5 @@ userspace/lib/*
 .cache
 generated
 patche
-userspace/ported/*
+userspace/ported
+superpowers*
