@@ -231,13 +231,17 @@ int syscall_pipe2(int pipefd[2], int flags) {
 	rfile->ops = &pipe_read_ops;
 	rfile->private_data = internal;
 	if (flags & 04000) rfile->flags |= 04000; // O_NONBLOCK
-	if (flags & 02000000) rfile->fd_flags = 1; // O_CLOEXEC
+	fdt->fds[rfd] = rfile;
+	if (flags & 02000000) fdt->fd_flags[rfd] = 1; // O_CLOEXEC
+	else fdt->fd_flags[rfd] = 0;
 
 	auto wfile = alloc_fd();
 	wfile->ops = &pipe_write_ops;
 	wfile->private_data = internal;
 	if (flags & 04000) wfile->flags |= 04000; // O_NONBLOCK
-	if (flags & 02000000) wfile->fd_flags = 1; // O_CLOEXEC
+	fdt->fds[wfd] = wfile;
+	if (flags & 02000000) fdt->fd_flags[wfd] = 1; // O_CLOEXEC
+	else fdt->fd_flags[wfd] = 0;
 
 	auto rvnode = create_and_attach_vnode();
 	rvnode->type = VNODE_TYPE_FIFO;

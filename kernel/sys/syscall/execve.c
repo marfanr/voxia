@@ -46,7 +46,7 @@ int syscall_execve(const char* path, char* const argv[], char* const envp[],
 		auto fdt = proc->fdtable;
 		if (fdt) {
 			for (uint32_t i = 0; i < fdt->max_fds; i++) {
-				if (fdt->fds[i] && (fdt->fds[i]->fd_flags & 1 /* FD_CLOEXEC */)) {
+				if (fdt->fds[i] && (fdt->fd_flags[i] & 1 /* FD_CLOEXEC */)) {
 					syscall_close((int)i);
 				}
 			}

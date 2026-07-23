@@ -58,7 +58,7 @@ int syscall_chdir(const char* path) {
     }
     
     
-    curr_procc->cwd = out; // resolve_dentry already gave us a ref
+    curr_procc->cwd = out; 
     
     return 0;
 }

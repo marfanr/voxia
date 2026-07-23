@@ -118,6 +118,5 @@ long syscall_writev(int fd, const struct iovec* iov, int iovcnt) {
 	}
 
 	kfree2(iovec_);
-	serial2_printf("total wrutten %d byte\n", total_written);
 	return total_written;
 }

@@ -308,17 +308,10 @@ thread_t* fork_process(thread_t* parent, interrupt_stack_frame_t* rsp) {
 
 	for (uint32_t i = 0; i < parent_proc->fdtable->max_fds; i++) {
 		if (parent_proc->fdtable->fds[i]) {
-			auto fd = alloc_fd();
-			memcopy(fd, parent_proc->fdtable->fds[i], sizeof(struct file_descriptor));
-			fd->count.counter = 1;
-			if (fd->dentry) {
-				dentry_get(fd->dentry);
-			}
-			if (fd->vnode && fd->vnode->type == VNODE_TYPE_FIFO) {
-				extern void pipe_dup_fd(struct file_descriptor* fd);
-				pipe_dup_fd(fd);
-			}
+			auto fd = parent_proc->fdtable->fds[i];
+			__atomic_add_fetch(&fd->count.counter, 1, __ATOMIC_SEQ_CST);
 			fork_proc->fdtable->fds[i] = fd;
+			fork_proc->fdtable->fd_flags[i] = parent_proc->fdtable->fd_flags[i];
 		} else {
 			fork_proc->fdtable->fds[i] = nullptr;
 		}

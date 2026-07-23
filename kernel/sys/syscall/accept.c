@@ -72,12 +72,10 @@ int syscall_accept(int fd, void* addr, uint32_t* addrlen) {
 	serial2_printf("accept: dequeued client=%p (pending=%d/%d)\n",
 	               client, us->pending_count, server->backlog);
 
-	/* Allocate new fd for the accepted connection */
 	uint32_t client_fd = 0;
 	uint32_t max = fdtable->max_fds;
 	bool found = false;
-	for (uint32_t i = 0; i < max; i++) {
-		client_fd = (fdtable->next_fd + i) % max;
+	for (client_fd = 0; client_fd < max; client_fd++) {
 		if (fdtable->fds[client_fd] == nullptr) {
 			found = true;
 			break;
@@ -86,7 +84,9 @@ int syscall_accept(int fd, void* addr, uint32_t* addrlen) {
 	if (!found)
 		return -EMFILE;
 
-	fdtable->next_fd = (client_fd + 1) % max;
+	if (client_fd >= fdtable->next_fd) {
+		fdtable->next_fd = client_fd + 1;
+	}
 
 	auto new_fd = alloc_fd();
 	new_fd->fdt = fdtable;

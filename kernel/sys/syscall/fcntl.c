@@ -61,16 +61,9 @@ long syscall_fcntl(int fd, int cmd, unsigned long arg) {
 		if (newfd >= (int)fdt->max_fds)
 			return -EMFILE;
 
-		auto new_file = alloc_fd();
-		memcopy(new_file, file, sizeof(struct file_descriptor));
-		if (new_file->dentry) {
-			dentry_get(new_file->dentry);
-		}
-		if (new_file->vnode && new_file->vnode->type == VNODE_TYPE_FIFO) {
-			extern void pipe_dup_fd(struct file_descriptor* fd);
-			pipe_dup_fd(new_file);
-		}
-		fdt->fds[newfd] = new_file;
+		__atomic_add_fetch(&file->count.counter, 1, __ATOMIC_SEQ_CST);
+		fdt->fd_flags[newfd] = 0; // Clear FD_CLOEXEC
+		fdt->fds[newfd] = file;
 
 		if (newfd >= (int)fdt->next_fd)
 			fdt->next_fd = (uint32_t)newfd + 1;
@@ -92,17 +85,9 @@ long syscall_fcntl(int fd, int cmd, unsigned long arg) {
 		if (newfd >= (int)fdt->max_fds)
 			return -EMFILE;
 
-		auto new_file = alloc_fd();
-		memcopy(new_file, file, sizeof(struct file_descriptor));
-		new_file->fd_flags = FD_CLOEXEC;
-		if (new_file->dentry) {
-			dentry_get(new_file->dentry);
-		}
-		if (new_file->vnode && new_file->vnode->type == VNODE_TYPE_FIFO) {
-			extern void pipe_dup_fd(struct file_descriptor* fd);
-			pipe_dup_fd(new_file);
-		}
-		fdt->fds[newfd] = new_file;
+		__atomic_add_fetch(&file->count.counter, 1, __ATOMIC_SEQ_CST);
+		fdt->fd_flags[newfd] = FD_CLOEXEC;
+		fdt->fds[newfd] = file;
 
 		if (newfd >= (int)fdt->next_fd)
 			fdt->next_fd = (uint32_t)newfd + 1;
@@ -111,10 +96,10 @@ long syscall_fcntl(int fd, int cmd, unsigned long arg) {
 	}
 
 	case F_GETFD:
-		return file->fd_flags;
+		return fdt->fd_flags[fd];
 
 	case F_SETFD:
-		file->fd_flags = (uint32_t)arg;
+		fdt->fd_flags[fd] = (uint8_t)arg;
 		return 0;
 
 	case F_GETFL:

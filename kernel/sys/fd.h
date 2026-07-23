@@ -16,9 +16,7 @@ struct file_descriptor {
 	uint8_t mode;
 	uint64_t pos;
 	uint32_t flags;
-	uint32_t fd_flags;
 	vnode_ptr_t vnode;
-
 	void* private_data;
 	void* write_buffer;
 	size_t write_buffer_size;
@@ -27,6 +25,7 @@ struct file_descriptor {
 struct fdtable {
 	uint32_t max_fds;
 	struct file_descriptor** fds;
+	uint8_t* fd_flags;
 	uint32_t next_fd;
 };
 

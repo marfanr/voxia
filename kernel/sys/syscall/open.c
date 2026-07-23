@@ -47,10 +47,10 @@ int syscall_open(const char* path, int flags, int mode) {
 
 	auto saved_path = safe_str_from_user(proc->page, path);
 
-	serial2_printf("open path %s flags %d mode %d\n", saved_path->c_str,
-	               flags, mode);
+	serial2_printf("open path %s flags %d mode %d\n", saved_path->c_str, flags, mode);
 
 	dentry_ptr out;
+
 	// TODO: handle flag
 	uint8_t fl = 0;
 	if (flags & O_CREAT)
@@ -68,12 +68,46 @@ int syscall_open(const char* path, int flags, int mode) {
 		return -ENOENT;
 	}
 
+	int loop_count = 0;
+	while (out->vnode->type == VNODE_TYPE_LNK && !(flags & O_NOFOLLOW)) {
+		if (loop_count++ > 8) {
+			str_release(saved_path);
+			dentry_put(out);
+			return -ENOENT;
+		}
+
+		char link_target[256];
+		vops_lnk_t* lnk_ops = (vops_lnk_t*)out->vnode->ops;
+		if (lnk_ops && lnk_ops->readlink) {
+			int ret = lnk_ops->readlink(out->vnode, link_target, sizeof(link_target) - 1);
+			if (ret < 0) {
+				str_release(saved_path);
+				dentry_put(out);
+				return -ENOENT;
+			}
+			link_target[ret] = '\0';
+
+			dentry_ptr link_base = (link_target[0] == '/') ? 0 : out->parent;
+			dentry_ptr next_out;
+			if (resolve_dentry(link_target, link_base, &next_out, fl) != VFS_OK) {
+				str_release(saved_path);
+				dentry_put(out);
+				return -ENOENT;
+			}
+			dentry_put(out);
+			out = next_out;
+		} else {
+			str_release(saved_path);
+			dentry_put(out);
+			return -ENOENT;
+		}
+	}
+
 	auto fpath = get_full_path_from_dentry(out);
 	serial2_printf("found at %s (vnode 0x%x)\n", fpath->c_str, out->vnode);
 	str_release(fpath);
 
-	if ((flags & O_TRUNC) && out->vnode &&
-	    out->vnode->type == VNODE_TYPE_FILE) {
+	if ((flags & O_TRUNC) && out->vnode && out->vnode->type == VNODE_TYPE_FILE) {
 		serial2_printf("Trunc detected\n");
 		auto ops = (vops_file_t*)out->vnode->ops;
 		if (ops && ops->truncate) {
@@ -87,23 +121,26 @@ int syscall_open(const char* path, int flags, int mode) {
 	}
 
 	uint32_t fd_id = 0;
-	auto next_fd = fdtable->next_fd;
-	if (next_fd >= fdtable->max_fds) {
-		return -EMFILE;
-	}
-
-	for (fd_id = next_fd; fd_id < fdtable->max_fds; fd_id++) {
+	for (fd_id = 0; fd_id < fdtable->max_fds; fd_id++) {
 		if (fdtable->fds[fd_id] == nullptr)
 			break;
 	}
+	
+	if (fd_id >= fdtable->max_fds) {
+		return -EMFILE;
+	}
 
-	fdtable->next_fd = fd_id + 1;
+	if (fd_id >= fdtable->next_fd) {
+		fdtable->next_fd = fd_id + 1;
+	}
 
 	auto fd = alloc_fd();
 	fd->vnode = out->vnode;
 	fd->flags = (uint32_t)flags;
 	if (flags & O_CLOEXEC) {
-		fd->fd_flags = 1; /* FD_CLOEXEC */
+		fdtable->fd_flags[fd_id] = 1; /* FD_CLOEXEC */
+	} else {
+		fdtable->fd_flags[fd_id] = 0;
 	}
 	fd->ops = out->vnode->ops;
 	// fd menyimpan referensi permanen ke dentry — naikkan refcount.
@@ -125,8 +162,7 @@ int syscall_open(const char* path, int flags, int mode) {
 	}
 
 	dentry_ptr curr_proc_dentry;
-	if (resolve_dentry(itoa(proc->pid, 10), proc_dentry, &curr_proc_dentry,
-	                   CREATE_MISSING_ENTRY) != VFS_OK) {
+	if (resolve_dentry(itoa(proc->pid, 10), proc_dentry, &curr_proc_dentry, CREATE_MISSING_ENTRY) != VFS_OK) {
 		str_release(saved_path);
 		dentry_put(proc_dentry);
 		dentry_put(out); // refcount dari dentry_get
@@ -141,13 +177,12 @@ int syscall_open(const char* path, int flags, int mode) {
 	}
 
 	dentry_ptr fd_dentry;
-	if (resolve_dentry(itoa(fd_id, 10), curr_proc_dentry, &fd_dentry,
-	                   CREATE_MISSING_ENTRY) != VFS_OK) {
+	if (resolve_dentry(itoa(fd_id, 10), curr_proc_dentry, &fd_dentry, CREATE_MISSING_ENTRY) != VFS_OK) {
 		str_release(saved_path);
 		dentry_put(proc_dentry);
 		dentry_put(curr_proc_dentry);
-		dentry_put(out); // refcount dari dentry_get
-		dentry_put(out); // refcount dari resolve_dentry
+		dentry_put(out);
+		dentry_put(out);
 		fdtable->fds[fd_id] = nullptr;
 		kfree2(fd);
 		return -1;

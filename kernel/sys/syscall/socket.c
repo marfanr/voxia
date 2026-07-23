@@ -49,8 +49,7 @@ int syscall_socket(int domain, int type, int protocol) {
 	uint32_t max = fdtable->max_fds;
 
 	bool found = false;
-	for (uint32_t i = 0; i < max; i++) {
-		fd_id = (fdtable->next_fd + i) % max;
+	for (fd_id = 0; fd_id < max; fd_id++) {
 		if (fdtable->fds[fd_id] == nullptr) {
 			found = true;
 			break;
@@ -61,12 +60,14 @@ int syscall_socket(int domain, int type, int protocol) {
 		return -EMFILE;
 	}
 
-	fdtable->next_fd = (fd_id + 1) % max;
+	if (fd_id >= fdtable->next_fd) {
+		fdtable->next_fd = fd_id + 1;
+	}
 
 	auto fd = alloc_fd();
 	fd->fdt = fdtable;
 	fd->flags = (uint32_t)nonblock_flag; /* carry SOCK_NONBLOCK → O_NONBLOCK */
-	fd->fd_flags = (uint32_t)cloexec_flag;
+	fdtable->fd_flags[fd_id] = (uint8_t)cloexec_flag;
 	fdtable->fds[fd_id] = fd;
 	fd->private_data = socket;
 

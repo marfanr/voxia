@@ -6,11 +6,12 @@
 #include <sys/fd.h>
 #include <sys/syscall.h>
 
+#define debug 0
+
 /* must match musl: O_NONBLOCK = 04000 */
 #define O_NONBLOCK 04000
 
-int syscall_recvfrom(int fd, void* buf, uint32_t len, int flags,
-                     void* src_addr, uint32_t* addrlen) {
+int syscall_recvfrom(int fd, void* buf, uint32_t len, int flags, void* src_addr, uint32_t* addrlen) {
 	(void)flags;
 	(void)src_addr;
 	(void)addrlen;
@@ -44,7 +45,7 @@ int syscall_recvfrom(int fd, void* buf, uint32_t len, int flags,
 	struct unix_socket* us = (struct unix_socket*)socket;
 
 	int is_nonblock = (fd_->flags & O_NONBLOCK) != 0;
-	serial2_printf("recvfrom fd=%d is_nonblock=%d flags=0x%x rcount=%d\n", fd, is_nonblock, fd_->flags, us->rcount);
+	// serial2_printf("recvfrom fd=%d is_nonblock=%d flags=0x%x rcount=%d\n", fd, is_nonblock, fd_->flags, us->rcount);
 
 	/* Wait loop — block if nonblock not set */
 	while (us->rcount == 0) {
@@ -66,7 +67,7 @@ int syscall_recvfrom(int fd, void* buf, uint32_t len, int flags,
 		nread++;
 	}
 
-	serial2_printf("recvfrom fd=%d: read %d bytes (buf %d/%d)\n",
-	               fd, nread, us->rcount, UNIX_BUF_SIZE);
+	// serial2_printf("recvfrom fd=%d: read %d bytes (buf %d/%d)\n",
+	//                fd, nread, us->rcount, UNIX_BUF_SIZE);
 	return nread;
 }

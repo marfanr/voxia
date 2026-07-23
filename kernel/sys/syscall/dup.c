@@ -27,15 +27,9 @@ long syscall_dup(int oldfd) {
 	if (newfd >= (int)fdt->max_fds)
 		return -EMFILE;
 
-	auto fd = alloc_fd();
-	memcopy(fd, fdt->fds[oldfd], sizeof(struct file_descriptor));
-	if (fd->dentry) {
-		dentry_get(fd->dentry);
-	}
-	if (fd->vnode && fd->vnode->type == VNODE_TYPE_FIFO) {
-		extern void pipe_dup_fd(struct file_descriptor* fd);
-		pipe_dup_fd(fd);
-	}
+	auto fd = fdt->fds[oldfd];
+	__atomic_add_fetch(&fd->count.counter, 1, __ATOMIC_SEQ_CST);
+	fdt->fd_flags[newfd] = 0; // Clear FD_CLOEXEC as required by POSIX
 	fdt->fds[newfd] = fd;
 
 	if (newfd >= (int)fdt->next_fd) {
@@ -65,15 +59,9 @@ long syscall_dup2(int oldfd, int newfd) {
 		syscall_close(newfd);
 	}
 
-	auto fd = alloc_fd();
-	memcopy(fd, fdt->fds[oldfd], sizeof(struct file_descriptor));
-	if (fd->dentry) {
-		dentry_get(fd->dentry);
-	}
-	if (fd->vnode && fd->vnode->type == VNODE_TYPE_FIFO) {
-		extern void pipe_dup_fd(struct file_descriptor* fd);
-		pipe_dup_fd(fd);
-	}
+	auto fd = fdt->fds[oldfd];
+	__atomic_add_fetch(&fd->count.counter, 1, __ATOMIC_SEQ_CST);
+	fdt->fd_flags[newfd] = 0; // Clear FD_CLOEXEC
 	fdt->fds[newfd] = fd;
 
 	if (newfd >= (int)fdt->next_fd) {
