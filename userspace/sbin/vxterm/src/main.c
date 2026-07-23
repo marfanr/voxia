@@ -19,6 +19,11 @@ int vcomp_fd = -1;
 int connect_compositor() {
 	for (int i = 0; i < 100; i++) {
 		vcomp_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+		if (vcomp_fd >= 0 && vcomp_fd <= 2) {
+			int new_fd = fcntl(vcomp_fd, F_DUPFD, 3);
+			close(vcomp_fd);
+			vcomp_fd = new_fd;
+		}
 		if (vcomp_fd < 0)
 			return -1;
 
@@ -80,6 +85,11 @@ static int ptmx_fd = -1;
 
 void connect_ptx() {
 	ptmx_fd = open("/dev/ptmx", O_RDWR | O_NOCTTY);
+	if (ptmx_fd >= 0 && ptmx_fd <= 2) {
+		int new_fd = fcntl(ptmx_fd, F_DUPFD, 3);
+		close(ptmx_fd);
+		ptmx_fd = new_fd;
+	}
 	int fd_flags = fcntl(ptmx_fd, F_GETFD, 0);
 	fcntl(ptmx_fd, F_SETFD, fd_flags | FD_CLOEXEC);
 
@@ -797,11 +807,10 @@ int main(void) {
 			                "TERMINFO=/usr/share/terminfo",
 			                NULL};
 			/* Hapus flag -l agar tidak menimpa PS1 via /etc/profile, cukup interaktif -i */
-			char* args[] = {"/usr/bin/bash", "-i", NULL};
+			char* args[] = {"/usr/bin/bash", NULL};
 			int err = execve("/usr/bin/bash", args, envp);
 			log_debug("vxterm bash spawn: execve failed! err=%d", err);
-			while (1) {
-			}
+			exit(1);
 		} else {
 			log_debug("bash pid=%d cols=%d rows=%d", pid, TERM_COLS, TERM_ROWS);
 		}
