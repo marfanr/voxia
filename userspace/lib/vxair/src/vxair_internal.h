@@ -129,7 +129,7 @@ struct vxair_context {
 		uint32_t hash;
 		uint32_t ve_id;
 	} ve_cache[VXAIR_MAX_VE_CACHE];
-	uint32_t ve_obj_id;  // per-context VE object ID counter (starts at 1000)
+	uint32_t virgl_next_obj_id;  // per-context virgl object ID counter
 
 	/* Per-context GPU resource ID counter, starts at 30 */
 	uint32_t next_res_id;
