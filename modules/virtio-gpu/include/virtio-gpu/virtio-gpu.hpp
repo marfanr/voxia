@@ -1,8 +1,6 @@
 #ifndef __USB_HID__HID_HPP__
 #define __USB_HID__HID_HPP__
 
-#define ENABLE_DEBUG false
-
 #include "ioforge/ioforge_virtio.h"
 #include "ioforge/ioforge_virtio.hpp"
 #include <procc/thread.h>

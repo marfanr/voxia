@@ -11,6 +11,8 @@
 
 #define ALIGN_UP(x, align) (((x) + (align) - 1) & ~((align) - 1))
 
+#define ENABLE_DEBUG false
+
 // VIRGL_CMD0 macro \u2014 defines ada di header virtio-gpu.hpp
 
 struct virtio_gpu_queue VirtioGpu::control_queue_ = {};
@@ -873,3 +875,5 @@ int VirtioGpu::virtio_gpu_move_cursor(uint32_t scanout_id, uint32_t x,
 	}
 	return 0;
 }
+
+#undef ENABLE_DEBUG
