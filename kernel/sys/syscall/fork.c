@@ -15,7 +15,7 @@ int syscall_fork(interrupt_stack_frame_t* rsp) {
 	}
 
 	interrupt_stack_frame_t* child_frame = 
-        (interrupt_stack_frame_t*)child->kernel_rsp;
+        (interrupt_stack_frame_t*)((uintptr_t)rsp - parent->kernel_stack_base + child->kernel_stack_base);
     child_frame->rax = 0;
 
 	// Flush TLB to ensure parent triggers COW faults on writes

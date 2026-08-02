@@ -72,10 +72,19 @@ static uintptr_t mmap_resolve_virt_addr(void* addr, int flags, struct virtual_me
 		return (uintptr_t)addr;
 	}
 
-	return vma_lookup_free_vaddr(vm_page, VMA_REGION_PROCESS, len_4kb);
+	return vma_lookup_free_vaddr(vm_page, USER_MMAP_BASE, len_4kb);
 }
 
-static void* mmap_handle_anonymous(process_t* procc, void* addr, int flags, size_t len_4kb, uint64_t mmap_flags) {
+/*
+ * mmap_handle_anonymous: allocate physical pages and map them into the process.
+ *
+ * keep_writable: if true, the pages are always left writable (RW) after setup
+ * so that the caller can copy file content into them. The caller is responsible
+ * for calling paging_multiple_mmap() with the final protection flags afterwards.
+ * If false, the final mmap_flags protection is applied immediately (used for
+ * pure anonymous mappings where no file data needs to be written after return).
+ */
+static void* mmap_handle_anonymous(process_t* procc, void* addr, int flags, size_t len_4kb, uint64_t mmap_flags, bool keep_writable) {
 	uintptr_t virt_addr = mmap_resolve_virt_addr(addr, flags, procc->vm_page, len_4kb);
 
 	if (!virt_addr) {
@@ -89,23 +98,28 @@ static void* mmap_handle_anonymous(process_t* procc, void* addr, int flags, size
 		return (void*)-ENOMEM;
 	}
 
-	uint64_t required = PAGE_PRESENT | PAGE_WRITABLE;
-	if ((mmap_flags & required) == required) {
-		paging_multiple_mmap(procc->page, virt_addr, phys, len_4kb, mmap_flags);
-		vma_register(procc->vm_page, phys, virt_addr, len_4kb * BLOCK_SIZE, mmap_flags);
+	/*
+	 * Always map writable first so memset (and caller's file copy) can
+	 * write to the freshly allocated pages regardless of final prot.
+	 */
+	uint64_t temp_flags = PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER | PAGE_NO_EXECUTE;
+	paging_multiple_mmap(procc->page, virt_addr, phys, len_4kb, temp_flags);
+	vma_register(procc->vm_page, phys, virt_addr, len_4kb * BLOCK_SIZE, mmap_flags);
 
-		paging_reload(procc->page);
-		memset((void*)virt_addr, 0, len_4kb * BLOCK_SIZE);
-	} else {
-		uint64_t temp_flags = PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER | PAGE_NO_EXECUTE;
-		paging_multiple_mmap(procc->page, virt_addr, phys, len_4kb, temp_flags);
-		vma_register(procc->vm_page, phys, virt_addr, len_4kb * BLOCK_SIZE, mmap_flags);
+	paging_reload(procc->page);
+	memset((void*)virt_addr, 0, len_4kb * BLOCK_SIZE);
 
-		paging_reload(procc->page);
-		memset((void*)virt_addr, 0, len_4kb * BLOCK_SIZE);
-
-		paging_multiple_mmap(procc->page, virt_addr, phys, len_4kb, mmap_flags);
-		paging_reload(procc->page);
+	if (!keep_writable) {
+		/*
+		 * Apply final protection now (e.g. PROT_READ, PROT_READ|EXEC).
+		 * For file-backed mappings keep_writable=true so we defer this
+		 * until after the file data has been copied in.
+		 */
+		uint64_t required = PAGE_PRESENT | PAGE_WRITABLE;
+		if ((mmap_flags & required) != required) {
+			paging_multiple_mmap(procc->page, virt_addr, phys, len_4kb, mmap_flags);
+			paging_reload(procc->page);
+		}
 	}
 
 	// serial2_printf("mmap_handle_anonymous returning 0x%lx\n", virt_addr);
@@ -132,14 +146,21 @@ void* syscall_mmap(void* addr, size_t len, int prot, int flags, int fd, long off
 	uint64_t mmap_flags = mmap_prot_to_flags(prot);
 
 	if (flags & MAP_ANONYMOUS)
-		return mmap_handle_anonymous(procc, addr, flags, len_4kb, mmap_flags);
+		return mmap_handle_anonymous(procc, addr, flags, len_4kb, mmap_flags,
+		                             /*keep_writable=*/false);
 
 	if (flags & MAP_PRIVATE) {
-		void* virt_addr = mmap_handle_anonymous(procc, addr, flags, len_4kb, mmap_flags);
+		/*
+		 * File-backed MAP_PRIVATE: allocate pages and keep them writable so
+		 * we can copy file content below, then apply final protection after.
+		 */
+		bool need_file = !(flags & MAP_ANONYMOUS) && fd >= 0;
+		void* virt_addr = mmap_handle_anonymous(procc, addr, flags, len_4kb, mmap_flags,
+		                                        /*keep_writable=*/need_file);
 		if ((uintptr_t)virt_addr > 0xFFFFFFFFFFFFF000)
 			return virt_addr;
 
-		if (!(flags & MAP_ANONYMOUS) && fd >= 0) {
+		if (need_file) {
 			auto fdt = (struct fdtable*)procc->fdtable;
 			if (fd < (int)fdt->max_fds) {
 				auto curr_fd = fdt->fds[fd];
@@ -150,6 +171,10 @@ void* syscall_mmap(void* addr, size_t len, int prot, int flags, int fd, long off
 						void* kbuf = kalloc(max_chunk);
 						if (kbuf) {
 							size_t read_total = 0;
+							/*
+							 * paging_reload was already done inside
+							 * mmap_handle_anonymous; pages are writable.
+							 */
 							while (read_total < len) {
 								size_t chunk = len - read_total;
 								if (chunk > max_chunk)
@@ -157,11 +182,32 @@ void* syscall_mmap(void* addr, size_t len, int prot, int flags, int fd, long off
 								int r = ops->read(curr_fd->vnode, kbuf, chunk, (size_t)off + read_total);
 								if (r <= 0)
 									break;
-								paging_reload(procc->page);
+								/* Pages are writable; copy data in. */
 								memcopy((void*)((uintptr_t)virt_addr + read_total), kbuf, (size_t)r);
 								read_total += (size_t)r;
 							}
 							kfree2(kbuf);
+						}
+						/*
+						 * File copy done. Now apply final protection
+						 * (e.g. PROT_READ|EXEC for text segments).
+						 * Skip if already writable (mmap_flags already
+						 * includes PAGE_WRITABLE).
+						 */
+						uint64_t required = PAGE_PRESENT | PAGE_WRITABLE;
+						if ((mmap_flags & required) != required) {
+							/*
+							 * Remap each page with the correct phys address
+							 * preserved; use vaddr_to_paddr to find the
+							 * existing physical frame so we don't clobber it.
+							 */
+							for (size_t pg = 0; pg < len_4kb; pg++) {
+								uintptr_t v = (uintptr_t)virt_addr + pg * BLOCK_SIZE;
+								uint64_t p = vaddr_to_paddr(procc->page, v);
+								if (p != 0)
+									paging_mmap(procc->page, v, p, mmap_flags);
+							}
+							paging_reload(procc->page);
 						}
 					}
 				}

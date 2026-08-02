@@ -144,7 +144,7 @@ int syscall_open(const char* path, int flags, int mode) {
 	}
 	fd->ops = out->vnode->ops;
 	// fd menyimpan referensi permanen ke dentry — naikkan refcount.
-	dentry_get(out);
+	// dentry_get(out); // Di-comment karena resolve_dentry sudah mengembalikan dentry dengan +1 refcount
 	fd->dentry = out;
 	fdtable->fds[fd_id] = fd;
 
@@ -154,7 +154,6 @@ int syscall_open(const char* path, int flags, int mode) {
 	if (resolve_dentry("/proc", 0, &proc_dentry, 0) != VFS_OK) {
 		str_release(saved_path);
 		// Batalkan fd yang sudah dialokasikan
-		dentry_put(out); // refcount dari dentry_get di atas
 		dentry_put(out); // refcount dari resolve_dentry
 		fdtable->fds[fd_id] = nullptr;
 		kfree2(fd);
@@ -162,10 +161,9 @@ int syscall_open(const char* path, int flags, int mode) {
 	}
 
 	dentry_ptr curr_proc_dentry;
-	if (resolve_dentry(itoa(proc->pid, 10), proc_dentry, &curr_proc_dentry, CREATE_MISSING_ENTRY) != VFS_OK) {
+	if (resolve_dentry(itoa(proc->pid, 10, (char[32]){0}), proc_dentry, &curr_proc_dentry, CREATE_MISSING_ENTRY) != VFS_OK) {
 		str_release(saved_path);
 		dentry_put(proc_dentry);
-		dentry_put(out); // refcount dari dentry_get
 		dentry_put(out); // refcount dari resolve_dentry
 		fdtable->fds[fd_id] = nullptr;
 		kfree2(fd);
@@ -177,11 +175,10 @@ int syscall_open(const char* path, int flags, int mode) {
 	}
 
 	dentry_ptr fd_dentry;
-	if (resolve_dentry(itoa(fd_id, 10), curr_proc_dentry, &fd_dentry, CREATE_MISSING_ENTRY) != VFS_OK) {
+	if (resolve_dentry(itoa(fd_id, 10, (char[32]){0}), curr_proc_dentry, &fd_dentry, CREATE_MISSING_ENTRY) != VFS_OK) {
 		str_release(saved_path);
 		dentry_put(proc_dentry);
 		dentry_put(curr_proc_dentry);
-		dentry_put(out);
 		dentry_put(out);
 		fdtable->fds[fd_id] = nullptr;
 		kfree2(fd);
@@ -193,8 +190,6 @@ int syscall_open(const char* path, int flags, int mode) {
 	dentry_put(fd_dentry);
 	dentry_put(curr_proc_dentry);
 	dentry_put(proc_dentry);
-
-	dentry_put(out);
 
 	str_release(saved_path);
 

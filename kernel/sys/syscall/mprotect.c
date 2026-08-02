@@ -36,17 +36,42 @@ int syscall_mprotect(void* addr, size_t len, int prot) {
 	}
 
 	auto addr_4kb = ALIGN_DOWN((uintptr_t)addr, 0x1000);
-	serial2_printf("mrpotect: base aligned 0x%x\n", addr_4kb);
+	auto len_4kb = ALIGN_UP(len, 0x1000) / 0x1000;
 
-	auto mm = vma_find_contains(proc->vm_page, (uintptr_t)addr);
-	if (!mm) {
-		return -1;
+	for (size_t i = 0; i < len_4kb; i++) {
+		uintptr_t curr_vaddr = addr_4kb + (i * 0x1000);
+		uint64_t phys = vaddr_to_paddr(proc->page, curr_vaddr);
+		
+		if (phys == 0 && curr_vaddr != 0) {
+			auto mm = vma_find_contains(proc->vm_page, curr_vaddr);
+			if (mm) {
+				phys = mm->phys_address + (curr_vaddr - mm->start_address);
+			}
+		}
+
+		if (phys != 0 || curr_vaddr == 0) {
+			uint64_t old_entry = paging_get_entry(proc->page, curr_vaddr);
+			uint64_t new_flags = mmap_flags;
+			
+			if (old_entry & PAGE_COW) {
+				new_flags |= PAGE_COW;
+				// If it's a COW page, we MUST NOT make it hardware-writable yet,
+				// otherwise we bypass the COW mechanism and corrupt the parent's memory.
+				// The actual write will trigger a page fault, and the COW handler
+				// will allocate a new page and make it writable then.
+				new_flags &= ~PAGE_WRITABLE;
+			}
+			
+			paging_mmap(proc->page, curr_vaddr, phys, new_flags);
+		}
 	}
 
-	uintptr_t phys_offset = (uintptr_t)addr - mm->start_address;
-	auto len_4kb = ALIGN_UP(len, 0x1000) / 0x1000;
-	paging_multiple_mmap(proc->page, (uint64_t)addr, (uint64_t)(mm->phys_address + phys_offset),
-	               len_4kb, mmap_flags);
+	paging_reload(proc->page); // Flush the TLB so the CPU sees the updated page permissions
+
+	auto mm = vma_find_contains(proc->vm_page, (uintptr_t)addr);
+	if (mm) {
+		mm->flags = mmap_flags;
+	}
 
 	return 0;
 }

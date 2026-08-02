@@ -56,8 +56,7 @@ int syscall_getdents64(int fd, void* buf, int size) {
 			int bytes = ops->readdir(vnode, safe_buf, (size_t)size, &current_file->pos);
 			if (bytes >= 0) {
 				uintptr_t current_cr3 = 0;
-				asm volatile("mov %%cr3, %0"
-				             : "=r"(current_cr3));
+				asm volatile("mov %%cr3, %0" : "=r"(current_cr3));
 				if (current_cr3 != (uintptr_t)curr_procc->page)
 					paging_reload(curr_procc->page);
 
@@ -92,8 +91,7 @@ int syscall_getdents64(int fd, void* buf, int size) {
 		}
 		// Entry index 1: ".."
 		else if (index == 1) {
-			if (current_file->dentry->parent &&
-			    current_file->dentry->parent->vnode) {
+			if (current_file->dentry->parent && current_file->dentry->parent->vnode) {
 				ino = current_file->dentry->parent->vnode->id;
 			} else {
 				ino = vnode->id;
@@ -106,12 +104,10 @@ int syscall_getdents64(int fd, void* buf, int size) {
 		else {
 			int target_idx = index - 2;
 			int cur_idx = 0;
-			struct llist_head* ch =
-			    current_file->dentry->child_list.next;
+			struct llist_head* ch = current_file->dentry->child_list.next;
 
 			// Cari anak (dentry) ke-(index - 2) di child_list
-			while (ch != &current_file->dentry->child_list &&
-			       cur_idx < target_idx) {
+			while (ch != &current_file->dentry->child_list && cur_idx < target_idx) {
 				ch = ch->next;
 				cur_idx++;
 			}
@@ -165,7 +161,6 @@ int syscall_getdents64(int fd, void* buf, int size) {
 			}
 		}
 
-		
 		size_t reclen = offsetof(struct dirent, d_name) + name_len + 1;
 		reclen = ALIGN_UP(reclen, 8);
 
@@ -177,8 +172,7 @@ int syscall_getdents64(int fd, void* buf, int size) {
 			break;
 		}
 
-		auto entry =
-		    (struct dirent*)(void*)((char*)safe_buf + bytes_written);
+		auto entry = (struct dirent*)(void*)((char*)safe_buf + bytes_written);
 		entry->d_ino = ino;
 		entry->d_off = (uint64_t)(index + 1);
 		entry->d_reclen = (uint16_t)reclen;
@@ -198,9 +192,10 @@ int syscall_getdents64(int fd, void* buf, int size) {
 	// flush
 	uintptr_t current_cr3 = 0;
 	asm volatile("mov %%cr3, %0" : "=r"(current_cr3));
-	if (current_cr3 != (uintptr_t)curr_procc->page)
+	if (current_cr3 != (uintptr_t)curr_procc->page) {
+		serial2_printf("reloaded page\n");
 		paging_reload(curr_procc->page);
-
+	}
 	memcopy(buf, safe_buf, (size_t)bytes_written);
 
 	if (current_cr3 != (uintptr_t)curr_procc->page)

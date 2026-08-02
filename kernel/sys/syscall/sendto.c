@@ -9,8 +9,9 @@
 
 #define O_NONBLOCK 04000
 
-int syscall_sendto(int fd, const void* buf, uint32_t len, int flags,
-                   const void* dest_addr, uint32_t addrlen) {
+#define SENDTO_DEBUG 0
+
+int syscall_sendto(int fd, const void* buf, uint32_t len, int flags, const void* dest_addr, uint32_t addrlen) {
 	(void)flags;
 	(void)dest_addr;
 	(void)addrlen;
@@ -48,8 +49,9 @@ int syscall_sendto(int fd, const void* buf, uint32_t len, int flags,
 	/* For connected sockets, send to peer's buffer */
 	struct unix_socket* dest = us->peer ? us->peer : us;
 
-	serial2_printf("sendto fd=%d len=%u us=%p peer=%p dest=%p\n",
-	               fd, len, us, us->peer, dest);
+#if SENDTO_DEBUG
+	serial2_printf("sendto fd=%d len=%u us=%p peer=%p dest=%p\n", fd, len, us, us->peer, dest);
+#endif
 
 	int is_nonblock = (fd_->flags & O_NONBLOCK) != 0;
 
@@ -75,8 +77,9 @@ int syscall_sendto(int fd, const void* buf, uint32_t len, int flags,
 		vxThreadWake(dest->blocked_recv_thread);
 	}
 
-	serial2_printf("sendto from thread_id %d wrote %d bytes (buf %d/%d)\n", curr_thread->id,
-	               written, dest->rcount, UNIX_BUF_SIZE);
+#if SENDTO_DEBUG
+	serial2_printf("sendto from thread_id %d wrote %d bytes (buf %d/%d)\n", curr_thread->id, written, dest->rcount, UNIX_BUF_SIZE);
+#endif
 
 	// print_dentry_tree(get_root_dentry(), 0);
 	return written;

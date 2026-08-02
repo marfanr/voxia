@@ -58,7 +58,7 @@ intptr_t syscall_brk(void* addr) {
 				paging_reload(kpml4);
 				memset((void*)temp_vaddr, 0, len_4kb * PAGE_SIZE_4KB);
 				
-				paging_multiple_unmap(kpml4, temp_vaddr, len_4kb * PAGE_SIZE_4KB);
+				paging_multiple_unmap(kpml4, temp_vaddr, len_4kb);
 				vma_unregister(get_kernel_vmm_page(), temp_vaddr);
 				paging_reload(proc->page);
 			}

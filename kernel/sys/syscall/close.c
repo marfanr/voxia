@@ -16,6 +16,11 @@ int syscall_close(int fd) {
 
 	auto fdtable = proc->fdtable;
 	auto curr_fd = fdtable->fds[fd];
+	
+	if (!curr_fd) {
+		return -EBADF;
+	}
+	
 	fdtable->fds[fd] = nullptr;
 
 	if (__atomic_sub_fetch(&curr_fd->count.counter, 1, __ATOMIC_SEQ_CST) == 0) {
@@ -65,23 +70,24 @@ int syscall_close(int fd) {
 	}
 
 	dentry_ptr curr_proc_dentry;
-	if (resolve_dentry(itoa(proc->pid, 10), proc_dentry, &curr_proc_dentry,
+	if (resolve_dentry(itoa(proc->pid, 10, (char[32]){0}), proc_dentry, &curr_proc_dentry,
 	                   0) != VFS_OK) {
 		dentry_put(proc_dentry);
 		return 0;
 	}
 
 	dentry_ptr fd_dentry;
-	if (resolve_dentry(itoa(fd, 10), curr_proc_dentry, &fd_dentry, 0) !=
+	if (resolve_dentry(itoa(fd, 10, (char[32]){0}), curr_proc_dentry, &fd_dentry, 0) !=
 	    VFS_OK) {
 		dentry_put(curr_proc_dentry);
 		dentry_put(proc_dentry);
 		return 0;
 	}
 
-	delete_dentry(fd_dentry);
+	dentry_put(fd_dentry);
 	dentry_put(curr_proc_dentry);
 	dentry_put(proc_dentry);
 
+	print_dentry_tree(get_root_dentry(), 1);
 	return 0;
 }

@@ -21,6 +21,9 @@ int64_t syscall_rt_sigaction(int sig, const void* act, void* oact,
 		paging_reload(thr->process->page);
 	}
 
+	// serial2_printf("sig_action on thread %d\n", thr->id);
+	
+
 	return sig_action(thr->signal, sig, (const struct k_sigaction*)act,
 	                  (struct k_sigaction*)oact);
 }

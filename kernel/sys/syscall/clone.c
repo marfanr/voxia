@@ -44,8 +44,13 @@ int syscall_clone(interrupt_stack_frame_t* rsp) {
 		}
 
 		interrupt_stack_frame_t* child_frame = 
-			(interrupt_stack_frame_t*)child_thr->kernel_rsp;
+			(interrupt_stack_frame_t*)((uintptr_t)rsp - parent->kernel_stack_base + child_thr->kernel_stack_base);
 		child_frame->rax = 0; // return 0 untuk child
+
+		// Flush TLB to ensure parent triggers COW faults on writes
+		uintptr_t cr3;
+		__asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
+		__asm__ volatile("mov %0, %%cr3" ::"r"(cr3) : "memory");
 
 		serial2_printf("CLONE PARENT PID: %d, CHILD PID: %d\n", parent->process->pid, child_thr->process->pid); return (int)child_thr->process->pid;
 	}

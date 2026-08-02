@@ -98,7 +98,7 @@ int syscall_accept(int fd, void* addr, uint32_t* addrlen) {
 		dentry_ptr proc_dentry;
 		if (resolve_dentry("/proc", 0, &proc_dentry, 0) == VFS_OK) {
 			dentry_ptr curr_proc_dentry;
-			if (resolve_dentry(itoa(proc->pid, 10), proc_dentry,
+			if (resolve_dentry(itoa(proc->pid, 10, (char[32]){0}), proc_dentry,
 			                   &curr_proc_dentry,
 			                   CREATE_MISSING_ENTRY) == VFS_OK) {
 				if (curr_proc_dentry->vnode) {
@@ -106,7 +106,7 @@ int syscall_accept(int fd, void* addr, uint32_t* addrlen) {
 					curr_proc_dentry->vnode->permission = 0555;
 				}
 				dentry_ptr fd_dentry;
-				if (resolve_dentry(itoa(client_fd, 10), curr_proc_dentry,
+				if (resolve_dentry(itoa(client_fd, 10, (char[32]){0}), curr_proc_dentry,
 				                   &fd_dentry,
 				                   CREATE_MISSING_ENTRY) == VFS_OK) {
 					dentry_put(fd_dentry);
