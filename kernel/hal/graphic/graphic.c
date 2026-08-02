@@ -1035,7 +1035,7 @@ struct graphic_device* create_graphic_device() {
 	// create dri
 	dentry_ptr dri_dentry;
 	auto dri = str("/dev/dri/card");
-	auto current_dri = str_concat(dri, itoa(0, 10));
+	auto current_dri = str_concat(dri, itoa(0, 10, (char[32]){0}));
 	vxnamei(current_dri->c_str, &dri_dentry);
 	str_release(current_dri);
 	str_release(dri);

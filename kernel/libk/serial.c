@@ -6,13 +6,13 @@
 #include <type.h>
 
 #define INT_ENABLE_OFFSET 1
-#define SERIAL_BUFFER2_SIZE (4096 * 3)
+#define SERIAL_BUFFER2_SIZE 8192
 #define SERIAL_BUFFER2_MASK (SERIAL_BUFFER2_SIZE - 1)
 
 /* Nilai sentinel: slot sedang ditulis oleh producer */
-#define SLOT_WRITING 0xFE
+#define SLOT_WRITING 0xFFFE
 /* Nilai sentinel: slot sengaja dibuang (drop) */
-#define SLOT_DROPPED 0xFF
+#define SLOT_DROPPED 0xFFFF
 /* Nilai sentinel: slot kosong / sudah dikonsumsi */
 #define SLOT_EMPTY 0x00
 
@@ -20,8 +20,8 @@
 #define SPIN_LIMIT 10000u
 
 typedef struct {
-	char data[128];
-	uint8_t len; /* SLOT_EMPTY / SLOT_WRITING / SLOT_DROPPED / 1-128 */
+	char data[1024];
+	uint16_t len; /* SLOT_EMPTY / SLOT_WRITING / SLOT_DROPPED / 1-1024 */
 } serial_entry_t;
 
 typedef struct {
@@ -126,7 +126,7 @@ static bool reserve_slot(uint32_t* out_idx) {
 	return true;
 }
 
-static void put_into_buffer(const char* str, uint8_t len) {
+static void put_into_buffer(const char* str, uint16_t len) {
 	uint32_t idx;
 	if (!reserve_slot(&idx))
 		return;
@@ -148,10 +148,10 @@ static void put_into_buffer(const char* str, uint8_t len) {
 	__atomic_store_n(&entry->len, SLOT_WRITING, __ATOMIC_RELEASE);
 
 	/* Salin data */
-	if (len > (uint8_t)sizeof(entry->data))
-		len = (uint8_t)sizeof(entry->data);
+	if (len > (uint16_t)sizeof(entry->data))
+		len = (uint16_t)sizeof(entry->data);
 
-	for (uint8_t i = 0; i < len; i++)
+	for (uint16_t i = 0; i < len; i++)
 		entry->data[i] = str[i];
 
 	/* Publish ke consumer */
@@ -193,7 +193,7 @@ static void serial2_send_number(int64_t num, int base) {
 	for (int j = i - 1; j >= 0; j--)
 		buf2[i - j - 1] = buf[j];
 
-	put_into_buffer(buf2, (uint8_t)i);
+	put_into_buffer(buf2, (uint16_t)i);
 }
 
 static void serial2_send_unsigned_number(uint64_t num, int base, int limit) {
@@ -225,7 +225,7 @@ static void serial2_send_unsigned_number(uint64_t num, int base, int limit) {
 	for (int j = end; j >= start; j--)
 		buf2[end - j] = buf[j];
 
-	put_into_buffer(buf2, (uint8_t)count);
+	put_into_buffer(buf2, (uint16_t)count);
 }
 
 /* ------------------------------------------------------------------ */
@@ -233,13 +233,13 @@ static void serial2_send_unsigned_number(uint64_t num, int base, int limit) {
 /* ------------------------------------------------------------------ */
 
 void parse_multicore(__builtin_va_list args, const char* fmt) {
-	char temp_buffer[128];
-	uint8_t temp_index = 0;
+	char temp_buffer[1024];
+	uint16_t temp_index = 0;
 
 	for (const char* p = fmt; *p != '\0'; p++) {
 		if (*p != '%') {
 			temp_buffer[temp_index++] = *p;
-			if (temp_index == 128) {
+			if (temp_index == 1024) {
 				put_into_buffer(temp_buffer, temp_index);
 				temp_index = 0;
 			}
@@ -276,8 +276,8 @@ void parse_multicore(__builtin_va_list args, const char* fmt) {
 				put_into_buffer("(null)", 6);
 			} else {
 				size_t slen = strlen(s);
-				uint8_t blen =
-				    (slen > 128) ? 128 : (uint8_t)slen;
+				uint16_t blen =
+				    (slen > 1024) ? 1024 : (uint16_t)slen;
 				put_into_buffer(s, blen);
 			}
 		} else if (*p == 'b') {
@@ -325,7 +325,7 @@ void serial2_flush(void) {
 
 		/* Tunggu producer selesai menulis, tapi dengan batas spin */
 		uint32_t spin = 0;
-		uint8_t len;
+		uint16_t len;
 		for (;;) {
 			len = __atomic_load_n(&entry->len, __ATOMIC_ACQUIRE);
 			if (len != SLOT_EMPTY && len != SLOT_WRITING)
@@ -341,7 +341,7 @@ void serial2_flush(void) {
 		/* Kirim ke hardware kalau bukan sentinel */
 		if (len != SLOT_EMPTY && len != SLOT_WRITING &&
 		    len != SLOT_DROPPED) {
-			for (uint8_t i = 0; i < len; i++)
+			for (uint16_t i = 0; i < len; i++)
 				serial_putc(entry->data[i]);
 		}
 

@@ -66,6 +66,7 @@ struct virtual_memory_page {
 	struct virtual_memory_tree vma_tree_zone_b;
 	struct virtual_memory_tree vma_tree_zone_c;
 	struct virtual_memory_tree vma_tree_zone_kmodule;
+	struct virtual_memory_tree vma_tree_zone_user_mmap;
 } __attribute__((aligned(64)));
 
 void vma_register(struct virtual_memory_page* page, uintptr_t phys_address,

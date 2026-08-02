@@ -283,8 +283,7 @@ KERNEL_API void* memmove(void* dest, const void* src, size_t n) {
 	return dest;
 }
 
-char* itoa(int64_t value, int base) {
-	static char str[32];
+char* itoa(int64_t value, int base, char* str) {
 	if (base < 2 || base > 36) {
 		*str = '\0';
 		return str;

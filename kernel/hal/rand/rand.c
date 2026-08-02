@@ -18,12 +18,15 @@ static int urandom_read(vnode_t* vnode, void* buf, size_t len, size_t offset)
 {
 	(void)vnode;
 	(void)offset;
-	(void)buf;
-	(void)len;
-
-	uint32_t random = vxRand();
-	memcopy(buf, &random, sizeof(uint32_t));
-	return 0;
+	char* out = (char*)buf;
+	size_t i = 0;
+	while (i < len) {
+		uint32_t random = vxRand();
+		size_t copy_size = (len - i) < 4 ? (len - i) : 4;
+		memcopy(out + i, &random, copy_size);
+		i += copy_size;
+	}
+	return (int)len;
 }
 
 static vops_file_t urandom_ops = {

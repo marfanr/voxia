@@ -253,6 +253,7 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 
 		(*out)->vnode->vnode_private = iso_node;
 		(*out)->vnode->type = VNODE_TYPE_DIR;
+		(*out)->vnode->ops = iso9660_file_operations();
 		(*out)->vnode->fs_instance = instance;
 
 		uint16_t rr_mode = 0;
@@ -385,10 +386,11 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 					    symlink_target, sym_len);
 					(*out)->vnode->type = VNODE_TYPE_LNK;
 					(*out)->vnode->vnode_private =
-					    kalloc(256);
+					    kalloc((size_t)sym_len + 1);
 					memcopy((*out)->vnode->vnode_private,
 					        symlink_target,
 					        (size_t)sym_len);
+					((char*)(*out)->vnode->vnode_private)[sym_len] = '\0';
 
 					(*out)->vnode->ops =
 					    iso9660_lnk_operations();
@@ -411,6 +413,8 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 					if (entry->flags & iOS9660_DIR_FLAG) {
 						(*out)->vnode->type =
 						    VNODE_TYPE_DIR;
+						(*out)->vnode->ops =
+						    iso9660_file_operations();
 					} else {
 						(*out)->vnode->type =
 						    VNODE_TYPE_FILE;
@@ -492,13 +496,98 @@ int iso9660_readlink(vnode_t* vnode, char* buf, size_t len) {
 
 	auto len_ = strlen(priv_data) > len ? len : strlen(priv_data);
 	memcopy(buf, priv_data, len_);
-	buf[strlen(priv_data)] = '\0';
+	if (len_ < len) {
+		buf[len_] = '\0';
+	}
 
 	return (int)len_;
 }
 
+static int iso9660_readdir(vnode_t* vnode, void* buf, size_t len, uint64_t* pos) {
+	if (!vnode || !vnode->vnode_private) return -1;
+	auto iso_node = (struct iso9660_internal_data*)vnode->vnode_private;
+	auto block_vnode = vnode->fs_instance->block_dentry->vnode;
+	auto ops = (vops_blk_t*)block_vnode->ops;
+
+	uint8_t* dir_buf = (uint8_t*)kalloc(iso_node->size);
+	if (!dir_buf) return -1;
+	
+	if (ops->read(block_vnode, iso_node->extent, dir_buf, iso_node->size) < 0) {
+		kfree2(dir_buf);
+		return -1;
+	}
+
+	uintptr_t base = (uintptr_t)dir_buf;
+	uintptr_t ptr = base + *pos;
+	uintptr_t end = base + iso_node->size;
+
+	int bytes_written = 0;
+	struct dirent* user_dirent = (struct dirent*)buf;
+	
+	while (ptr < end && bytes_written < (int)len) {
+		auto entry = (struct iso9660_dir*)ptr;
+		if (entry->length == 0) {
+			uintptr_t offset = ptr - base;
+			uintptr_t next_sector = ((offset / 2048) + 1) * 2048;
+			if (next_sector >= iso_node->size) break;
+			ptr = base + next_sector;
+			continue;
+		}
+
+		char name[256];
+		int name_len = 0;
+
+		if (entry->name_len == 1 && entry->name[0] == 0x00) {
+			name[0] = '.'; name[1] = '\0'; name_len = 1;
+		} else if (entry->name_len == 1 && entry->name[0] == 0x01) {
+			name[0] = '.'; name[1] = '.'; name[2] = '\0'; name_len = 2;
+		} else {
+			name_len = iso9660_get_rr_name(entry, name);
+			if (name_len <= 0) {
+				uint8_t iso_len = entry->name_len;
+				if (iso_len > 255) iso_len = 255;
+				memcopy(name, entry->name, iso_len);
+				name[iso_len] = '\0';
+				name_len = iso_len;
+				for (int i = 0; i < name_len; i++) {
+					if (name[i] == ';') {
+						name[i] = '\0';
+						name_len = i;
+						break;
+					}
+				}
+			}
+		}
+
+		int dirent_size = (int)(sizeof(struct dirent)) + name_len + 1;
+		dirent_size = (dirent_size + 7) & ~7;
+		
+		if (bytes_written + dirent_size > (int)len) {
+			break;
+		}
+
+		struct dirent current_entry = {0};
+		current_entry.d_ino = entry->extent_le;
+		current_entry.d_off = ptr - base;
+		current_entry.d_reclen = (uint16_t)dirent_size;
+		current_entry.d_type = (entry->flags & 2) ? DT_DIR : DT_REG;
+		
+		memcopy((void*)user_dirent, &current_entry, sizeof(struct dirent));
+		memcopy((void*)user_dirent->d_name, name, (size_t)(name_len + 1));
+
+		user_dirent = (struct dirent*)((uintptr_t)user_dirent + (uintptr_t)dirent_size);
+		bytes_written += dirent_size;
+		ptr += entry->length;
+	}
+
+	*pos = ptr - base;
+	kfree2(dir_buf);
+	return bytes_written;
+}
+
 vops_file_t* iso9660_file_operations(void) {
 	_file_ops.read = iso9660_read;
+	_file_ops.readdir = iso9660_readdir;
 	return &_file_ops;
 }
 

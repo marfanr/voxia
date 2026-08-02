@@ -274,7 +274,7 @@ int vfs_umount(dentry_ptr dentry) {
 }
 
 __attribute__((unused)) static void
-detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
+detect_filesystem_and_mount(dentry_ptr dentry, void* data, void* ctx) {
 	UNUSED(data);
 	UNUSED(ctx);
 
@@ -286,65 +286,102 @@ detect_cd_filesystem(dentry_ptr dentry, void* data, void* ctx) {
 	if (!ops || !ops->read)
 		return;
 
-	auto request_size = sizeof(struct iso9660_pvd);
-	uint8_t* d_ = (uint8_t*)kalloc(request_size);
-	if (!d_)
+	// Read boot sector (512 bytes) for filesystem detection
+	uint8_t* boot_sector = (uint8_t*)kalloc(512);
+	if (!boot_sector)
 		return;
-
-	memset(d_, 0, request_size);
+	memset(boot_sector, 0, 512);
 
 	auto cdev = retrieve_dev(vnode->device.major, vnode->device.minor);
-
 	if (!cdev) {
 		serial2_printf("cdev not found\n");
-		kfree2(d_);
+		kfree2(boot_sector);
 		return;
 	}
 
-	int ret = ops->read(vnode, 16, d_, request_size);
-
+	// Read first sector (boot sector)
+	int ret = ops->read(vnode, 0, boot_sector, 512);
 	if (ret < 0) {
-		serial2_printf("read failed: %d\n", ret);
-		kfree2(d_);
+		serial2_printf("boot sector read failed: %d\n", ret);
+		kfree2(boot_sector);
 		return;
 	}
 
-	struct iso9660_pvd* pvd = (struct iso9660_pvd*)(void*)d_;
-	if (strncmp(pvd->id, "CD001", 5) == 0) {
-		LOG2_INFO("VFS NOTIFY", "terdeteksi ISO9660 CD-ROM");
+	const char* detected_fs = NULL;
 
-		boolean_t is_contain_root = false;
-		{
-			dentry_ptr mount_entry;
-			vxnamei("/tmp/root", &mount_entry);
-			vfs_mount(dentry, "ISO9660", mount_entry, 0);
-
-			dentry_ptr out;
-			if (resolve_dentry("/kernel.elf", mount_entry, &out,
-			                   0) == VFS_OK) {
-
-				auto full_path =
-				    get_full_path_from_dentry(dentry);
-				LOG2_INFO("VFS NOTIFY",
-				          "found root filesystem at %s",
-				          full_path->c_str);
-				str_release(full_path);
-
-				is_contain_root = true;
+	// Check ISO9660: Primary Volume Descriptor at sector 16
+	{
+		uint8_t* pvd_buf = (uint8_t*)kalloc(512);
+		if (pvd_buf) {
+			memset(pvd_buf, 0, 512);
+			int r = ops->read(vnode, 16, pvd_buf, 512);
+			if (r >= 0) {
+				// ISO9660 PVD: offset 1-5 = "CD001"
+				if (strncmp((char*)pvd_buf + 1, "CD001", 5) == 0) {
+					LOG2_INFO("VFS NOTIFY", "terdeteksi ISO9660 filesystem");
+					detected_fs = "ISO9660";
+				}
 			}
-
-			dentry_put(out);
-			vfs_umount(mount_entry);
-		}
-
-		if (is_contain_root) {
-			dentry_ptr mount_entry;
-			vxnamei("/", &mount_entry);
-			vfs_mount(dentry, "ISO9660", mount_entry, 0);
-			notify_call("/vfs/root", VFS_NOTIFY_ROOT_FOUND, dentry);
+			kfree2(pvd_buf);
 		}
 	}
-	kfree2(d_);
+
+	// Check FAT32: boot sector signature at offset 510-511 = 0xAA55
+	if (!detected_fs) {
+		uint16_t boot_sig = *(uint16_t*)(void *)(boot_sector + 510);
+		if (boot_sig == 0xAA55) {
+			// Distinguish FAT32 from FAT12/16 via sectors_per_fat_32 field
+			// (FAT12/16 use sectors_per_fat_16 at offset 22, FAT32 uses sectors_per_fat_32 at offset 36)
+			uint32_t sectors_per_fat32 = *(uint32_t*)(void *)(boot_sector + 36);
+			uint16_t sectors_per_fat16 = *(uint16_t*)(void *)(boot_sector + 22);
+			if (sectors_per_fat32 != 0) {
+				LOG2_INFO("VFS NOTIFY", "terdeteksi FAT32 filesystem");
+				detected_fs = "FAT32";
+			} else if (sectors_per_fat16 != 0) {
+				// FAT12 or FAT16
+				char oem_id[9] = {0};
+				memcopy(oem_id, boot_sector + 3, 8);
+				LOG2_INFO("VFS NOTIFY", "terdeteksi FAT12/FAT16 filesystem (OEM: %.8s)", oem_id);
+				detected_fs = "FAT32"; // treat as FAT32 (same driver supports both)
+			}
+		}
+	}
+
+	if (!detected_fs) {
+		serial2_printf("unknown filesystem on device\n");
+		kfree2(boot_sector);
+		return;
+	}
+
+	kfree2(boot_sector);
+
+	// === Try mount at /tmp/root and check for kernel.elf ===
+	boolean_t is_contain_root = false;
+	{
+		dentry_ptr mount_entry;
+		vxnamei("/tmp/root", &mount_entry);
+		vfs_mount(dentry, (char *)detected_fs, mount_entry, 0);
+
+		dentry_ptr out;
+		if (resolve_dentry("/kernel.elf", mount_entry, &out, 0) == VFS_OK) {
+			auto full_path = get_full_path_from_dentry(dentry);
+			LOG2_INFO("VFS NOTIFY", "found root filesystem at %s (type: %s)",
+			          full_path->c_str, detected_fs);
+			str_release(full_path);
+			is_contain_root = true;
+			dentry_put(out);
+		}
+		vfs_umount(mount_entry);
+	}
+
+	// If not found at /tmp/root, mount as root directly
+	if (is_contain_root) {
+		serial2_printf("root found\n");
+		dentry_ptr mount_entry;
+		vxnamei("/", &mount_entry);
+		vfs_mount(dentry, (char *)detected_fs, mount_entry, 0);
+		notify_call("/vfs/root", VFS_NOTIFY_ROOT_FOUND, dentry);
+	}
 }
 
 __attribute__((unused)) static void vfs_notify_probe_handler(void* data,
@@ -371,7 +408,7 @@ __attribute__((unused)) static void vfs_notify_probe_handler(void* data,
 	               ops->v_data);
 
 	if (dev_major == DEV_MAJOR_CDROM) {
-		detect_cd_filesystem(dentry, data, ctx);
+		detect_filesystem_and_mount(dentry, data, ctx);
 	}
 }
 

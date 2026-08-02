@@ -16,12 +16,30 @@
 #include "vfs/vnode.h"
 #include <vfs/ioctl.h>
 
+/* Flag definitions — must match musl arch/x32/bits/fcntl.h */
+#define F_DUPFD 0
+#define F_GETFD 1
+#define F_SETFD 2
+#define F_GETFL 3
+#define F_SETFL 4
+#define F_DUPFD_CLOEXEC 1030
+
+#define FD_CLOEXEC 1
+
+/* O_ flags — must match open.c definitions */
+#define O_APPEND 02000
+#define O_NONBLOCK 04000
+#define O_DSYNC 010000
+#define O_SYNC 04010000
+#define O_RSYNC 04010000
+#define O_ASYNC 020000
+#define O_DIRECT 040000
+#define O_NOATIME 01000000
+
 static dentry_ptr ptmx_dentry;
 static uint32_t slave_id = 0;
 
-/* ═══════════════════════════════════════════════════════════════════
- * MASTER OPERATIONS
- * ═══════════════════════════════════════════════════════════════════ */
+// MASTER OPERATIONS
 static int pty_master_ioctl(vnode_ptr_t vnode, uint32_t req, void* arg) {
 	auto fd = (struct file_descriptor*)vnode->vnode_private;
 	if (!fd)
@@ -106,22 +124,73 @@ static long pty_master_write(vnode_t* vnode, void* buf, size_t len, size_t offse
 	if (!internal || internal->slave_closed)
 		return -EPIPE;
 
-	long ret = pty_ring_write(&internal->master_to_slave, buf, len);
+	char* cbuf = (char*)buf;
+	for (size_t i = 0; i < len; i++) {
+		char c = cbuf[i];
+		if ((unsigned char)c < 0x20)
+			serial2_printf("PTY: ctrl char 0x%02x ISIG=%d fg=%d sw=%p\n", (unsigned char)c, !!(internal->termios.c_lflag & 0000001),
+			               internal->foreground, internal->slave_waiter);
+		int sig = 0;
+
+		if (internal->termios.c_lflag & 0000001 /* ISIG */) {
+			if (c == 3)
+				sig = SIGINT;
+			else if (c == 26)
+				sig = SIGTSTP;
+			else if (c == 28)
+				sig = SIGQUIT;
+		}
+
+		if (sig > 0) {
+			/* buang input yang belum sempat dibaca slave (partial line) */
+			internal->master_to_slave.head = internal->master_to_slave.tail;
+
+			/* kirim signal asli ke foreground process (bisa bash sendiri
+			 * atau child), biar signal handler-nya sendiri yang urus
+			 * pembatalan line — jangan simulasikan Enter dgn newline */
+			if (internal->foreground > 0) {
+				pgid_send_signal(internal->foreground, sig);
+			}
+
+			/* echo ^C + newline ke terminal (visual only) */
+			char eb[4] = {'^', (char)(c + 0x40), '\r', '\n'};
+			pty_ring_write(&internal->slave_to_master, eb, 4);
+			if (internal->slave_waiter) {
+				vxThreadWake(internal->slave_waiter);
+				internal->slave_waiter = NULL;
+			}
+			continue;
+		}
+
+		/* Handle Ctrl+D (EOF) */
+		if (c == 4 && (internal->termios.c_lflag & 0000002 /* ICANON */)) {
+			/* Ctrl+D: signal EOF to slave.
+			 * If ring is empty, wake slave so read() returns 0 (EOF).
+			 * If ring has data, just flush it (don't write the 0x04). */
+			internal->eof_pending = 1;
+			if (internal->slave_waiter) {
+				vxThreadWake(internal->slave_waiter);
+				internal->slave_waiter = NULL;
+			}
+			continue;
+		}
+		/* / foreground == bash: fallthrough, tulis ke
+		 * / master_to_slave */
+
+		pty_ring_write(&internal->master_to_slave, &c, 1);
+		if (internal->termios.c_lflag & 0000010 /* ECHO */)
+			pty_ring_write(&internal->slave_to_master, &c, 1);
+	}
+
 	if (internal->slave_waiter) {
 		vxThreadWake(internal->slave_waiter);
 		internal->slave_waiter = NULL;
 	}
-
-	/* Local echo: Hanya echo jika ICANON & ECHO aktif (tergantung implementasi line discipline) */
-	if (internal->termios.c_lflag & 0000010) {
-		pty_ring_write(&internal->slave_to_master, buf, len);
-		if (internal->master_waiter) {
-			vxThreadWake(internal->master_waiter);
-			internal->master_waiter = NULL;
-		}
+	if (internal->master_waiter) {
+		vxThreadWake(internal->master_waiter);
+		internal->master_waiter = NULL;
 	}
-
-	return ret;
+	return (long)len;
 }
 
 static int pty_master_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
@@ -142,8 +211,19 @@ static int pty_master_read(vnode_t* vnode, void* buf, size_t len, size_t offset)
 		if (internal->slave_closed)
 			return 0;
 
-		/* Cek flag O_NONBLOCK (04000) */
-		if (fd->flags & 04000)
+		/* cek pending signal */
+		{
+			auto fg = internal->foreground;
+			auto fd_proc = find_process_by_pid(fg);
+			if (fd_proc && fd_proc->main_thread && fd_proc->main_thread->signal) {
+				uint64_t pending = __atomic_load_n(&fd_proc->signal->pending.__bits[0], __ATOMIC_ACQUIRE);
+	
+				if (pending)
+					return -EINTR;
+			}
+		}
+
+		if (fd->flags & O_NONBLOCK)
 			return -EAGAIN;
 
 		internal->master_waiter = get_current_core_data()->active_thread;
@@ -185,13 +265,13 @@ __attribute__((unused)) static int pty_master_close(vnode_t* vnode) {
 }
 
 vops_file_t pty_master_ops = {
-    .ioctl = pty_master_ioctl, .write = pty_master_write, .read = pty_master_read, .poll = pty_master_poll,
-    /* .close = pty_master_close,  <-- Uncomment jika struct vops_file_t memiliki fungsi close/release */
+    .ioctl = pty_master_ioctl,
+    .write = pty_master_write,
+    .read = pty_master_read,
+    .poll = pty_master_poll,
 };
 
-/* ═══════════════════════════════════════════════════════════════════
- * SLAVE OPERATIONS
- * ═══════════════════════════════════════════════════════════════════ */
+// SLAVE OPERATIONS
 static int pty_slave_ioctl(vnode_ptr_t vnode, uint32_t req, void* arg) {
 	auto internal = (struct internal_pty*)vnode->vnode_private;
 	if (!internal)
@@ -218,15 +298,20 @@ static int pty_slave_ioctl(vnode_ptr_t vnode, uint32_t req, void* arg) {
 		return 0;
 	}
 	case TIOCSWINSZ: {
-		memcopy(&internal->ws, arg, sizeof(struct win_size));
-        auto fg = internal->foreground;
-        if (fg) {
-            auto proc = find_process_by_pid(fg);
-            if (proc) {
-                sig_send(proc->signal, SIGWINCH);
-            }
-        } 
-        
+		struct win_size new_ws;
+		memcopy(&new_ws, arg, sizeof(struct win_size));
+		/* only send SIGWINCH if size actually changed */
+		if (new_ws.ws_col != internal->ws.ws_col || new_ws.ws_row != internal->ws.ws_row || new_ws.ws_xpixel != internal->ws.ws_xpixel ||
+		    new_ws.ws_ypixel != internal->ws.ws_ypixel) {
+			memcopy(&internal->ws, &new_ws, sizeof(struct win_size));
+			auto fg = internal->foreground;
+			if (fg) {
+				auto proc = find_process_by_pid(fg);
+				if (proc && proc->main_thread && proc->main_thread->signal) {
+					sig_send(proc->main_thread->signal, SIGWINCH);
+				}
+			}
+		}
 		return 0;
 	}
 	case TIOCGPGRP: {
@@ -240,6 +325,9 @@ static int pty_slave_ioctl(vnode_ptr_t vnode, uint32_t req, void* arg) {
 	}
 	case TIOCSPGRP: {
 		internal->foreground = *(pid_t*)arg;
+		/* auto-set owner_pid ke foreground pertama */
+		if (internal->owner_pid == 0 && internal->foreground > 0)
+			internal->owner_pid = internal->foreground;
 		return 0;
 	}
 	case TIOCSCTTY: {
@@ -274,11 +362,29 @@ static int pty_slave_read(vnode_t* vnode, void* buf, size_t len, size_t offset) 
 
 	while (1) {
 		int ret = pty_ring_read(&internal->master_to_slave, buf, len);
-		if (ret > 0 || len == 0)
+		if (ret > 0 || len == 0) {
+			internal->eof_pending = 0;
 			return ret;
+		}
+
+		/* Ctrl+D was pressed and ring is empty → EOF */
+		if (internal->eof_pending) {
+			internal->eof_pending = 0;
+			return 0;
+		}
 
 		if (internal->master_closed)
 			return 0;
+
+		/* check pending signals before blocking */
+		{
+			auto curr = get_current_core_data()->active_thread;
+			if (curr && curr->signal) {
+				uint64_t pending = __atomic_load_n(&curr->signal->pending.__bits[0], __ATOMIC_ACQUIRE);
+				if (pending)
+					return -EINTR;
+			}
+		}
 
 		internal->slave_waiter = get_current_core_data()->active_thread;
 		thread_block();
@@ -315,16 +421,13 @@ vops_file_t pty_slave_ops = {
     // .close = pty_slave_close
 };
 
-/* ═══════════════════════════════════════════════════════════════════
- * /dev/ptmx ENTRY POINT
- * ═══════════════════════════════════════════════════════════════════ */
 static void ptmx_open(vnode_ptr_t vnode, void* fd) {
 	struct file_descriptor* f = (struct file_descriptor*)fd;
 
 	serial2_printf("opened pts : %d\n", slave_id);
 
 	auto pts_path = str("/dev/pts/");
-	auto curr_pts = str_concat(pts_path, itoa(slave_id, 10));
+	auto curr_pts = str_concat(pts_path, itoa(slave_id, 10, (char[32]){0}));
 	dentry_ptr slave_dentry;
 	if (resolve_dentry(curr_pts->c_str, 0, &slave_dentry, CREATE_MISSING_ENTRY) != VFS_OK) {
 		str_release(pts_path);
@@ -342,16 +445,31 @@ static void ptmx_open(vnode_ptr_t vnode, void* fd) {
 	f->ops = &pty_master_ops;
 	f->private_data = kalloc(sizeof(struct internal_pty));
 
-	/* Perhatian: VFS desain saat ini menggunakan fd untuk master, tetapi
-	   mengirim f->private_data (internal_pty) langsung untuk slave.
-	   Biarkan saja dulu agar tidak merusak logika VFS yang ada. */
 	slave_vnode->vnode_private = f->private_data;
 
 	auto internal = (struct internal_pty*)f->private_data;
 	memset(internal, 0, sizeof(*internal));
 
 	/* Set default terminal settings */
-	internal->termios.c_lflag = 0000012; /* ECHO | ICANON */
+	internal->termios.c_lflag = 0000013; /* ECHO | ICANON | ISIG */
+	internal->termios.c_iflag = ICRNL;
+	internal->termios.c_cc[0] = 3;    // VINTR (Ctrl-C)
+	internal->termios.c_cc[1] = 28;   // VQUIT (Ctrl-\)
+	internal->termios.c_cc[2] = 0x7f; // VERASE (DEL)
+	internal->termios.c_cc[3] = 21;   // VKILL (Ctrl-U)
+	internal->termios.c_cc[4] = 4;    // VEOF (Ctrl-D)
+	internal->termios.c_cc[5] = 0;    // VTIME
+	internal->termios.c_cc[6] = 1;    // VMIN
+	internal->termios.c_cc[7] = 0;    // VSWTC
+	internal->termios.c_cc[8] = 17;   // VSTART (Ctrl-Q)
+	internal->termios.c_cc[9] = 19;   // VSTOP (Ctrl-S)
+	internal->termios.c_cc[10] = 26;  // VSUSP (Ctrl-Z)
+	internal->termios.c_cc[11] = 0;   // VEOL
+	internal->termios.c_cc[12] = 18;  // VREPRINT (Ctrl-R)
+	internal->termios.c_cc[13] = 15;  // VDISCARD (Ctrl-O)
+	internal->termios.c_cc[14] = 23;  // VWERASE (Ctrl-W)
+	internal->termios.c_cc[15] = 22;  // VLNEXT (Ctrl-V)
+	internal->termios.c_cc[16] = 0;   // VEOL2
 
 	/* Inisialisasi window size default agar bash tidak menganggap ini terminal 0x0 */
 	internal->ws.ws_col = 80;

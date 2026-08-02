@@ -108,6 +108,7 @@ struct dentry* cache_lookup(struct vfs_cache* cache, struct dentry* parent,
 	     pos = pos->next) {
 		struct dentry* d = container_of(pos, struct dentry, hash_node);
 		if (d->parent == parent && strcmp(d->name->c_str, name) == 0) {
+			dentry_get(d);
 			__atomic_clear(&cache->lock, __ATOMIC_RELEASE);
 			return d;
 		}
@@ -118,9 +119,15 @@ struct dentry* cache_lookup(struct vfs_cache* cache, struct dentry* parent,
 	return 0;
 }
 
-void cache_remove(struct vfs_cache* cache, struct dentry* dentry) {
+void vfs_cache_remove_dentry(struct dentry* dentry) {
+	auto cache = cache_;
 	while (__atomic_test_and_set(&cache->lock, __ATOMIC_ACQUIRE))
 		;
+
+	if (!(dentry->flags & DENTRY_IN_CACHE)) {
+		__atomic_clear(&cache->lock, __ATOMIC_RELEASE);
+		return;
+	}
 
 	uint32_t idx = dentry->hash & (VFS_CACHE_SIZE - 1);
 	hlist_del(&dentry->hash_node, &cache->buckets[idx]);
@@ -129,6 +136,29 @@ void cache_remove(struct vfs_cache* cache, struct dentry* dentry) {
 
 	if (dentry->siblings.next != NULL && dentry->siblings.next != &dentry->siblings) {
 		llist_del(&dentry->siblings);
+		dentry->siblings.next = dentry->siblings.prev = &dentry->siblings;
+	}
+
+	__atomic_clear(&cache->lock, __ATOMIC_RELEASE);
+}
+
+void cache_remove(struct vfs_cache* cache, struct dentry* dentry) {
+	while (__atomic_test_and_set(&cache->lock, __ATOMIC_ACQUIRE))
+		;
+
+	if (!(dentry->flags & DENTRY_IN_CACHE)) {
+		__atomic_clear(&cache->lock, __ATOMIC_RELEASE);
+		return;
+	}
+
+	uint32_t idx = dentry->hash & (VFS_CACHE_SIZE - 1);
+	hlist_del(&dentry->hash_node, &cache->buckets[idx]);
+	__atomic_fetch_sub(&cache->count, 1, __ATOMIC_RELAXED);
+	dentry->flags &= ~(uint32_t)DENTRY_IN_CACHE;
+
+	if (dentry->siblings.next != NULL && dentry->siblings.next != &dentry->siblings) {
+		llist_del(&dentry->siblings);
+		dentry->siblings.next = dentry->siblings.prev = &dentry->siblings;
 	}
 
 	__atomic_clear(&cache->lock, __ATOMIC_RELEASE);

@@ -34,23 +34,20 @@ inline uint32_t hash_dentry(const char* name, dentry_ptr parent) {
 
 static spinlock_t lock = {0};
 
-dentry_ptr KERNEL_API create_dentry(kstring name, vnode_t* vnode,
-                                    dentry_ptr parent) {
+dentry_ptr KERNEL_API create_dentry(kstring name, vnode_t* vnode, dentry_ptr parent) {
 	if (!dentry_cache)
-		vxCreateSlabCache(&dentry_cache, "dentry",
-		                  sizeof(struct dentry), 0, 0);
+		vxCreateSlabCache(&dentry_cache, "dentry", sizeof(struct dentry), 0, 0);
 
 	spin_acquire(&lock);
 	dentry_t* dentry = (dentry_t*)vxSlabAlloc(dentry_cache);
-	// dentry_t* dentry = (dentry_t*)kalloc(sizeof(struct dentry));
 	memset(dentry, 0, sizeof(dentry_t));
 
-	/* Refcount dimulai dari 0. Pemilik pertama (cache atau root)
-	 * bertanggung jawab memanggil dentry_get secara eksplisit. */
 	dentry->hash = hash_dentry(name->c_str, parent);
 	dentry->name = name;
 	dentry->vnode = vnode;
 	dentry->parent = parent;
+
+	dentry_get(parent); // Pin the parent so it's not freed while this child exists
 
 	dentry->hash_node.next = dentry->hash_node.prev = &dentry->hash_node;
 	dentry->hash_node.dentry = (void*)dentry;
@@ -64,6 +61,22 @@ dentry_ptr KERNEL_API create_dentry(kstring name, vnode_t* vnode,
 
 static void dentry_free_rcu(struct rcu_head* head) {
 	auto dentry = container_of(head, struct dentry, rcu);
+
+	if (dentry->flags & DENTRY_IN_CACHE) {
+		vfs_cache_remove_dentry(dentry);
+	}
+
+	if (dentry->name) {
+		serial2_printf("freeing dentry cache : %s\n", dentry->name->c_str);
+		str_release(dentry->name);
+	} else {
+		serial2_printf("freeing dentry cache : (null name)\n");
+	}
+
+	if (dentry->parent) {
+		dentry_put(dentry->parent);
+	}
+
 	slab_free(dentry_cache, dentry);
 }
 
@@ -76,8 +89,8 @@ void dentry_get(dentry_ptr dentry) {
 void dentry_put(dentry_ptr dentry) {
 	if (!dentry)
 		return;
-	if (__atomic_fetch_sub(&dentry->refcount.counter, 1,
-	                       __ATOMIC_RELEASE) == 1) {
+	if (__atomic_fetch_sub(&dentry->refcount.counter, 1, __ATOMIC_RELEASE) == 1) {
+		serial2_printf("call_rcu on dentry: %s\n", dentry->name->c_str);
 		call_rcu(&dentry->rcu, dentry_free_rcu);
 	}
 }
@@ -91,10 +104,11 @@ void vxSetDentryAsRoot(dentry_ptr dentry) { root_dentry = dentry; }
 
 dentry_ptr KERNEL_API get_root_dentry() { return root_dentry; }
 
-int KERNEL_API resolve_dentry(const char* path, dentry_ptr parent,
-                              dentry_ptr* out, uint8_t flag) {
+int KERNEL_API resolve_dentry(const char* path, dentry_ptr parent, dentry_ptr* out, uint8_t flag) {
 	if (!path || !out)
 		return -1;
+
+	serial2_printf("!!resolve_dentry: %s\n", path);
 
 	auto root_cache = get_root_cache();
 	auto path_copy = str(path);
@@ -112,8 +126,7 @@ int KERNEL_API resolve_dentry(const char* path, dentry_ptr parent,
 			continue;
 
 		size_t len = strlen(component);
-		while (len > 0 &&
-		       (component[len - 1] == '/' || component[len - 1] == ' '))
+		while (len > 0 && (component[len - 1] == '/' || component[len - 1] == ' '))
 			component[--len] = '\0';
 
 		if (len == 0)
@@ -138,15 +151,11 @@ int KERNEL_API resolve_dentry(const char* path, dentry_ptr parent,
 			// First check if the backing filesystem already
 			// contains the entry
 			boolean_t found_in_fs = false;
-			if (curr->vnode && curr->vnode->fs_instance &&
-			    curr->vnode->fs_instance->fs &&
-			    curr->vnode->fs_instance->fs->data.ops &&
+			if (curr->vnode && curr->vnode->fs_instance && curr->vnode->fs_instance->fs && curr->vnode->fs_instance->fs->data.ops &&
 			    curr->vnode->fs_instance->fs->data.ops->lookup) {
 				auto fs_instance = curr->vnode->fs_instance;
 				if (fs_instance->fs && fs_instance->cdev) {
-					if (fs_instance->fs->data.ops->lookup(
-					        fs_instance, component, curr,
-					        &next) == VFS_OK) {
+					if (fs_instance->fs->data.ops->lookup(fs_instance, component, curr, &next) == VFS_OK) {
 						found_in_fs = true;
 					}
 				}
@@ -163,26 +172,15 @@ int KERNEL_API resolve_dentry(const char* path, dentry_ptr parent,
 			// Entry was not found on disk. Try creating it if
 			// CREATE_MISSING_ENTRY is requested
 			if (flag & CREATE_MISSING_ENTRY) {
-				dentry_t* new_entry =
-				    create_dentry(str(component), 0, curr);
+				dentry_t* new_entry = create_dentry(str(component), 0, curr);
 				if (!new_entry)
 					goto fail;
 
-				if (curr->vnode && curr->vnode->fs_instance &&
-				    curr->vnode->fs_instance->fs &&
-				    curr->vnode->fs_instance->fs->data.ops) {
+				if (curr->vnode && curr->vnode->fs_instance && curr->vnode->fs_instance->fs && curr->vnode->fs_instance->fs->data.ops) {
 
-					if (curr->vnode->fs_instance->fs->data
-					        .ops->create) {
-						int ret =
-						    curr->vnode->fs_instance->fs
-						        ->data.ops->create(
-						            curr->vnode
-						                ->fs_instance,
-						            component, curr,
-						            &new_entry);
-						if (ret != VFS_OK ||
-						    !new_entry->vnode) {
+					if (curr->vnode->fs_instance->fs->data.ops->create) {
+						int ret = curr->vnode->fs_instance->fs->data.ops->create(curr->vnode->fs_instance, component, curr, &new_entry);
+						if (ret != VFS_OK || !new_entry->vnode) {
 							goto fail;
 						}
 					} else {
@@ -195,8 +193,7 @@ int KERNEL_API resolve_dentry(const char* path, dentry_ptr parent,
 					// Pure VFS node (no backing
 					// filesystem), create a RAM vnode
 					if (!new_entry->vnode) {
-						new_entry->vnode =
-						    create_and_attach_vnode();
+						new_entry->vnode = create_and_attach_vnode();
 					}
 				}
 
@@ -213,13 +210,14 @@ int KERNEL_API resolve_dentry(const char* path, dentry_ptr parent,
 			}
 		}
 
-		dentry_get(next);
 		dentry_put(curr);
 		curr = next;
 	}
 
 	*out = curr;
 	str_release(path_copy);
+	serial2_printf("resolved dentry %s (reffcount %d)\n", curr->name->c_str, curr->refcount.counter);
+
 	return VFS_OK;
 
 fail:
@@ -273,8 +271,7 @@ int KERNEL_API vxnamei(const char* path, dentry_ptr* out) {
 		dentry_t* next = cache_lookup(root_cache, curr, component);
 
 		if (!next) {
-			dentry_t* new_entry =
-			    create_dentry(str(component), 0, curr);
+			dentry_t* new_entry = create_dentry(str(component), 0, curr);
 
 			if (!new_entry) {
 				dentry_put(curr);
@@ -295,7 +292,6 @@ int KERNEL_API vxnamei(const char* path, dentry_ptr* out) {
 			continue;
 		}
 
-		dentry_get(next);
 		dentry_put(curr);
 
 		curr = next;
@@ -313,36 +309,41 @@ void delete_dentry(dentry_t* node) {
 	if (!node)
 		return;
 
-	size_t n = 0;
-	struct llist_head* pos = node->child_list.next;
-	while (pos != &node->child_list) {
-		n++;
-		pos = pos->next;
-	}
+	if (!(node->flags & DENTRY_IN_CACHE))
+		return;
 
-	dentry_t** children = NULL;
-	if (n > 0) {
-		children = (dentry_t**)kalloc(sizeof(dentry_t*) * n);
-		int i = 0;
-		pos = node->child_list.next;
-		while (pos != &node->child_list) {
-			children[i++] = container_of(pos, dentry_t, siblings);
-			pos = pos->next;
+	while (1) {
+		dentry_t* child = NULL;
+
+		auto cache = get_root_cache();
+		while (__atomic_test_and_set(&cache->lock, __ATOMIC_ACQUIRE))
+			;
+
+		if (node->child_list.next != NULL && node->child_list.next != &node->child_list) {
+			child = container_of(node->child_list.next, dentry_t, siblings);
+			if (!(child->flags & DENTRY_IN_CACHE)) {
+				child = NULL;
+			} else {
+				dentry_get(child);
+			}
 		}
+		__atomic_clear(&cache->lock, __ATOMIC_RELEASE);
+
+		if (!child)
+			break;
+
+		delete_dentry(child);
+		dentry_put(child);
 	}
 
 	cache_remove(get_root_cache(), node);
-	/* JANGAN dentry_put di sini — cache_remove sudah memanggil
-	 * dentry_put secara internal (melepas cache ref). */
-
-	for (size_t i = 0; i < n; i++)
-		delete_dentry(children[i]);
-
-	if (children)
-		kfree(children, sizeof(dentry_t*) * n);
 }
 
 void print_dentry_tree(dentry_t* dentry, int depth) {
+#ifndef VOXIA_PRINT_DENTRY_DEBUG
+	return;
+#endif
+
 	if (!dentry)
 		return;
 
@@ -353,17 +354,13 @@ void print_dentry_tree(dentry_t* dentry, int depth) {
 		indent[i * 2 + 1] = ' ';
 	}
 
-	serial2_printf("%s└── %s (0x%x) (%x) (reff %d)", indent,
-	               dentry->name->c_str, dentry, dentry->hash,
-	               dentry->refcount.counter);
+	serial2_printf("%s└── %s (0x%x) (%x) (reff %d)", indent, dentry->name->c_str, dentry, dentry->hash, dentry->refcount.counter);
 
 	auto vnode = dentry->vnode;
 	if (vnode) {
 		serial2_printf(" permission %d ", vnode->permission);
 		if (vnode->type == VNODE_TYPE_BLK) {
-			serial2_printf("BLOCK DEVICE %d:%d",
-			               vnode->device.major,
-			               vnode->device.minor);
+			serial2_printf("BLOCK DEVICE %d:%d", vnode->device.major, vnode->device.minor);
 		} else if (vnode->type == VNODE_TYPE_CHR) {
 			serial2_printf("CHAR DEVICE");
 		} else if (vnode->type == VNODE_TYPE_DIR) {
@@ -379,16 +376,11 @@ void print_dentry_tree(dentry_t* dentry, int depth) {
 		} else if (vnode->type == VNODE_TYPE_SOCK) {
 			serial2_printf("SOCKET");
 		} else {
-			serial2_printf("[%s]",
-			               vnode->fs_instance
-			                   ? vnode->fs_instance->fs->name
-			                   : "NO Filesystem");
+			serial2_printf("[%s]", vnode->fs_instance ? vnode->fs_instance->fs->name : "NO Filesystem");
 
 			if (vnode->mountedhere) {
-				auto block_dentry =
-				    vnode->fs_instance->block_dentry;
-				auto full_path =
-				    get_full_path_from_dentry(block_dentry);
+				auto block_dentry = vnode->fs_instance->block_dentry;
+				auto full_path = get_full_path_from_dentry(block_dentry);
 				serial2_printf(" <%s>", full_path->c_str);
 				str_release(full_path);
 			}
@@ -406,9 +398,7 @@ void print_dentry_tree(dentry_t* dentry, int depth) {
 	}
 }
 
-int get_reffcount(dentry_ptr dentry) {
-	return __atomic_load_n(&dentry->refcount.counter, __ATOMIC_RELAXED);
-}
+int get_reffcount(dentry_ptr dentry) { return __atomic_load_n(&dentry->refcount.counter, __ATOMIC_RELAXED); }
 
 kstring get_full_path_from_dentry(dentry_ptr dentry) {
 	if (!dentry)

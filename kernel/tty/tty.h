@@ -29,6 +29,7 @@ struct tty_internal {
 	uint32_t line_buff_head;
 	uint32_t line_buff_tail;
 	uint32_t line_buff_cursor;
+	uint32_t lines_available;
 	spinlock_t tty_lock;
 	struct thread* waiter;
 	uint8_t ansi_state;

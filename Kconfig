@@ -14,6 +14,22 @@ config USE_FAST_STR
 
 endmenu
 
+menu "Debug Configuretion"
+
+config SYSCALL_DEBUG
+    bool "Enable syscall logging"
+    default n
+
+config SOCKET_DEBUG
+    bool "Enable Socket logging"
+    default n
+    
+config PRINT_DENTRY_DEBUG
+    bool "Enable Print dentry Tree"
+    default n
+
+endmenu
+
 menu "Memory Configuration"
 
 config PHYS_MAX_WINDOW_COUNT

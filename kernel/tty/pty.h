@@ -27,6 +27,7 @@ struct internal_pty {
 	int locked;
 	struct termios termios;
 	pid_t foreground;
+	pid_t owner_pid;
 
 	struct pty_ring master_to_slave;
 	struct pty_ring slave_to_master;
@@ -37,6 +38,7 @@ struct internal_pty {
 	struct win_size ws;
 	uint8_t master_closed;
 	uint8_t slave_closed;
+	uint8_t eof_pending;
 };
 
 #endif //__PTY__PTY_H__

@@ -237,7 +237,7 @@ static struct evdev_device* create_evdev(int id, int is_mouse) {
     dev->head = 0;
     dev->tail = 0;
     
-    kstring path = str_concat(str("/dev/input/event"), itoa(id, 10));
+    kstring path = str_concat(str("/dev/input/event"), itoa(id, 10, (char[32]){0}));
     vxnamei(path->c_str, &dev->dentry);
     str_release(path);
 

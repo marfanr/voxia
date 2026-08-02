@@ -828,7 +828,7 @@ static void tty_input_handler(uint32_t event, void* data, void* ctx) {
 	}
 
 	/* Backspace */
-	if (codepoint_len == 1 && codepoint[0] == '\b') {
+	if (codepoint_len == 1 && (codepoint[0] == '\b' || codepoint[0] == 0x7f)) {
 		if (priv->line_buff_cursor != priv->line_buff_head) {
 			uint32_t del_pos =
 			    utf8_prev_codepoint(priv, priv->line_buff_cursor);
@@ -881,6 +881,7 @@ static void tty_input_handler(uint32_t event, void* data, void* ctx) {
 			priv->line_buff[priv->line_buff_tail] = '\n';
 			priv->line_buff_tail = next_tail;
 			priv->line_buff_cursor = next_tail;
+			priv->lines_available++;
 		}
 		if (priv->waiter) {
 			wake_thread = priv->waiter;
@@ -1055,7 +1056,15 @@ static int char_poll(vnode_t* vnode, thread_t* waiter) {
 	if (!priv)
 		return 1;
 	priv->waiter = waiter;
-	if (priv->line_buff_head != priv->line_buff_tail)
+	
+	bool has_data = false;
+	if (priv->termios.c_lflag & ICANON) {
+		has_data = (priv->lines_available > 0);
+	} else {
+		has_data = (priv->line_buff_head != priv->line_buff_tail);
+	}
+	
+	if (has_data)
 		return 1;
 	/* Clear any stale wake_pending so the upcoming thread_block actually
 	 * sleeps */
@@ -1189,7 +1198,14 @@ static int char_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 		uintptr_t flags = irq_save();
 		spin_acquire(&priv->tty_lock);
 
-		if (priv->line_buff_head == priv->line_buff_tail) {
+		bool should_block = false;
+		if (priv->termios.c_lflag & ICANON) {
+			should_block = (priv->lines_available == 0);
+		} else {
+			should_block = (priv->line_buff_head == priv->line_buff_tail);
+		}
+
+		if (should_block) {
 			if (curr_thr && curr_thr->signal) {
 				uint64_t pending = __atomic_load_n(
 				    &curr_thr->signal->pending.__bits[0],
@@ -1281,8 +1297,11 @@ static int char_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 			    (priv->line_buff_head + 1) & LINE_BUFF_MASK;
 
 			out[bytes_read++] = ch;
-			if (ch == '\n' && (priv->termios.c_lflag & ICANON))
+			if (ch == '\n' && (priv->termios.c_lflag & ICANON)) {
+				if (priv->lines_available > 0)
+					priv->lines_available--;
 				break;
+			}
 		}
 
 		/* sync cursor position */
@@ -1302,7 +1321,7 @@ static int char_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 
 static void configure_tty(int tty) {
 	dentry_ptr* curr_dentry = &__tty_dentry[tty];
-	kstring path_name = str_concat(str("/dev/tty"), itoa(tty, 10));
+	kstring path_name = str_concat(str("/dev/tty"), itoa(tty, 10, (char[32]){0}));
 	vxnamei(path_name->c_str, curr_dentry);
 	str_release(path_name);
 
@@ -1355,6 +1374,23 @@ static void configure_tty(int tty) {
 	priv->forground_tid = -1;
 	priv->termios.c_iflag = ICRNL;
 	priv->termios.c_lflag = ICANON | ECHO | ISIG;
+	priv->termios.c_cc[0] = 3;    // VINTR (Ctrl-C)
+	priv->termios.c_cc[1] = 28;   // VQUIT (Ctrl-\)
+	priv->termios.c_cc[2] = 0x7f; // VERASE (DEL)
+	priv->termios.c_cc[3] = 21;   // VKILL (Ctrl-U)
+	priv->termios.c_cc[4] = 4;    // VEOF (Ctrl-D)
+	priv->termios.c_cc[5] = 0;    // VTIME
+	priv->termios.c_cc[6] = 1;    // VMIN
+	priv->termios.c_cc[7] = 0;    // VSWTC
+	priv->termios.c_cc[8] = 17;   // VSTART (Ctrl-Q)
+	priv->termios.c_cc[9] = 19;   // VSTOP (Ctrl-S)
+	priv->termios.c_cc[10] = 26;  // VSUSP (Ctrl-Z)
+	priv->termios.c_cc[11] = 0;   // VEOL
+	priv->termios.c_cc[12] = 18;  // VREPRINT (Ctrl-R)
+	priv->termios.c_cc[13] = 15;  // VDISCARD (Ctrl-O)
+	priv->termios.c_cc[14] = 23;  // VWERASE (Ctrl-W)
+	priv->termios.c_cc[15] = 22;  // VLNEXT (Ctrl-V)
+	priv->termios.c_cc[16] = 0;   // VEOL2
 }
 
 void start_tty(void) {

@@ -42,7 +42,7 @@ static const char* keymap_us[0xFFF][2] = {
     [KEY_0] = {"0", ")"},
 
     [KEY_ENTER] = {"\r", "\r"},
-    [KEY_BACKSPACE] = {"\b", "\b"},
+    [KEY_BACKSPACE] = {"\x7f", "\x7f"},
     [KEY_TAB] = {"\t", "\t"},
     [KEY_SPACE] = {" ", " "},
 
