@@ -63,7 +63,21 @@ enum vcomp_message_type {
 	VCOMP_LOG,
 	VCOMP_REPORT_KEYMAP,
 	VCOMP_KEY_EVENT = 9,
+	VCOMP_WINDOW_REPORT,
 };
+
+
+int create_window() {
+	int msg_size = sizeof(struct message) + sizeof(uint32_t) * 2;
+	struct message* m = (struct message*)malloc(msg_size);
+	m->type = VCOMP_CREATE_WINDOW;
+	m->len = 0;
+	m->data[0] = 500;
+	m->data[1] = 470;
+	write(vcomp_fd, m, msg_size);
+	free(m);
+	return 0;
+}
 
 static void log_debug(char* fmt, ...);
 static char* pts_name = 0;
@@ -631,7 +645,7 @@ static void term_feed(const char* buf, int len) {
 					g_cur_row++;
 				}
 				g_dirty = 1;
-				g_ansi_state = ANSI_NORMAL;
+				g_ansi_state = ANSI_NORMAL;			
 			} else {
 				g_ansi_state = ANSI_NORMAL;
 			}
@@ -701,9 +715,6 @@ static void handle_vcomp_messages(const char* buf, int n) {
 static vxair_buffer_t* g_vbo_pool[MAX_ROWS][MAX_RUNS];
 static vxair_buffer_t* g_cur_vbo = NULL;
 
-/* ═══════════════════════════════════════════════════════════════════
- * MAIN
- * ═══════════════════════════════════════════════════════════════════ */
 int main(void) {
 	connect_compositor();
 	connect_ptx();
@@ -803,10 +814,9 @@ int main(void) {
 			                "SHELL=/bin/bash",
 			                "CLICOLOR=1",
 			                "FORCE_COLOR=1",
-			                "PS1=\\[\\e[1;32m\\]root@voxia\\[\\e[0m\\]:\\[\\e[1;34m\\]\\w\\[\\e[0m\\]# ",
 			                "TERMINFO=/usr/share/terminfo",
 			                NULL};
-			/* Hapus flag -l agar tidak menimpa PS1 via /etc/profile, cukup interaktif -i */
+
 			char* args[] = {"/usr/bin/bash", NULL};
 			int err = execve("/usr/bin/bash", args, envp);
 			log_debug("vxterm bash spawn: execve failed! err=%d", err);

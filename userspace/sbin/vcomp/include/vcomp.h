@@ -139,4 +139,7 @@ extern float g_screen_h;
 
 extern int active_client_fd;
 
+// debug
+void sock_log(const char* fmt, ...);
+
 #endif // __VCOMP_H__agy

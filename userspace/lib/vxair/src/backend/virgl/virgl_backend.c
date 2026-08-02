@@ -170,7 +170,7 @@ static struct vxair_context* virgl_create_context(struct vxair_device* dev, uint
 	virgl_emit_cmd(ctx, VIRGL_CMD0(VIRGL_CCMD_SET_SCISSOR_STATE, 0, 3));
 	virgl_emit_cmd(ctx, 0);                       // start_slot
 	virgl_emit_cmd(ctx, 0 | (0 << 16));           // minx=0, miny=0
-	virgl_emit_cmd(ctx, 0xFFFF | (0xFFFF << 16)); // maxx=65535, maxy=65535
+	virgl_emit_cmd(ctx, 16384 | (16384 << 16)); // maxx=65535, maxy=65535
 
 	// Create and bind default DSA state (virgl internal object)
 	uint32_t dsa_id = __atomic_fetch_add(&ctx->virgl_next_obj_id, 1, __ATOMIC_SEQ_CST);

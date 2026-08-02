@@ -35,8 +35,12 @@ void run(const char* path, ...) {
 int main(void) {
 	setsid();
 
-	run("/sbin/vcomp", NULL);
-	run("/sbin/vxterm", NULL);
+	// run("/usr/bin/python3.11", "-c", "import _opcode", NULL);
+	run("/sbin/vcomp");
+	run("/sbin/vxterm");
 
+	while (1) {
+		sleep(1);
+	}
 	return 0;
 }

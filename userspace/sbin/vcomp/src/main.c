@@ -40,28 +40,23 @@ enum vcomp_message_type {
 static void* loader_worker(void* arg) {
 	worker_args_t* args = (worker_args_t*)arg;
 
-	vxui_font_t* font =
-	    vxui_font_create(args->dev, "/usr/shared/fonts/roboto.ttf", 12, 32,
-	                     126, FONT_STYLE_REGULAR);
+	vxui_font_t* font = vxui_font_create(args->dev, "/usr/shared/fonts/roboto.ttf", 12, 32, 126, FONT_STYLE_REGULAR);
 	if (!font) {
 		return 0;
 	}
 	args->font = font;
 
-	uint32_t* px = load_bmp32_raw("/usr/shared/wallpaper.bmp", &args->img_w,
-	                              &args->img_h);
+	uint32_t* px = load_bmp32_raw("/usr/shared/wallpaper.bmp", &args->img_w, &args->img_h);
 	if (!px) {
 		printf("Gagal memuat wallpaper.bmp\n");
 		return NULL;
 	}
-	args->tex = vxair_texture_create(args->dev, args->img_w, args->img_h,
-	                                 VXAIR_FORMAT_RGBA8, px);
+	args->tex = vxair_texture_create(args->dev, args->img_w, args->img_h, VXAIR_FORMAT_RGBA8, px);
 	free(px);
 
 	printf("Wallpaper siap.\n");
 
-	args->text_renderer = vxui_text_renderer_create(
-	    args->dev, args->screen_w, args->screen_h);
+	args->text_renderer = vxui_text_renderer_create(args->dev, args->screen_w, args->screen_h);
 
 	args->early_phase_done = 1;
 	return NULL;
@@ -72,11 +67,10 @@ static void* loader_worker(void* arg) {
 static char sock_dbg[SOCK_DBG_LINES][SOCK_DBG_LEN];
 static int sock_dbg_idx = 0;
 
-static void sock_log(const char* fmt, ...) {
+void sock_log(const char* fmt, ...) {
 	va_list ap;
 	va_start(ap, fmt);
-	vsnprintf(sock_dbg[sock_dbg_idx % SOCK_DBG_LINES], SOCK_DBG_LEN, fmt,
-	          ap);
+	vsnprintf(sock_dbg[sock_dbg_idx % SOCK_DBG_LINES], SOCK_DBG_LEN, fmt, ap);
 	va_end(ap);
 	sock_dbg_idx++;
 }
@@ -84,7 +78,6 @@ static void sock_log(const char* fmt, ...) {
 // TODO: add client_id to each window
 uint32_t client_id = 0;
 int active_client_fd = -1;
-
 
 void* socket_accept_loop(void* arg) {
 	int sock = (int)(intptr_t)arg;
@@ -119,7 +112,6 @@ void* socket_accept_loop(void* arg) {
 	}
 	return NULL;
 }
-
 
 void socket_setup() {
 	int sock = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -181,9 +173,7 @@ void check_titlebar_click(int px, int py) {
 	if (!g_window || !g_args)
 		return;
 
-	bool in_titlebar =
-	    px >= g_window->x && px <= g_window->x + g_window->w &&
-	    py >= g_window->y && py <= g_window->y + g_window->titlebar_height;
+	bool in_titlebar = px >= g_window->x && px <= g_window->x + g_window->w && py >= g_window->y && py <= g_window->y + g_window->titlebar_height;
 
 	if (in_titlebar) {
 		window_is_dragging = true;
@@ -199,8 +189,6 @@ static void render_debug_overlay(worker_args_t* args, window_scene_t* window);
 #define OVERLAY_Y 0
 #define OVERLAY_W 520
 #define OVERLAY_H 500
-
-#include <math.h>
 
 int main(void) {
 	// debug_event();
@@ -221,8 +209,7 @@ int main(void) {
 	pos_y = (int)(args->screen_h / 2);
 
 	args->dev = dev;
-	args->ctx =
-	    vxair_context_create(args->dev, args->screen_w, args->screen_h);
+	args->ctx = vxair_context_create(args->dev, args->screen_w, args->screen_h);
 
 	vxair_switch_context(args->dev, args->ctx);
 	vxair_set_scanout(args->dev, args->ctx, 0);
@@ -267,7 +254,8 @@ int main(void) {
 				while (off + sizeof(struct message) <= (size_t)n) {
 					struct message* msg = (struct message*)(ibuf + off);
 					size_t msz = sizeof(struct message) + msg->len;
-					if (off + msz > (size_t)n) break;
+					if (off + msz > (size_t)n)
+						break;
 					switch (msg->type) {
 					case VCOMP_SUBMIT_RESOURCE:
 						client_id = msg->data[0];
@@ -276,7 +264,8 @@ int main(void) {
 					case VCOMP_LOG:
 						sock_log("[vxterm] %s", (char*)msg->data);
 						break;
-					default: break;
+					default:
+						break;
 					}
 					off += msz;
 				}
@@ -305,22 +294,19 @@ int main(void) {
 		} else {
 
 			if (!wallpaper) {
-				wallpaper =
-				    wallpaper_init(dev, args->ctx, args);
+				wallpaper = wallpaper_init(dev, args->ctx, args);
 				splash_destroy(splash);
 				splash = NULL;
 			}
 
-			/* Wallpaper render dengan scissor untuk hemat GPU */
 			if (need_rerender) {
 				wallpaper_render(wallpaper, args, true);
 			} else {
-				vxair_cmd_set_scissor(args->ctx, OVERLAY_X,
-				                      OVERLAY_Y, OVERLAY_W,
-				                      OVERLAY_H);
+				vxair_cmd_set_scissor(args->ctx, OVERLAY_X, OVERLAY_Y, OVERLAY_W, OVERLAY_H);
 				wallpaper_render(wallpaper, args, false);
 				vxair_cmd_disable_scissor(args->ctx);
 			}
+
 			render_debug_overlay(args, window);
 
 			{
@@ -330,11 +316,8 @@ int main(void) {
 				int32_t scw = (uint32_t)window->w + 60;
 				int32_t sch = (uint32_t)window->h + 60;
 
-				vxair_cmd_set_scissor(
-				    args->ctx, scx > 0 ? scx : 0,
-				    scy > 0 ? scy : 0,
-				    scw > g_screen_w ? g_screen_w : scw,
-				    sch > g_screen_h ? g_screen_h : sch);
+				vxair_cmd_set_scissor(args->ctx, scx > 0 ? scx : 0, scy > 0 ? scy : 0, scw > g_screen_w ? g_screen_w : scw,
+				                      sch > g_screen_h ? g_screen_h : sch);
 			}
 
 			wallpaper_render(wallpaper, args, false);
@@ -355,14 +338,11 @@ int main(void) {
 						// Optionally destroy the old
 						// texture struct
 					}
-					window->fb_tex = vxair_texture_import(
-					    dev, client_id, 500, 470,
-					    VXAIR_FORMAT_RGBA8);
+					window->fb_tex = vxair_texture_import(dev, client_id, 500, 470, VXAIR_FORMAT_RGBA8);
 					imported_id = client_id;
 					window->use_texture = 1;
 				}
-				vxair_cmd_bind_texture(args->ctx, 0,
-				                       window->fb_tex);
+				vxair_cmd_bind_texture(args->ctx, 0, window->fb_tex);
 
 				// vxair_texture_attach(args->dev,
 				// window->fb_tex, 0);
@@ -410,28 +390,22 @@ static void render_debug_overlay(worker_args_t* args, window_scene_t* window) {
 
 	/* append socket debug lines */
 	if (sock_dbg_idx > 0) {
-		int start =
-		    sock_dbg_idx > SOCK_DBG_LINES
-		        ? (sock_dbg_idx - SOCK_DBG_LINES) % SOCK_DBG_LINES
-		        : 0;
-		int count = sock_dbg_idx < SOCK_DBG_LINES ? sock_dbg_idx
-		                                          : SOCK_DBG_LINES;
-		for (int i = 0; i < count && off < (int)sizeof(debug_text) - 80;
-		     i++) {
-			off += snprintf(debug_text + off,
-			                sizeof(debug_text) - (size_t)off,
-			                "log: %s\n",
-			                sock_dbg[(start + i) % SOCK_DBG_LINES]);
+		int start = sock_dbg_idx > SOCK_DBG_LINES ? (sock_dbg_idx - SOCK_DBG_LINES) % SOCK_DBG_LINES : 0;
+		int count = sock_dbg_idx < SOCK_DBG_LINES ? sock_dbg_idx : SOCK_DBG_LINES;
+		for (int i = 0; i < count && off < (int)sizeof(debug_text) - 80; i++) {
+			off += snprintf(debug_text + off, sizeof(debug_text) - (size_t)off, "log: %s\n", sock_dbg[(start + i) % SOCK_DBG_LINES]);
 		}
 	}
 
-	vxair_cmd_set_viewport(args->ctx, 0.0f, 0.0f, args->screen_w,
-	                       args->screen_h, 0.0f, 0.0f);
+	vxair_cmd_set_viewport(args->ctx, 0.0f, 0.0f, args->screen_w, args->screen_h, 0.0f, 0.0f);
 	vxair_bind_blend(args->ctx, window->alpha_blend_id);
 
 	vxui_text_desc_t text_opts = {
-	    .scale = 1.0f, .color = 0xFFFFFFFF, .align = VXUI_ALIGN_LEFT, .bg_color = 0x000000A0,};
+	    .scale = 1.0f,
+	    .color = 0xFFFFFFFF,
+	    .align = VXUI_ALIGN_LEFT,
+	    .bg_color = 0x000000A0,
+	};
 	static vxair_buffer_t* text_vbo = NULL;
-	vxui_draw_text(args->text_renderer, args->dev, args->ctx, args->font,
-	               debug_text, 20.0f, 20.0f, &text_opts, &text_vbo);
+	vxui_draw_text(args->text_renderer, args->dev, args->ctx, args->font, debug_text, 20.0f, 20.0f, &text_opts, &text_vbo);
 }

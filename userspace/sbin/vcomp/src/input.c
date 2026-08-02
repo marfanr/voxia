@@ -12,15 +12,15 @@
 
 /* Message types (mirror of vxterm's enum) */
 enum vcomp_message_type {
-	VCOMP_CREATE_WINDOW   = 1,
+	VCOMP_CREATE_WINDOW = 1,
 	VCOMP_SUBMIT_RESOURCE = 2,
-	VCOMP_DESTROY_WINDOW  = 3,
-	VCOMP_INPUT_REQUEST   = 4,
-	VCOMP_INPUT_RESPONSE  = 5,
-	VCOMP_SET_WINDOW      = 6,
-	VCOMP_LOG             = 7,
-	VCOMP_REPORT_KEYMAP   = 8,
-	VCOMP_KEY_EVENT       = 9,
+	VCOMP_DESTROY_WINDOW = 3,
+	VCOMP_INPUT_REQUEST = 4,
+	VCOMP_INPUT_RESPONSE = 5,
+	VCOMP_SET_WINDOW = 6,
+	VCOMP_LOG = 7,
+	VCOMP_REPORT_KEYMAP = 8,
+	VCOMP_KEY_EVENT = 9,
 };
 
 struct vcomp_msg_header {
@@ -30,7 +30,7 @@ struct vcomp_msg_header {
 
 /* Shift modifier state */
 static int g_shift_held = 0;
-static int g_ctrl_held  = 0;
+static int g_ctrl_held = 0;
 
 /* keyboard tracking */
 char last_key_str[32] = "---";
@@ -315,21 +315,20 @@ static int32_t abs_max_x[2] = {32767, 32767};
 static int32_t abs_min_y[2] = {0, 0};
 static int32_t abs_max_y[2] = {32767, 32767};
 static bool device_is_absolute[2] = {false, false};
+static bool last_holded_ctrl = false;
 
 void query_abs_range(int fd, size_t idx) {
 	struct input_absinfo info;
 
 	memset(&info, 0, sizeof(info));
-	if (ioctl(fd, EVIOCGABS(ABS_X), &info) == 0 &&
-	    info.maximum > info.minimum) {
+	if (ioctl(fd, EVIOCGABS(ABS_X), &info) == 0 && info.maximum > info.minimum) {
 		abs_min_x[idx] = info.minimum;
 		abs_max_x[idx] = info.maximum;
 		device_is_absolute[idx] = true;
 	}
 
 	memset(&info, 0, sizeof(info));
-	if (ioctl(fd, EVIOCGABS(ABS_Y), &info) == 0 &&
-	    info.maximum > info.minimum) {
+	if (ioctl(fd, EVIOCGABS(ABS_Y), &info) == 0 && info.maximum > info.minimum) {
 		abs_min_y[idx] = info.minimum;
 		abs_max_y[idx] = info.maximum;
 		device_is_absolute[idx] = true;
@@ -359,15 +358,18 @@ void read_ev_event(const struct input_event* ev, size_t device_idx) {
 		}
 	}
 
+	if (!ev->value && last_holded_ctrl) {
+		last_holded_ctrl = false;
+	}
+
 	/* Track keyboard key */
-	if (ev->type == EV_KEY && ev->code < BTN_MOUSE && ev->value == 1) {
+	if (ev->type == EV_KEY && ev->code != BTN_LEFT && ev->code != BTN_RIGHT && ev->code != BTN_MIDDLE && ev->value == 1) {
 		// for debugging
 		const char* key = keycode_to_string(ev->code);
 		if (key) {
 			snprintf(last_key_str, sizeof(last_key_str), "%s", key);
 		} else {
-			snprintf(last_key_str, sizeof(last_key_str), "KEY_%u",
-			         ev->code);
+			snprintf(last_key_str, sizeof(last_key_str), "KEY_%u", ev->code);
 		}
 
 		/* ── Forward key to focused vxterm via IPC ── */
@@ -378,104 +380,301 @@ void read_ev_event(const struct input_event* ev, size_t device_idx) {
 
 			/* Ctrl+key combinations */
 			if (g_ctrl_held) {
+				sock_log("g_ctrl_held on active client (%d)", active_client_fd);
+				last_holded_ctrl = true;
+
 				switch (ev->code) {
-				case KEY_C: ctrl_char[0] = 0x03; chars = ctrl_char; break; /* SIGINT */
-				case KEY_D: ctrl_char[0] = 0x04; chars = ctrl_char; break; /* EOF */
-				case KEY_L: ctrl_char[0] = 0x0C; chars = ctrl_char; break; /* clear */
-				case KEY_Z: ctrl_char[0] = 0x1A; chars = ctrl_char; break; /* SIGTSTP */
-				case KEY_A: ctrl_char[0] = 0x01; chars = ctrl_char; break;
-				case KEY_E: ctrl_char[0] = 0x05; chars = ctrl_char; break;
-				case KEY_U: ctrl_char[0] = 0x15; chars = ctrl_char; break;
-				case KEY_K: ctrl_char[0] = 0x0B; chars = ctrl_char; break;
-				case KEY_W: ctrl_char[0] = 0x17; chars = ctrl_char; break;
-				default: break;
+				case KEY_C:
+					ctrl_char[0] = 0x03;
+					chars = ctrl_char;
+					sock_log("sigint detected");
+					break; /* SIGINT */
+				case KEY_D:
+					ctrl_char[0] = 0x04;
+					chars = ctrl_char;
+					break; /* EOF */
+				case KEY_L:
+					ctrl_char[0] = 0x0C;
+					chars = ctrl_char;
+					break; /* clear */
+				case KEY_Z:
+					ctrl_char[0] = 0x1A;
+					chars = ctrl_char;
+					break; /* SIGTSTP */
+				case KEY_A:
+					ctrl_char[0] = 0x01;
+					chars = ctrl_char;
+					break;
+				case KEY_E:
+					ctrl_char[0] = 0x05;
+					chars = ctrl_char;
+					break;
+				case KEY_U:
+					ctrl_char[0] = 0x15;
+					chars = ctrl_char;
+					break;
+				case KEY_K:
+					ctrl_char[0] = 0x0B;
+					chars = ctrl_char;
+					break;
+				case KEY_W:
+					ctrl_char[0] = 0x17;
+					chars = ctrl_char;
+					break;
+				default:
+					break;
 				}
 			}
 
 			/* Special keys */
 			if (!chars) {
 				switch (ev->code) {
-				case KEY_ENTER:     chars = "\n"; break;
-				case KEY_KP_ENTER:  chars = "\n"; break;
-				case KEY_BACKSPACE: chars = "\x7f"; break;
-				case KEY_TAB:       chars = "\t"; break;
-				case KEY_ESC:       chars = "\x1b"; break;
+				case KEY_ENTER:
+					chars = "\n";
+					break;
+				case KEY_KP_ENTER:
+					chars = "\n";
+					break;
+				case KEY_BACKSPACE:
+					chars = "\x7f";
+					break;
+				case KEY_TAB:
+					chars = "\t";
+					break;
+				case KEY_ESC:
+					chars = "\x1b";
+					break;
 				/* Arrow keys: ANSI sequences */
-				case KEY_UP:    chars = "\x1b[A"; break;
-				case KEY_DOWN:  chars = "\x1b[B"; break;
-				case KEY_RIGHT: chars = "\x1b[C"; break;
-				case KEY_LEFT:  chars = "\x1b[D"; break;
-				case KEY_HOME:  chars = "\x1b[1~"; break;
-				case KEY_END:   chars = "\x1b[4~"; break;
-				case KEY_PAGE_UP:   chars = "\x1b[5~"; break;
-				case KEY_PAGE_DOWN: chars = "\x1b[6~"; break;
-				case KEY_DELETE:    chars = "\x1b[3~"; break;
+				case KEY_UP:
+					chars = "\x1b[A";
+					break;
+				case KEY_DOWN:
+					chars = "\x1b[B";
+					break;
+				case KEY_RIGHT:
+					chars = "\x1b[C";
+					break;
+				case KEY_LEFT:
+					chars = "\x1b[D";
+					break;
+				case KEY_HOME:
+					chars = "\x1b[1~";
+					break;
+				case KEY_END:
+					chars = "\x1b[4~";
+					break;
+				case KEY_PAGE_UP:
+					chars = "\x1b[5~";
+					break;
+				case KEY_PAGE_DOWN:
+					chars = "\x1b[6~";
+					break;
+				case KEY_DELETE:
+					chars = "\x1b[3~";
+					break;
 				/* Printable ASCII */
-				case KEY_SPACE: chars = " "; break;
-				case KEY_A: chars = g_shift_held ? "A" : "a"; break;
-				case KEY_B: chars = g_shift_held ? "B" : "b"; break;
-				case KEY_C: chars = g_shift_held ? "C" : "c"; break;
-				case KEY_D: chars = g_shift_held ? "D" : "d"; break;
-				case KEY_E: chars = g_shift_held ? "E" : "e"; break;
-				case KEY_F: chars = g_shift_held ? "F" : "f"; break;
-				case KEY_G: chars = g_shift_held ? "G" : "g"; break;
-				case KEY_H: chars = g_shift_held ? "H" : "h"; break;
-				case KEY_I: chars = g_shift_held ? "I" : "i"; break;
-				case KEY_J: chars = g_shift_held ? "J" : "j"; break;
-				case KEY_K: chars = g_shift_held ? "K" : "k"; break;
-				case KEY_L: chars = g_shift_held ? "L" : "l"; break;
-				case KEY_M: chars = g_shift_held ? "M" : "m"; break;
-				case KEY_N: chars = g_shift_held ? "N" : "n"; break;
-				case KEY_O: chars = g_shift_held ? "O" : "o"; break;
-				case KEY_P: chars = g_shift_held ? "P" : "p"; break;
-				case KEY_Q: chars = g_shift_held ? "Q" : "q"; break;
-				case KEY_R: chars = g_shift_held ? "R" : "r"; break;
-				case KEY_S: chars = g_shift_held ? "S" : "s"; break;
-				case KEY_T: chars = g_shift_held ? "T" : "t"; break;
-				case KEY_U: chars = g_shift_held ? "U" : "u"; break;
-				case KEY_V: chars = g_shift_held ? "V" : "v"; break;
-				case KEY_W: chars = g_shift_held ? "W" : "w"; break;
-				case KEY_X: chars = g_shift_held ? "X" : "x"; break;
-				case KEY_Y: chars = g_shift_held ? "Y" : "y"; break;
-				case KEY_Z: chars = g_shift_held ? "Z" : "z"; break;
-				case KEY_1: chars = g_shift_held ? "!" : "1"; break;
-				case KEY_2: chars = g_shift_held ? "@" : "2"; break;
-				case KEY_3: chars = g_shift_held ? "#" : "3"; break;
-				case KEY_4: chars = g_shift_held ? "$" : "4"; break;
-				case KEY_5: chars = g_shift_held ? "%" : "5"; break;
-				case KEY_6: chars = g_shift_held ? "^" : "6"; break;
-				case KEY_7: chars = g_shift_held ? "&" : "7"; break;
-				case KEY_8: chars = g_shift_held ? "*" : "8"; break;
-				case KEY_9: chars = g_shift_held ? "(" : "9"; break;
-				case KEY_0: chars = g_shift_held ? ")" : "0"; break;
-				case KEY_MINUS:     chars = g_shift_held ? "_" : "-"; break;
-				case KEY_EQUAL:     chars = g_shift_held ? "+" : "="; break;
-				case KEY_LEFTBRACE: chars = g_shift_held ? "{" : "["; break;
-				case KEY_RIGHTBRACE:chars = g_shift_held ? "}" : "]"; break;
-				case KEY_BACKSLASH: chars = g_shift_held ? "|" : "\\"; break;
-				case KEY_SEMICOLON: chars = g_shift_held ? ":" : ";"; break;
-				case KEY_APOSTROPHE:chars = g_shift_held ? "\"" : "'"; break;
-				case KEY_GRAVE:     chars = g_shift_held ? "~" : "`"; break;
-				case KEY_COMMA:     chars = g_shift_held ? "<" : ","; break;
-				case KEY_DOT:       chars = g_shift_held ? ">" : "."; break;
-				case KEY_SLASH:     chars = g_shift_held ? "?" : "/"; break;
+				case KEY_SPACE:
+					chars = " ";
+					break;
+				case KEY_A:
+					chars = g_shift_held ? "A" : "a";
+					break;
+				case KEY_B:
+					chars = g_shift_held ? "B" : "b";
+					break;
+				case KEY_C:
+					chars = g_shift_held ? "C" : "c";
+					break;
+				case KEY_D:
+					chars = g_shift_held ? "D" : "d";
+					break;
+				case KEY_E:
+					chars = g_shift_held ? "E" : "e";
+					break;
+				case KEY_F:
+					chars = g_shift_held ? "F" : "f";
+					break;
+				case KEY_G:
+					chars = g_shift_held ? "G" : "g";
+					break;
+				case KEY_H:
+					chars = g_shift_held ? "H" : "h";
+					break;
+				case KEY_I:
+					chars = g_shift_held ? "I" : "i";
+					break;
+				case KEY_J:
+					chars = g_shift_held ? "J" : "j";
+					break;
+				case KEY_K:
+					chars = g_shift_held ? "K" : "k";
+					break;
+				case KEY_L:
+					chars = g_shift_held ? "L" : "l";
+					break;
+				case KEY_M:
+					chars = g_shift_held ? "M" : "m";
+					break;
+				case KEY_N:
+					chars = g_shift_held ? "N" : "n";
+					break;
+				case KEY_O:
+					chars = g_shift_held ? "O" : "o";
+					break;
+				case KEY_P:
+					chars = g_shift_held ? "P" : "p";
+					break;
+				case KEY_Q:
+					chars = g_shift_held ? "Q" : "q";
+					break;
+				case KEY_R:
+					chars = g_shift_held ? "R" : "r";
+					break;
+				case KEY_S:
+					chars = g_shift_held ? "S" : "s";
+					break;
+				case KEY_T:
+					chars = g_shift_held ? "T" : "t";
+					break;
+				case KEY_U:
+					chars = g_shift_held ? "U" : "u";
+					break;
+				case KEY_V:
+					chars = g_shift_held ? "V" : "v";
+					break;
+				case KEY_W:
+					chars = g_shift_held ? "W" : "w";
+					break;
+				case KEY_X:
+					chars = g_shift_held ? "X" : "x";
+					break;
+				case KEY_Y:
+					chars = g_shift_held ? "Y" : "y";
+					break;
+				case KEY_Z:
+					chars = g_shift_held ? "Z" : "z";
+					break;
+				case KEY_1:
+					chars = g_shift_held ? "!" : "1";
+					break;
+				case KEY_2:
+					chars = g_shift_held ? "@" : "2";
+					break;
+				case KEY_3:
+					chars = g_shift_held ? "#" : "3";
+					break;
+				case KEY_4:
+					chars = g_shift_held ? "$" : "4";
+					break;
+				case KEY_5:
+					chars = g_shift_held ? "%" : "5";
+					break;
+				case KEY_6:
+					chars = g_shift_held ? "^" : "6";
+					break;
+				case KEY_7:
+					chars = g_shift_held ? "&" : "7";
+					break;
+				case KEY_8:
+					chars = g_shift_held ? "*" : "8";
+					break;
+				case KEY_9:
+					chars = g_shift_held ? "(" : "9";
+					break;
+				case KEY_0:
+					chars = g_shift_held ? ")" : "0";
+					break;
+				case KEY_MINUS:
+					chars = g_shift_held ? "_" : "-";
+					break;
+				case KEY_EQUAL:
+					chars = g_shift_held ? "+" : "=";
+					break;
+				case KEY_LEFTBRACE:
+					chars = g_shift_held ? "{" : "[";
+					break;
+				case KEY_RIGHTBRACE:
+					chars = g_shift_held ? "}" : "]";
+					break;
+				case KEY_BACKSLASH:
+					chars = g_shift_held ? "|" : "\\";
+					break;
+				case KEY_SEMICOLON:
+					chars = g_shift_held ? ":" : ";";
+					break;
+				case KEY_APOSTROPHE:
+					chars = g_shift_held ? "\"" : "'";
+					break;
+				case KEY_GRAVE:
+					chars = g_shift_held ? "~" : "`";
+					break;
+				case KEY_COMMA:
+					chars = g_shift_held ? "<" : ",";
+					break;
+				case KEY_DOT:
+					chars = g_shift_held ? ">" : ".";
+					break;
+				case KEY_SLASH:
+					chars = g_shift_held ? "?" : "/";
+					break;
 				/* Numpad */
-				case KEY_KP_0: plain_char[0] = '0'; chars = plain_char; break;
-				case KEY_KP_1: plain_char[0] = '1'; chars = plain_char; break;
-				case KEY_KP_2: plain_char[0] = '2'; chars = plain_char; break;
-				case KEY_KP_3: plain_char[0] = '3'; chars = plain_char; break;
-				case KEY_KP_4: plain_char[0] = '4'; chars = plain_char; break;
-				case KEY_KP_5: plain_char[0] = '5'; chars = plain_char; break;
-				case KEY_KP_6: plain_char[0] = '6'; chars = plain_char; break;
-				case KEY_KP_7: plain_char[0] = '7'; chars = plain_char; break;
-				case KEY_KP_8: plain_char[0] = '8'; chars = plain_char; break;
-				case KEY_KP_9: plain_char[0] = '9'; chars = plain_char; break;
-				case KEY_KP_DOT:    chars = "."; break;
-				case KEY_KP_DIVIDE: chars = "/"; break;
-				case KEY_KP_MULTIPLY: chars = "*"; break;
-				case KEY_KP_MINUS:  chars = "-"; break;
-				case KEY_KP_PLUS:   chars = "+"; break;
-				default: break;
+				case KEY_KP_0:
+					plain_char[0] = '0';
+					chars = plain_char;
+					break;
+				case KEY_KP_1:
+					plain_char[0] = '1';
+					chars = plain_char;
+					break;
+				case KEY_KP_2:
+					plain_char[0] = '2';
+					chars = plain_char;
+					break;
+				case KEY_KP_3:
+					plain_char[0] = '3';
+					chars = plain_char;
+					break;
+				case KEY_KP_4:
+					plain_char[0] = '4';
+					chars = plain_char;
+					break;
+				case KEY_KP_5:
+					plain_char[0] = '5';
+					chars = plain_char;
+					break;
+				case KEY_KP_6:
+					plain_char[0] = '6';
+					chars = plain_char;
+					break;
+				case KEY_KP_7:
+					plain_char[0] = '7';
+					chars = plain_char;
+					break;
+				case KEY_KP_8:
+					plain_char[0] = '8';
+					chars = plain_char;
+					break;
+				case KEY_KP_9:
+					plain_char[0] = '9';
+					chars = plain_char;
+					break;
+				case KEY_KP_DOT:
+					chars = ".";
+					break;
+				case KEY_KP_DIVIDE:
+					chars = "/";
+					break;
+				case KEY_KP_MULTIPLY:
+					chars = "*";
+					break;
+				case KEY_KP_MINUS:
+					chars = "-";
+					break;
+				case KEY_KP_PLUS:
+					chars = "+";
+					break;
+				default:
+					break;
 				}
 			}
 
@@ -485,10 +684,9 @@ void read_ev_event(const struct input_event* ev, size_t device_idx) {
 				size_t msg_size = sizeof(struct vcomp_msg_header) + clen;
 				char* msgbuf = (char*)malloc(msg_size);
 				if (msgbuf) {
-					struct vcomp_msg_header* hdr =
-					    (struct vcomp_msg_header*)msgbuf;
+					struct vcomp_msg_header* hdr = (struct vcomp_msg_header*)msgbuf;
 					hdr->type = VCOMP_KEY_EVENT;
-					hdr->len  = (uint32_t)clen;
+					hdr->len = (uint32_t)clen;
 					memcpy(msgbuf + sizeof(*hdr), chars, clen);
 					write(active_client_fd, msgbuf, msg_size);
 					free(msgbuf);
@@ -526,17 +724,13 @@ void read_ev_event(const struct input_event* ev, size_t device_idx) {
 			int32_t lo = abs_min_x[device_idx];
 			int32_t hi = abs_max_x[device_idx];
 			if (hi > lo) {
-				pos_x = (int)((float)(ev->value - lo) /
-				              (float)(hi - lo) *
-				              (g_screen_w - 1.0f));
+				pos_x = (int)((float)(ev->value - lo) / (float)(hi - lo) * (g_screen_w - 1.0f));
 			}
 		} else if (ev->code == ABS_Y) {
 			int32_t lo = abs_min_y[device_idx];
 			int32_t hi = abs_max_y[device_idx];
 			if (hi > lo) {
-				pos_y = (int)((float)(ev->value - lo) /
-				              (float)(hi - lo) *
-				              (g_screen_h - 1.0f));
+				pos_y = (int)((float)(ev->value - lo) / (float)(hi - lo) * (g_screen_h - 1.0f));
 			}
 		}
 
@@ -600,12 +794,10 @@ const char* evdev_detect_name(int fd) {
 	char name[256];
 	memset(name, 0, sizeof(name));
 	if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) == 0) {
-		if (strstr(name, "mouse") || strstr(name, "Mouse") ||
-		    strstr(name, "MOUSE")) {
+		if (strstr(name, "mouse") || strstr(name, "Mouse") || strstr(name, "MOUSE")) {
 			return "mouse";
 		}
-		if (strstr(name, "keyboard") || strstr(name, "Keyboard") ||
-		    strstr(name, "KEYBOARD")) {
+		if (strstr(name, "keyboard") || strstr(name, "Keyboard") || strstr(name, "KEYBOARD")) {
 			return "keyboard";
 		}
 	}
