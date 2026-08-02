@@ -176,8 +176,7 @@ thread_t* fork_process(thread_t* parent, interrupt_stack_frame_t* rsp) {
 		memset(&fork_thr->signal->pending, 0, sizeof(sigset_t));
 	}
 
-	auto fork_proc = create_process(parent->process->name, NULL);
-	process_add_thread(fork_proc, fork_thr);
+	auto fork_proc = create_process(parent->process->name, fork_thr);
 	auto parent_proc = parent->process;
 	fork_proc->parent_pid = parent_proc->pid;
 	fork_proc->pgid = parent_proc->pgid;
@@ -217,10 +216,6 @@ thread_t* fork_process(thread_t* parent, interrupt_stack_frame_t* rsp) {
 	auto new_fs_temporary_base_vaddr =
 	    vma_lookup_free_vaddr(parent_proc->vm_page, VMA_REGION_PROCESS, size_in_4kb);
 
-	paging_multiple_mmap(fork_page, tls_vma_start, (uint64_t)new_fs_base,
-	                     size_in_4kb,
-	                     PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
-
 	paging_multiple_mmap(parent_proc->page, new_fs_temporary_base_vaddr,
 	                     (uint64_t)new_fs_base, size_in_4kb,
 	                     PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
@@ -248,6 +243,12 @@ thread_t* fork_process(thread_t* parent, interrupt_stack_frame_t* rsp) {
 	                  (uintptr_t*)parent_proc->page) < 0) {
 		LOG_ERROR("FORK", "failed to clone user-space VMAs (COW)");
 		return nullptr;
+	}
+
+	if (parent->clear_child_tid) {
+		paging_multiple_mmap(fork_page, tls_vma_start, (uint64_t)new_fs_base,
+		                     size_in_4kb,
+		                     PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
 	}
 	serial2_printf("Vma clow done\n");
 	fork_thr->process->vm_page = new_vma;
@@ -301,10 +302,12 @@ thread_t* fork_process(thread_t* parent, interrupt_stack_frame_t* rsp) {
 	// clone every fd
 	fork_proc->fdtable = alloc_fdtable();
 	auto new_fds = fork_proc->fdtable->fds;
+	auto new_fd_flags = fork_proc->fdtable->fd_flags;
 	memcopy(fork_proc->fdtable, parent_proc->fdtable,
                 sizeof(struct fdtable));
 	
 	fork_proc->fdtable->fds = new_fds;
+	fork_proc->fdtable->fd_flags = new_fd_flags;
 
 	for (uint32_t i = 0; i < parent_proc->fdtable->max_fds; i++) {
 		if (parent_proc->fdtable->fds[i]) {
@@ -320,7 +323,7 @@ thread_t* fork_process(thread_t* parent, interrupt_stack_frame_t* rsp) {
 	// dentry
 	dentry_ptr cur_proc_dentry = 0;
 	auto proc_str = str("/proc/");
-	auto cur_proc_str = str_concat(proc_str, itoa(fork_proc->pid, 10));
+	auto cur_proc_str = str_concat(proc_str, itoa(fork_proc->pid, 10, (char[32]){0}));
 	str_release(proc_str);
 	if (vxnamei(cur_proc_str->c_str, &cur_proc_dentry) != VFS_OK) {
 		LOG2_ERROR("Thread",
@@ -335,7 +338,7 @@ thread_t* fork_process(thread_t* parent, interrupt_stack_frame_t* rsp) {
 	// clone every fd folder
 	for (uint32_t i = 0; i < fork_proc->fdtable->next_fd; i++) {
 		dentry_ptr fd_dentry = 0;
-		if (resolve_dentry(itoa(i, 10), cur_proc_dentry, &fd_dentry,
+		if (resolve_dentry(itoa(i, 10, (char[32]){0}), cur_proc_dentry, &fd_dentry,
 		                   CREATE_MISSING_ENTRY) != VFS_OK) {
 			LOG_ERROR(
 			    "Thread",
@@ -344,9 +347,11 @@ thread_t* fork_process(thread_t* parent, interrupt_stack_frame_t* rsp) {
 			break;
 		}
 		if (!fork_proc->fdtable->fds[i]) {
+			dentry_put(fd_dentry);
 			continue;
 		}
 		fd_dentry->vnode = fork_proc->fdtable->fds[i]->vnode;
+		dentry_put(fd_dentry);
 	}
 
 	attach_to_scheduler(fork_thr);

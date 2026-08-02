@@ -117,6 +117,7 @@ struct stat {
 
 int syscall_stat(const char* path, struct stat* buf);
 int syscall_fstat(int fd, struct stat* buf);
+int syscall_newfstatat(int dirfd, const char* pathname, struct stat* statbuf, int flags);
 int syscall_close(int fd);
 
 int syscall_mount(const char* source, const char* target, const char* fstype,

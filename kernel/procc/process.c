@@ -1,3 +1,7 @@
+#include <sys/err_no.h>
+// SPDX-License-Identifier: GPL-3.0
+// Copyright (C) 2026 Mohammad Arfan
+
 #include "procc/process.h"
 #include "hal/cpu/paging.h"
 #include "init/init.h"
@@ -242,15 +246,16 @@ static int setup_interp(dentry_ptr interp_dentry, uintptr_t* interp_base_addr,
 	memcopy(interp_ehdr, (void*)ld_so_buffer, sizeof(Elf64_Ehdr));
 
 	size_t ld_so_size_4k =
-	    ALIGN_UP(1 + ld_so_size, BLOCK_SIZE) / BLOCK_SIZE;
+	    ALIGN_UP(1 + elf_count_load_size(ld_so_buffer), BLOCK_SIZE) / BLOCK_SIZE;
 
 	*interp_base_addr = vma_lookup_free_vaddr(
-	    user_vm_page, VMA_REGION_PROCESS, ld_so_size_4k);
+	    user_vm_page, USER_MMAP_BASE, ld_so_size_4k);
 	LOG2_INFO("PROCESS", "interp %s has base addr at 0x%x",
 	          interp_link_dentry->name->c_str, interp_base_addr);
 
 	*interp_mmap_table = (struct elf_load_mmap_table*)kalloc(
 	    sizeof(struct elf_load_mmap_table) * interp_ehdr->e_phnum);
+	memset(*interp_mmap_table, 0, sizeof(struct elf_load_mmap_table) * interp_ehdr->e_phnum);
 
 	auto ll = elf_load(page, ld_so_buffer, *interp_base_addr,
 	                   *interp_base_addr, *interp_mmap_table);
@@ -447,7 +452,7 @@ static void register_elf_vmas(struct virtual_memory_page* user_thread_vm_page,
 			    base_addr + mm->alligned);
 			vma_register(user_thread_vm_page, mm->paddr,
 			             base_addr + mm->alligned, mm->size * 4096,
-			             0b111);
+			             mm->flags);
 		}
 	}
 }
@@ -529,6 +534,7 @@ int run_process(const char* path, char* const* argv, char* const* envp) {
 	struct elf_load_mmap_table* mmap_table =
 	    (struct elf_load_mmap_table*)kalloc(
 	        sizeof(struct elf_load_mmap_table) * ehdr.e_phnum);
+	memset(mmap_table, 0, sizeof(struct elf_load_mmap_table) * ehdr.e_phnum);
 
 	auto l = elf_load(page, file_buffer, base_addr, base_addr, mmap_table);
 	serial2_printf("loaded size %d kb\n", l / 1024);
@@ -639,7 +645,7 @@ int run_process_at_proc(const char* path, char* const argv[],
 	dentry_ptr loaded_file_dentry;
 	if (resolve_dentry(path, base_dir, &loaded_file_dentry, 0) != VFS_OK) {
 		LOG2_ERROR("Process", "executable %s not found", path);
-		return -1;
+		return -ENOENT;
 	}
 
 	if (!loaded_file_dentry->vnode ||
@@ -647,7 +653,7 @@ int run_process_at_proc(const char* path, char* const argv[],
 	     loaded_file_dentry->vnode->type != VNODE_TYPE_LNK)) {
 		LOG2_ERROR("Process", "executable %s not found", path);
 		dentry_put(loaded_file_dentry);
-		return -1;
+		return -EACCES;
 	}
 
 	if (loaded_file_dentry->vnode->type == VNODE_TYPE_LNK) {
@@ -659,7 +665,7 @@ int run_process_at_proc(const char* path, char* const argv[],
 		if (resolve_dentry(link_path, loaded_file_dentry->parent, &loaded_link_dentry, 0) !=
 		    VFS_OK) {
 			dentry_put(loaded_file_dentry);
-			return -1;
+			return -ENOENT;
 		}
 		dentry_put(loaded_file_dentry);
 		loaded_file_dentry = loaded_link_dentry;
@@ -678,7 +684,7 @@ int run_process_at_proc(const char* path, char* const argv[],
 	if (!file_buffer) {
 		dentry_put(loaded_file_dentry);
 
-		return -1;
+		return -ENOEXEC;
 	}
 
 	Elf64_Ehdr ehdr;
@@ -689,7 +695,7 @@ int run_process_at_proc(const char* path, char* const argv[],
 		kfree2(file_buffer);
 		dentry_put(loaded_file_dentry);
 
-		return -2;
+		return -ENOEXEC;
 	}
 
 	size_t loaded_size = elf_count_load_size(file_buffer);
@@ -725,12 +731,13 @@ int run_process_at_proc(const char* path, char* const argv[],
 	    0) {
 		dentry_put(loaded_file_dentry);
 
-		return -1;
+		return -ENOEXEC;
 	}
 
 	struct elf_load_mmap_table* mmap_table =
 	    (struct elf_load_mmap_table*)kalloc(
 	        sizeof(struct elf_load_mmap_table) * ehdr.e_phnum);
+	memset(mmap_table, 0, sizeof(struct elf_load_mmap_table) * ehdr.e_phnum);
 
 	auto l = elf_load(page, file_buffer, base_addr, base_addr, mmap_table);
 	serial2_printf("loaded size %d kb\n", l / 1024);
@@ -863,6 +870,7 @@ void free_pid(pid_t pid) {
 
 process_t* create_process(char* name, thread_t* main_thread) {
 	auto p = (process_t*)vxSlabAlloc(process_cache);
+	memset(p, 0, sizeof(process_t));
 	auto name_len = strlen(name);
 	if (name_len > 64)
 		name_len = 64;
@@ -870,7 +878,8 @@ process_t* create_process(char* name, thread_t* main_thread) {
 	p->name[name_len] = '\0';
 
 	p->pid = alloc_pid();
-	serial2_printf("new process allocated pid : %d\n", p->pid);
+	p->pgid = p->pid; /* default PGID = PID */
+	serial2_printf("new process allocated pid : %d with main thr %d\n", p->pid, main_thread ? main_thread->id : 0);
 	if (main_thread) {
 		p->main_thread = main_thread;
 		process_add_thread(p, main_thread);
@@ -918,21 +927,23 @@ process_t* create_process(char* name, thread_t* main_thread) {
 }
 
 void destroy_process(process_t* proc) {
-	// TODO: remove /proc
 	dentry_ptr proc_dentry;
-	if (resolve_dentry("/proc", 0, &proc_dentry, 0) != VFS_OK) {
-		return;
-	}
+	if (resolve_dentry("/proc", 0, &proc_dentry, 0) != VFS_OK)
+		goto skip_proc;
 
 	dentry_ptr curr_proc_dentry;
-	if (resolve_dentry(itoa(proc->pid, 10), proc_dentry, &curr_proc_dentry,
+	if (resolve_dentry(itoa(proc->pid, 10, (char[32]){0}), proc_dentry, &curr_proc_dentry,
 	                   CREATE_MISSING_ENTRY) != VFS_OK) {
 		dentry_put(proc_dentry);
-		return;
+		goto skip_proc;
 	}
-
 	dentry_put(proc_dentry);
-	delete_dentry(curr_proc_dentry);
+
+	/* hapus /proc/{pid} — anak2 sudah di-handle close() */
+	cache_remove(get_root_cache(), curr_proc_dentry);
+	dentry_put(curr_proc_dentry);
+
+skip_proc:
 
 	free_pid(proc->pid);
 	free_fdtable(proc->fdtable);
@@ -1017,9 +1028,11 @@ void pgid_send_signal(pid_t pgid, int sig) {
 		return;
 	process_t* curr = _process_list;
 	do {
-		if (curr->pgid == pgid) {
-			if (curr->signal)
-				sig_send(curr->signal, sig);
+		if (curr->pgid == pgid || curr->pid == (pid_t)pgid) {
+			if (curr->main_thread && curr->main_thread->signal) {
+				sig_send(curr->main_thread->signal, sig);
+				vxThreadWake(curr->main_thread);
+			}
 		}
 		curr = curr->next;
 	} while (curr != _process_list);
@@ -1030,8 +1043,10 @@ void signal_all_processes(int sig) {
 		return;
 	process_t* curr = _process_list;
 	do {
-		if (curr->signal)
-			sig_send(curr->signal, sig);
+		if (curr->main_thread && curr->main_thread->signal) {
+			sig_send(curr->main_thread->signal, sig);
+			vxThreadWake(curr->main_thread);
+		}
 		curr = curr->next;
 	} while (curr != _process_list);
 }

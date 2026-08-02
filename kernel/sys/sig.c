@@ -42,6 +42,7 @@ void sig_send(sig_han_t* handle, int sig) {
 	if (handler && (uintptr_t)handler >= 0xFFFF800000000000ULL) {
 		handler(sig);
 	} else {
+		serial2_printf("added into pending on sig %d (masked %d) at 0x%lx\n", sig, (handle->mask.__bits[0] & SIGBIT(sig)), handle);
 		__atomic_fetch_or(&handle->pending.__bits[0], SIGBIT(sig),
 		                  __ATOMIC_SEQ_CST);
 	}
@@ -58,7 +59,7 @@ void sig_wait(sig_han_t* handle, uint64_t mask) {
 
 void sig_register_handler(sig_han_t* handle, int sig,
                           sig_handle_ptr_t handler) {
-	uint64_t prev = __atomic_fetch_or(&handle->mask.__bits[0], SIGBIT(sig),
+	uint64_t prev = __atomic_fetch_or(&handle->avail_handler.__bits[0], SIGBIT(sig),
 	                                  __ATOMIC_RELAXED);
 
 	if (!(prev & SIGBIT(sig))) {
@@ -66,14 +67,14 @@ void sig_register_handler(sig_han_t* handle, int sig,
 		__atomic_store_n(&handle->handler[sig - 1], handler,
 		                 __ATOMIC_RELEASE);
 
-		uint64_t pending = __atomic_load_n(&handle->pending.__bits[0],
-		                                   __ATOMIC_ACQUIRE);
-		if (pending & SIGBIT(sig)) {
+		// uint64_t pending = __atomic_load_n(&handle->pending.__bits[0],
+		//                                    __ATOMIC_ACQUIRE);
+		// if (pending & SIGBIT(sig)) {
 
-			__atomic_fetch_and(&handle->pending.__bits[0],
-			                   ~SIGBIT(sig), __ATOMIC_RELEASE);
-			handler(sig);
-		}
+		// 	__atomic_fetch_and(&handle->pending.__bits[0],
+		// 	                   ~SIGBIT(sig), __ATOMIC_RELEASE);
+		// 	handler(sig);
+		// }
 	}
 }
 

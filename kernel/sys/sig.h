@@ -61,6 +61,7 @@ struct k_sigaction {
 typedef struct sig_han {
 	sigset_t pending;
 	sigset_t mask;
+	sigset_t avail_handler;
 	sig_handle_ptr_t handler[MAX_SIGNAL_AVAILABLE];
 	unsigned long flags[MAX_SIGNAL_AVAILABLE];
 	void (*restorer[MAX_SIGNAL_AVAILABLE])(void);

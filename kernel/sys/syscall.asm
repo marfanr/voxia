@@ -61,18 +61,18 @@ syscall_entry:
 
     add rsp, 16             ; int_no, err_code
 
-    mov rcx, [rsp] ; RIP
-    mov r11, [rsp + 16] ; RFLAGS
+    ; mov rcx, [rsp] ; RIP
+    ; mov r11, [rsp + 16] ; RFLAGS
 
     cli
-    cmp dword [gs:0x20], 1
-    je .to_user
+    ; cmp dword [gs:0x20], 1
+    ; je .to_user
     
     swapgs
     iretq
     
-.to_user:
-    mov rsp, [rsp + 24]         ; user RSP — must be last before sysretq
-    swapgs
-    o64 sysret
+; .to_user:
+;     mov rsp, [rsp + 24]         ; user RSP — must be last before sysretq
+;     swapgs
+;     o64 sysret
 

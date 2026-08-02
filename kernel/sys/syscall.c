@@ -6,13 +6,13 @@
 #include "hal/cpu/paging.h"
 #include "init/init.h"
 #include "libk/serial.h"
+#include "memory/memory_utils.h"
+#include "memory/vm_manager.h"
 #include "procc/scheduler.h"
 #include "procc/thread.h"
 #include "sys/err_no.h"
 #include "sys/fd.h"
 #include "tty/tty.h"
-
-#define SYSCALL_DEBUG 0
 
 // prototype
 extern void syscall_dispatch(interrupt_stack_frame_t* rsp);
@@ -41,27 +41,27 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 	}
 
 // DEBUG
-#if SYSCALL_DEBUG
+#ifdef VOXIA_SYSCALL_DEBUG
 	auto curr_thr = get_current_core_data()->active_thread;
 	/* Log all syscalls except high-frequency noise */
 	if (rsp->rax != SYSCALL_NANOSLEEP && rsp->rax != SYSCALL_EXIT)
-		serial2_printf("[SYSCALL] thr=%d pid=%d nr=%d (%s) rdi=0x%x rsi=0x%x rdx=0x%x\n",
-		    curr_thr ? curr_thr->id : 0,
-		    (curr_thr && curr_thr->process) ? curr_thr->process->pid : 0,
-		    (int)rsp->rax, get_syscall_name((int)rsp->rax),
-		    rsp->rdi, rsp->rsi, rsp->rdx);
+		serial2_printf("[SYSCALL] thr=%d pid=%d nr=%d (%s) rdi=0x%x rsi=0x%x rdx=0x%x\n", curr_thr ? curr_thr->id : 0,
+		               (curr_thr && curr_thr->process) ? curr_thr->process->pid : 0, (int)rsp->rax, get_syscall_name((int)rsp->rax), rsp->rdi, rsp->rsi,
+		               rsp->rdx);
 #endif
 
 	auto int_no = rsp->rax;
 
 	if (thr && thr->signal && int_no != SYSCALL_EXIT && int_no != SYSCALL_EXIT_GROUP && int_no != SYSCALL_RT_SIGACTION && int_no != SYSCALL_SIGPROCMASK &&
 	    int_no != 15) {
+		// serial2_printf("active signal on thread %d\n", thr->id);
+
 		uint64_t pending = __atomic_load_n(&thr->signal->pending.__bits[0], __ATOMIC_ACQUIRE);
-		uint64_t mask = __atomic_load_n(&thr->signal->mask.__bits[0], __ATOMIC_ACQUIRE);
-		uint64_t active_signals = pending & ~mask;
-		if (active_signals) {
+		if (pending) {
+			serial2_printf("active signal available\n");
 			for (int sig = 1; sig <= 64; sig++) {
-				if (active_signals & SIGBIT(sig)) {
+				if (pending & SIGBIT(sig)) {
+					serial2_printf("found pending sig %d on syscall\n", sig);
 					sig_handle_ptr_t handler = thr->signal->handler[sig - 1];
 					if (handler == 0) { // SIG_DFL
 						if (sig == SIGINT || sig == SIGQUIT || sig == SIGKILL || sig == SIGTERM) {
@@ -177,6 +177,33 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 	}
 	case 81: {
 		rsp->rax = (uint64_t)syscall_fchdir((int)rsp->rdi);
+		break;
+	}
+	case 89: { // SYSCALL_READLINK
+		const char* path = (const char*)rsp->rdi;
+		char* buf = (char*)rsp->rsi;
+		size_t bufsiz = (size_t)rsp->rdx;
+		
+		auto proc = get_current_core_data()->active_thread->process;
+		dentry_ptr base_dir = (proc && path[0] != '/') ? proc->cwd : 0;
+
+		dentry_ptr out;
+		if (resolve_dentry(path, base_dir, &out, 0) != 0) { // VFS_OK is 0
+			rsp->rax = (uint64_t)-ENOENT;
+			break;
+		}
+		if (out->vnode->type != VNODE_TYPE_LNK) {
+			dentry_put(out);
+			rsp->rax = (uint64_t)-EINVAL;
+			break;
+		}
+		auto lnk_ops = (vops_lnk_t*)out->vnode->ops;
+		if (lnk_ops && lnk_ops->readlink) {
+			rsp->rax = (uint64_t)lnk_ops->readlink(out->vnode, buf, bufsiz);
+		} else {
+			rsp->rax = (uint64_t)-EINVAL;
+		}
+		dentry_put(out);
 		break;
 	}
 	case SYSCALL_READV: {
@@ -325,6 +352,15 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 		rsp->rax = (uint64_t)syscall_stat((const char*)rsp->rdi, (struct stat*)rsp->rsi);
 		break;
 	}
+	case 262: { // SYSCALL_NEWFSTATAT
+		int dirfd = (int)rsp->rdi;
+		const char* pathname = (const char*)rsp->rsi;
+		struct stat* statbuf = (struct stat*)rsp->rdx;
+		int flags = (int)rsp->r10;
+
+		rsp->rax = (uint64_t)syscall_newfstatat(dirfd, pathname, statbuf, flags);
+		break;
+	}
 	case SYSCALL_FSTAT: {
 		rsp->rax = (uint64_t)syscall_fstat((int)rsp->rdi, (struct stat*)rsp->rsi);
 		break;
@@ -425,6 +461,17 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 				// we don't have a timed wait yet, so we just
 				// block forever
 			}
+
+			auto curr = get_current_core_data()->active_thread;
+			if (curr && curr->signal) {
+				uint64_t pending = __atomic_load_n(&curr->signal->pending.__bits[0], __ATOMIC_ACQUIRE);
+				uint64_t mask = __atomic_load_n(&curr->signal->mask.__bits[0], __ATOMIC_ACQUIRE);
+				if (pending & ~mask) {
+					rsp->rax = (uint64_t)-EINTR;
+					return;
+				}
+			}
+
 			thread_block();
 		}
 
@@ -485,6 +532,33 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 	}
 	// TODO: impl later
 	case 11: { // SYSCALL_MUNMAP
+		void*  mu_addr = (void*)rsp->rdi;
+		size_t mu_len  = (size_t)rsp->rsi;
+
+		auto mu_thr  = get_current_core_data()->active_thread;
+		auto mu_proc = mu_thr ? mu_thr->process : nullptr;
+		if (!mu_proc || !mu_addr || mu_len == 0) {
+			rsp->rax = 0; // tolerate bad args silently
+			break;
+		}
+
+		/*
+		 * Unmap every 4 KB page in the requested range and remove the
+		 * corresponding VMA records.  Physical memory is not freed yet
+		 * (no phys_base_free) but the virtual<->physical mapping is torn
+		 * down so that future mmap() calls can reuse these virtual pages.
+		 */
+		size_t mu_pages = ALIGN_UP(mu_len, 0x1000) / 0x1000;
+		paging_multiple_unmap(mu_proc->page,
+		                      (uint64_t)(uintptr_t)mu_addr, mu_pages);
+		paging_reload(mu_proc->page);
+
+		/* Remove VMA entries that start within this range. */
+		for (size_t pg = 0; pg < mu_pages; pg++) {
+			uintptr_t v = (uintptr_t)mu_addr + pg * 0x1000;
+			vma_unregister(mu_proc->vm_page, v);
+		}
+
 		rsp->rax = 0;
 		break;
 	}
@@ -655,6 +729,17 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 				if (ts->tv_sec == 0 && ts->tv_nsec == 0)
 					break; /* poll mode, don't block */
 			}
+
+			auto curr = get_current_core_data()->active_thread;
+			if (curr && curr->signal) {
+				uint64_t pending = __atomic_load_n(&curr->signal->pending.__bits[0], __ATOMIC_ACQUIRE);
+				uint64_t mask = __atomic_load_n(&curr->signal->mask.__bits[0], __ATOMIC_ACQUIRE);
+				if (pending & ~mask) {
+					rsp->rax = (uint64_t)-EINTR;
+					return;
+				}
+			}
+
 			thread_block();
 		}
 
@@ -701,6 +786,21 @@ extern void syscall_dispatch(interrupt_stack_frame_t* rsp) {
 	case 293: { // SYSCALL_PIPE2
 		extern int syscall_pipe2(int pipefd[2], int flags);
 		rsp->rax = (uint64_t)syscall_pipe2((int*)rsp->rdi, (int)rsp->rsi);
+		break;
+	}
+	case 318: { // SYSCALL_GETRANDOM
+		extern uint32_t vxRand();
+		char* buf = (char*)rsp->rdi;
+		size_t count = (size_t)rsp->rsi;
+		// size_t flags = (size_t)rsp->rdx;
+		size_t i = 0;
+		while (i < count) {
+			uint32_t r = vxRand();
+			size_t copy_size = (count - i) < 4 ? (count - i) : 4;
+			memcopy(buf + i, &r, copy_size);
+			i += copy_size;
+		}
+		rsp->rax = count;
 		break;
 	}
 	default:
