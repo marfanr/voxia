@@ -39,9 +39,8 @@ void UsbHid::set_iddle(ioforge_usb_device* dev) {
 	setiddle->wIndex = 0;
 	setiddle->wLength = 0;
 
-	// todo: modify send method to add endpoint parameter
 	dev->controller->ops.send(dev->addr, dev->endpoints[0].address,
-				  setiddle_paddr, sizeof(*setiddle), 0, 0);
+				  setiddle_paddr, setiddle, sizeof(*setiddle), 0, 0);
 
 	IOUtils::DMAFree((void*) setiddle_paddr, (void*) setiddle,
 			 sizeof(*setiddle));
@@ -59,9 +58,8 @@ void UsbHid::set_report(ioforge_usb_device* dev, uint8_t report) {
 	setreport->wIndex = 0;
 	setreport->wLength = 0;
 
-	// todo: modify send method to add endpoint parameter
 	dev->controller->ops.send(dev->addr, dev->endpoints[0].address,
-				  setreport_paddr,
+				  setreport_paddr, setreport,
 				  sizeof(struct usb_setup_packet), 0, 0);
 
 	IOUtils::DMAFree((void*) setreport_paddr, (void*) setreport,
@@ -80,9 +78,8 @@ void UsbHid::get_report(ioforge_usb_device* dev) {
 	setreport->wIndex = 0;
 	setreport->wLength = 0;
 
-	// todo: modify send method to add endpoint parameter
 	dev->controller->ops.send(dev->addr, dev->endpoints[0].address,
-				  setreport_paddr,
+				  setreport_paddr, setreport,
 				  sizeof(struct usb_setup_packet), 0, 0);
 
 	IOUtils::DMAFree((void*) setreport_paddr, (void*) setreport,
@@ -102,9 +99,8 @@ void UsbHid::set_protocol(ioforge_usb_device* dev, uint8_t interface,
 	setreport->wIndex = interface;
 	setreport->wLength = 0;
 
-	// TODO: modify send method to add endpoint parameter
 	dev->controller->ops.send(dev->addr, dev->endpoints[0].address,
-				  setreport_paddr,
+				  setreport_paddr, setreport,
 				  sizeof(struct usb_setup_packet), 0, 0);
 
 	IOUtils::DMAFree((void*) setreport_paddr, (void*) setreport,

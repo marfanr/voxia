@@ -3,9 +3,9 @@
 #include <type.h>
 #include <type.h>
 
-uintptr_t __stack_chk_guard = 0x595e9fbd94fda766;
+KERNEL_API uintptr_t __stack_chk_guard = 0x595e9fbd94fda766;
 
-__attribute__((noreturn, used, visibility("default"), section(".export"))) void
+__attribute__((noreturn)) KERNEL_API void
 __stack_chk_fail(void);
 
 typedef struct stackframe {
@@ -24,7 +24,7 @@ static void stacktrace(void) {
 	}
 }
 
-__attribute__((noreturn, used, visibility("default"), section(".export"))) void
+__attribute__((noreturn)) KERNEL_API void
 __stack_chk_fail(void) {
 	serial2_printf("STACK CORRUPTION DETECTED\n");
 	console_printf("STACK CORRUPTION DETECTED\n");

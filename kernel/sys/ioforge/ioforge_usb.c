@@ -61,5 +61,5 @@ void KERNEL_API ioforge_find_usb_device_by_devclass(
 		}
 	}
 
-	kfree(stack, sizeof(void*) * MAX_USB_NODES);
+	kfree2(stack);
 }

@@ -8,13 +8,33 @@ config LOG_VERBOSE
     bool "Enable verbose logging"
     default y
 
+config USE_FAST_STR
+    bool "Using fast string operation"
+    default y
+
+endmenu
+
+menu "Debug Configuretion"
+
+config SYSCALL_DEBUG
+    bool "Enable syscall logging"
+    default n
+
+config SOCKET_DEBUG
+    bool "Enable Socket logging"
+    default n
+    
+config PRINT_DENTRY_DEBUG
+    bool "Enable Print dentry Tree"
+    default n
+
 endmenu
 
 menu "Memory Configuration"
 
 config PHYS_MAX_WINDOW_COUNT
     int "Maximum physical window count"
-    default 8
+    default 256
     range 1 256
 
 config PAGING_MAX_MAPPED_DATA_COUNT
@@ -99,6 +119,7 @@ config TTY_LINE_BUFFER_SIZE
     default 1024
     range 256 65536
 endmenu
+
 
 # menu "Kernel Modules"
 # config EHCI

@@ -1,5 +1,5 @@
 #include "hal/acpi/hpet.h"
-#include "hal/cpu/irq_lock.h"
+#include <cpu/irq_lock.h>
 #include "hal/timer/timer.h"
 #include "hash.h"
 #include "libk/serial.h"
@@ -38,7 +38,7 @@ static void notify_dev_put(struct notify_dev* dev) {
 	}
 }
 
-void notify_dev_create(kstring name) {
+KERNEL_API void notify_dev_create(kstring name) {
 	auto h = hash(name->c_str, NOTIFY_DEV_HASH_SIZE);
 
 	auto n = (struct notify_dev*)kalloc(sizeof(struct notify_dev));
@@ -75,7 +75,7 @@ void notify_dev_create(kstring name) {
 	irq_restore(flags);
 }
 
-int notify_register(char* name, struct notifier* n) {
+KERNEL_API int notify_register(char* name, struct notifier* n) {
 	auto current_dev = find_dev(name);
 	if (!current_dev)
 		return 0;
@@ -95,8 +95,6 @@ int notify_register(char* name, struct notifier* n) {
 	while (*curr_chain && (*curr_chain)->priority >= new_notifier->priority)
 		curr_chain = &(*curr_chain)->next;
 
-	serial2_printf("notift kntl\n");
-
 	new_notifier->next = *curr_chain;
 	*curr_chain = new_notifier;
 	__atomic_fetch_add(&current_dev->chain.size, 1, __ATOMIC_RELAXED);
@@ -107,7 +105,7 @@ int notify_register(char* name, struct notifier* n) {
 	return 1;
 }
 
-int notify_call(char* name, uint32_t event, void* data) {
+KERNEL_API int notify_call(char* name, uint32_t event, void* data) {
 	auto current_dev = find_dev(name);
 	if (!current_dev)
 		return 0;
@@ -137,7 +135,7 @@ int notify_call(char* name, uint32_t event, void* data) {
 }
 
 /* timeout in ms */
-int wait_until_receive_notify(const char *name, uint64_t timeout) {
+KERNEL_API int wait_until_receive_notify(const char *name, uint64_t timeout) {
 	struct notify_dev *current_dev = find_dev(name);
 	if (!current_dev)
 		return 0;

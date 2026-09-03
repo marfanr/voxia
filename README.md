@@ -4,6 +4,8 @@ A Simple modular x86_64 kernel designed with simplicity and elegance in mind.
 
 [![CodeFactor](https://www.codefactor.io/repository/github/marfanr/voxia/badge)](https://www.codefactor.io/repository/github/marfanr/voxia)
 
+![Voxia Desktop](screenshot/ss.png)
+
 ---
 
 ## ✨ Features
@@ -54,13 +56,7 @@ make run
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=marfanr%2Fvoxia&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=marfanr/voxia&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=marfanr/voxia&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=marfanr/voxia&type=date&legend=top-left" />
- </picture>
-</a>
+[![Star History Chart](https://api.star-history.com/chart?repos=marfanr/voxia&type=date&legend=top-left&sealed_token=a8xUISZAD8Zlk-PLU7PM5_Rx6tAcu2zq8Ws0DeJ_2BNH_sPrmDC9S7Kd21WJv9eoqGGZHjshBxtVSlnhs1G4IFNjgOu0AtpLHq_0Eb4Ozh7za6JPyOIiPHrV24fYMM4ca1-7gq3DiPOLuSWJlcWmUJhiIlG4weOdbpX6ZiqijBnsQLUyrLx_DAyw4NeF)](https://www.star-history.com/?repos=marfanr%2Fvoxia&type=date&legend=top-left)
 
 ## 📜 License
 Voxia is licensed under the [GNU General Public License v3.0](LICENSE).

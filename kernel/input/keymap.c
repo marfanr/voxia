@@ -41,8 +41,8 @@ static const char* keymap_us[0xFFF][2] = {
     [KEY_9] = {"9", "("},
     [KEY_0] = {"0", ")"},
 
-    [KEY_ENTER] = {"\n", "\n"},
-    [KEY_BACKSPACE] = {"\b", "\b"},
+    [KEY_ENTER] = {"\r", "\r"},
+    [KEY_BACKSPACE] = {"\x7f", "\x7f"},
     [KEY_TAB] = {"\t", "\t"},
     [KEY_SPACE] = {" ", " "},
 
@@ -51,6 +51,7 @@ static const char* keymap_us[0xFFF][2] = {
     [KEY_LEFTBRACE] = {"[", "{"},
     [KEY_RIGHTBRACE] = {"]", "}"},
     [KEY_BACKSLASH] = {"\\", "|"},
+    [KEY_HASHTILDE] = {"#", "~"},
     [KEY_SEMICOLON] = {";", ":"},
     [KEY_APOSTROPHE] = {"'", "\""},
     [KEY_GRAVE] = {"`", "~"},
@@ -58,6 +59,7 @@ static const char* keymap_us[0xFFF][2] = {
     [KEY_DOT] = {".", ">"},
     [KEY_SLASH] = {"/", "?"},
 
+    [KEY_ESC] = {"\033", "\033"},
     [KEY_UP] = {"\033[A", "\033[A"},
     [KEY_DOWN] = {"\033[B", "\033[B"},
     [KEY_RIGHT] = {"\033[C", "\033[C"},

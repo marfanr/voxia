@@ -18,7 +18,9 @@ typedef struct {
 	uintptr_t rsdp_addr;
 	framebuffer_t framebuffer;
 	uintptr_t kernel_raw_addr;
+	uintptr_t kernel_virt_addr;
 	size_t kernel_raw_size;
+	uint64_t hhdm_offset;
 } init_context_t;
 
 typedef void (*initcall_t)(init_context_t* ctx);

@@ -10,7 +10,7 @@ struct irq_gsi_map {
 
 void ioapic_setup(uintptr_t ioapic_base_addr);
 void ioapic_add_irq_gsi_map(uint8_t irq, uint32_t gsi, uint16_t flags);
-void vxIOAPICMapISR(uint8_t irq, uint8_t vector, uint8_t apic_id);
+void vxIOAPICMapISR(uint8_t irq, uint8_t vector, uint8_t apic_id, uint8_t polarity, uint8_t trigger_mode);
 uint32_t ioapic_isr_get_vector(uint8_t irq);
 uint8_t ioapic_isr_get_apic_id(uint8_t irq);
 

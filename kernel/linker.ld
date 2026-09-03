@@ -5,8 +5,9 @@ ENTRY(_start)
 
 PHDRS
 {
+    phdr    PT_PHDR    PHDRS;
     null    PT_NULL    FLAGS(0);
-    text    PT_LOAD    FLAGS((1 << 0) | (1 << 2)); /* RX */
+    text    PT_LOAD    FLAGS((1 << 0) | (1 << 2)) FILEHDR PHDRS;
     rodata  PT_LOAD    FLAGS((1 << 2));            /* R  */
     data    PT_LOAD    FLAGS((1 << 1) | (1 << 2)); /* RW */
     dynamic PT_DYNAMIC FLAGS((1 << 1) | (1 << 2));
@@ -16,13 +17,12 @@ SECTIONS
 {
     . = 0xffffffff80200000;
 
-    /* ========================================================= */
-    /* TEXT                                                      */
-    /* ========================================================= */
-
     .text : ALIGN(4K)
     {
         *(.text .text.*)
+        __cpu_trampoline_start = .;
+        *(.cpu_trampoline .cpu_trampoline.*)
+        __cpu_trampoline_end = .;
     } :text
 
     userspace_start = .;
@@ -41,11 +41,7 @@ SECTIONS
 
     . = ALIGN(4K);
 
-    /* read only */
-    .stivale2hdr : ALIGN(16)
-    {
-        KEEP(*(.stivale2hdr))
-    } :rodata
+    _rodata_start = .;
 
     .rodata : ALIGN(4K)
     {
@@ -62,11 +58,11 @@ SECTIONS
         KEEP(*(.init_early.phys_base_allocator))
         KEEP(*(.init_early.paging))
         KEEP(*(.init_early.vma))
+        KEEP(*(.init_early.kalloc))
         KEEP(*(.init_early.Proccess))
         KEEP(*(.init_early.descriptor))
         KEEP(*(.init_early.acpi))
         KEEP(*(.init_early.Timer))
-        KEEP(*(.init_early.Rand))
         KEEP(*(.init_early.VfsCache))
         KEEP(*(.init_early.Vnode))
         KEEP(*(.init_early.Vfs))
@@ -74,9 +70,11 @@ SECTIONS
         KEEP(*(.init_early.graphic))     
         KEEP(*(.init_early.ioforge))
         KEEP(*(.init_early.Virtio))
+        KEEP(*(.init_early.Rand))
         KEEP(*(.init_early.KernelReader))
         KEEP(*(.init_early.Input))
         KEEP(*(.init_early.TTY))
+        KEEP(*(.init_early.PTY))
         KEEP(*(.init_early.Scheduler))
         KEEP(*(.init_early.Sig))
         KEEP(*(.init_early.Thread))
@@ -86,32 +84,19 @@ SECTIONS
         KEEP(*(.init_early.ModuleRegister))
         KEEP(*(.init_early.Keymap))
         KEEP(*(.init_early.Syscall))
-
-        /*
         KEEP(*(.init_early.Netbuff))
         KEEP(*(.init_early.Netdev))
         KEEP(*(.init_early.Socket))
 
-
-
-        
+        /*        
 
         KEEP(*(.init_early.ProccessRegister))
         
-
-
         */
 
         /* KEEP(*(.init_early.*)) */
 
         __init_early_end = .;
-    } :rodata
-
-    .cpu_trampoline : ALIGN(4K)
-    {
-        __cpu_trampoline_start = .;
-        KEEP(*(.cpu_trampoline.*))
-        __cpu_trampoline_end = .;
     } :rodata
 
     .per_core : ALIGN(4K)
@@ -121,11 +106,45 @@ SECTIONS
         __per_core_end = .;
     } :rodata
 
+    .syscall_entries : ALIGN(4K)
+    {
+        __syscall_entries_start = .;
+        KEEP(*(.syscall_entries.*))
+        __syscall_entries_end = .;
+    } : rodata
+
+    .rela.dyn : ALIGN(8)
+    {
+        *(.rela.*)
+    } :rodata
+
+    _rodata_end = .;
+
+
     . = ALIGN(4K);
 
     /* ========================================================= */
     /* DATA                                                      */
     /* ========================================================= */
+
+    _data_start = .;
+
+    .got : ALIGN(8)
+    {
+        *(.got)
+    } :data
+
+    .got.plt : ALIGN(8)
+    {
+        *(.got.plt)
+    } :data
+
+    .limine_requests : ALIGN(16)
+    {
+        KEEP(*(.limine_requests_start))
+        KEEP(*(.limine_requests))
+        KEEP(*(.limine_requests_end))
+    } :data
 
     .data : ALIGN(4K)
     {
@@ -151,10 +170,15 @@ SECTIONS
     .bss : ALIGN(4K)
     {
         __bss_start = .;
-
-        *(COMMON)
         *(.bss .bss.*)
+        *(.sbss .sbss.*)
+        *(COMMON)
+    } :data
 
+    .lbss : ALIGN(4K)
+    {
+        *(.lbss .lbss.*)
+        . = ALIGN(4K);
         __bss_end = .;
     } :data
 

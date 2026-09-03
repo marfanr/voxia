@@ -1,22 +1,17 @@
+#include "init/init.h"
 #include "libk/serial.h"
 #include "memory/memory_utils.h"
 #include "memory/phys_base_allocator.h"
 #include "memory/vm_manager.h"
 #include <autoconf.h>
+#include <cpu/irq_lock.h>
 #include <hal/cpu/core.h>
-#include <hal/cpu/irq_lock.h>
 #include <hal/cpu/paging.h>
+#include <libk/grow_bitmap.h>
 #include <memory/kalloc.h>
 #include <spinlock.h>
 #include <str.h>
 #include <type.h>
-
-#define MAX_FREED_VADDRS 512
-
-typedef struct {
-	uintptr_t addr;
-	size_t size; /* BLOCK_SIZE (page) */
-} freed_t;
 
 struct kalloc_cpu_cache {
 	/* free-list heads */
@@ -47,10 +42,7 @@ static struct kalloc_cpu_cache cpu_caches[VOXIA_MAX_CORE];
 
 static spinlock_t kalloc_global_lock = {0};
 
-static uintptr_t kalloc_next_addr = KALLOC_BASE_ADDR;
-
-static freed_t freed_vaddrs[MAX_FREED_VADDRS];
-static size_t freed_vaddr_count = 0;
+static grow_bitmap_t kalloc_vaddr_bitmap;
 
 static inline uintptr_t lock_irqsave(spinlock_t* lk) {
 	uintptr_t flags = irq_save(); /* disable IRQ, simpan flags */
@@ -79,29 +71,21 @@ static int check_redzone(void* ptr, size_t size) {
 }
 
 static uintptr_t vaddr_alloc_locked(size_t page_count) {
-	for (size_t i = 0; i < freed_vaddr_count; i++) {
-		if (freed_vaddrs[i].size >= page_count) {
-			uintptr_t va = freed_vaddrs[i].addr;
-			freed_vaddrs[i].addr += page_count * BLOCK_SIZE;
-			freed_vaddrs[i].size -= page_count;
-			if (freed_vaddrs[i].size == 0)
-				freed_vaddrs[i] =
-				    freed_vaddrs[--freed_vaddr_count];
-			return va;
-		}
+	uintptr_t va =
+	    grow_bitmap_alloc_pages(&kalloc_vaddr_bitmap, page_count);
+	if (va == 0) {
+		LOG2_ERROR("KALLOC", "Out of virtual memory in bitmap!");
 	}
-	/* Bump allocator */
-	uintptr_t va = kalloc_next_addr;
-	kalloc_next_addr += page_count * BLOCK_SIZE;
 	return va;
 }
 
 static void* alloc_page_locked(void) {
 	uintptr_t phys = (uintptr_t)phys_base_alloc(1);
 	uintptr_t virt = vaddr_alloc_locked(1);
-	vxMmap(paging_get_highest_page_map(), virt, phys,
-	       PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
-	vma_register(get_kernel_vmm_page(), phys, virt, BLOCK_SIZE);
+	paging_mmap(paging_get_highest_page_map(), virt, phys,
+	            PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+	vma_register(get_kernel_vmm_page(), phys, virt, BLOCK_SIZE,
+	             PAGE_PRESENT | PAGE_WRITABLE | PAGE_NO_EXECUTE);
 	return (void*)virt;
 }
 
@@ -190,10 +174,10 @@ KERNEL_API void* kalloc(size_t size) {
 	uintptr_t phys = (uintptr_t)phys_base_alloc(page_count);
 	uintptr_t virt = vaddr_alloc_locked(page_count);
 
-	vxMultipleMmap(paging_get_highest_page_map(), virt, phys, page_count,
-	               PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
-	vma_register(get_kernel_vmm_page(), phys, virt,
-	             page_count * BLOCK_SIZE);
+	paging_multiple_mmap(paging_get_highest_page_map(), virt, phys,
+	                     page_count, PAGE_PRESENT | PAGE_WRITABLE);
+	vma_register(get_kernel_vmm_page(), phys, virt, page_count * BLOCK_SIZE,
+	             PAGE_PRESENT | PAGE_WRITABLE | PAGE_NO_EXECUTE);
 
 	unlock_irqrestore(&kalloc_global_lock, gflags);
 
@@ -298,7 +282,8 @@ KERNEL_API void kfree(void* ptr, size_t size) {
 		size_t total_size = size + metadata_overhead;
 		memset(meta, 0, total_size);
 
-		virtual_memory_t* v = vma_find(get_kernel_vmm_page(), (uintptr_t)meta);
+		virtual_memory_t* v =
+		    vma_find(get_kernel_vmm_page(), (uintptr_t)meta);
 		if (!v) {
 			unlock_irqrestore(&kalloc_global_lock, gflags);
 			return;
@@ -308,16 +293,12 @@ KERNEL_API void kfree(void* ptr, size_t size) {
 		    ALIGN_UP(total_size, BLOCK_SIZE) / BLOCK_SIZE;
 
 		vxPhysBaseFree((void*)v->phys_address, page_count);
-		paging_unmap_fill(paging_get_highest_page_map(),
-		                  (uintptr_t)meta, page_count);
+		paging_multiple_unmap(paging_get_highest_page_map(),
+		                      (uintptr_t)meta, page_count);
 		vma_unregister(get_kernel_vmm_page(), (uintptr_t)meta);
 
-		if (freed_vaddr_count < MAX_FREED_VADDRS) {
-			freed_vaddrs[freed_vaddr_count++] = (freed_t){
-			    .addr = (uintptr_t)meta,
-			    .size = page_count,
-			};
-		}
+		grow_bitmap_free_pages(&kalloc_vaddr_bitmap, (uintptr_t)meta,
+		                       page_count);
 
 		unlock_irqrestore(&kalloc_global_lock, gflags);
 	}
@@ -410,7 +391,8 @@ KERNEL_API void kfree2(void* ptr) {
 		size_t total_size = size + metadata_overhead;
 		memset(meta, 0, total_size);
 
-		virtual_memory_t* v = vma_find(get_kernel_vmm_page(), (uintptr_t)meta);
+		virtual_memory_t* v =
+		    vma_find(get_kernel_vmm_page(), (uintptr_t)meta);
 		if (!v) {
 			unlock_irqrestore(&kalloc_global_lock, gflags);
 			return;
@@ -421,17 +403,22 @@ KERNEL_API void kfree2(void* ptr) {
 		// serial2_printf("page count %d\n", page_count);
 
 		vxPhysBaseFree((void*)v->phys_address, page_count);
-		paging_unmap_fill(paging_get_highest_page_map(),
-		                  (uintptr_t)meta, page_count);
+		paging_multiple_unmap(paging_get_highest_page_map(),
+		                      (uintptr_t)meta, page_count);
 		vma_unregister(get_kernel_vmm_page(), (uintptr_t)meta);
 
-		if (freed_vaddr_count < MAX_FREED_VADDRS) {
-			freed_vaddrs[freed_vaddr_count++] = (freed_t){
-			    .addr = (uintptr_t)meta,
-			    .size = page_count,
-			};
-		}
+		grow_bitmap_free_pages(&kalloc_vaddr_bitmap, (uintptr_t)meta,
+		                       page_count);
 
 		unlock_irqrestore(&kalloc_global_lock, gflags);
 	}
+}
+
+extern uint64_t metadata_size;
+
+INIT(kalloc) {
+	uintptr_t base =
+	    KALLOC_BASE_ADDR + ALIGN_UP(metadata_size, PAGE_SIZE_4KB);
+	grow_bitmap_init(&kalloc_vaddr_bitmap, base, BLOCK_SIZE,
+	                 32768); // 32 GB max capacity
 }

@@ -3,16 +3,14 @@
 
 #ifndef RBT_TYPE
 struct __rbt_type {
-	unsigned long id; // Unique identifier for the data type
+	unsigned long id; 
 };
 #define RBT_TYPE struct __rbt_type
-#warning "RBT_TYPE is not defined, using default struct __rbt_type"
-#endif // RBT_TYPE
+#endif 
 
 #ifndef RBT_ID_NAME
 #define RBT_ID_NAME id
-#warning "RBT_ID_NAME is not defined, using default id"
-#endif // RBT_ID_NAME
+#endif 
 
 #define FIELD_ACCESS(data_ptr, field) ((data_ptr)->field)
 
@@ -33,8 +31,6 @@ struct rbt_node {
 
 static inline void
 rbt_rotate_left(rbt_node** root, rbt_node* x, rbt_node* NIL) {
-	// serial_trace("rbt_rotate_left: rotating left on node with id %d\n",
-	//  FIELD_ACCESS(x->data, RBT_ID_NAME));
 	rbt_node* y = x->right;
 	x->right = y->left;
 
@@ -54,8 +50,6 @@ rbt_rotate_left(rbt_node** root, rbt_node* x, rbt_node* NIL) {
 
 static inline void
 rbt_rotate_right(rbt_node** root, rbt_node* y, rbt_node* NIL) {
-	// serial_trace("rbt_rotate_right: rotating right on node with id %d\n",
-	//  FIELD_ACCESS(y->data, RBT_ID_NAME));
 	rbt_node* x = y->left;
 	y->left = x->right;
 
@@ -75,16 +69,10 @@ rbt_rotate_right(rbt_node** root, rbt_node* y, rbt_node* NIL) {
 }
 
 static inline void rbt_fix_insert(rbt_node** root, rbt_node* y, rbt_node* NIL) {
-	// serial_trace("rbt_fix_insert: fixing insert for node with id %d\n",
-	//  FIELD_ACCESS(y->data, RBT_ID_NAME));
 	while (y->parent->color == RBT_RED) {
-		// serial_trace("rbt_fix_insert: y->parent->color is RED\n");
 		if (y->parent == y->parent->parent->left) {
-			// serial_trace("rbt_fix_insert: fixing insert, y->parent is left
-			// child\n");
 			rbt_node* x = y->parent->parent->right;
-			if (x != 0 && x->color == RBT_RED) {
-				// serial_trace("rbt_fix_insert: fixing insert, case 1\n");
+			if (x != NIL && x->color == RBT_RED) {
 				y->parent->color = RBT_BLACK;
 				x->color = RBT_BLACK;
 				y->parent->parent->color = RBT_RED;
@@ -100,7 +88,7 @@ static inline void rbt_fix_insert(rbt_node** root, rbt_node* y, rbt_node* NIL) {
 			}
 		} else {
 			rbt_node* x = y->parent->parent->left;
-			if (x != 0 && x->color == RBT_RED) {
+			if (x != NIL && x->color == RBT_RED) {
 				y->parent->color = RBT_BLACK;
 				x->color = RBT_BLACK;
 				y->parent->parent->color = RBT_RED;
@@ -126,15 +114,11 @@ rbt_insert_node(rbt_node** root, rbt_node* z, RBT_TYPE* data, rbt_node* NIL) {
 	z->left = z->right = NIL;
 	z->color = RBT_RED;
 
-	// mencari posisi
 	rbt_node* parent = NIL;
 	rbt_node* curent = *root;
 	while (curent != NIL) {
-		// serial_trace("}} curent->data->id : %d\n", curent->data->id);
 		parent = curent;
-
-		if (FIELD_ACCESS(z->data, RBT_ID_NAME)
-		    < FIELD_ACCESS(curent->data, RBT_ID_NAME))
+		if (FIELD_ACCESS(z->data, RBT_ID_NAME) < FIELD_ACCESS(curent->data, RBT_ID_NAME))
 			curent = curent->left;
 		else
 			curent = curent->right;
@@ -142,10 +126,8 @@ rbt_insert_node(rbt_node** root, rbt_node* z, RBT_TYPE* data, rbt_node* NIL) {
 
 	z->parent = parent;
 	if (parent == NIL) {
-		// serial_trace("}} root is null\n");
 		*root = z;
-	} else if (FIELD_ACCESS(z->data, RBT_ID_NAME)
-		   < FIELD_ACCESS(parent->data, RBT_ID_NAME))
+	} else if (FIELD_ACCESS(z->data, RBT_ID_NAME) < FIELD_ACCESS(parent->data, RBT_ID_NAME))
 		parent->left = z;
 	else
 		parent->right = z;
@@ -158,7 +140,6 @@ rbt_insert_node(rbt_node** root, rbt_node* z, RBT_TYPE* data, rbt_node* NIL) {
 	if (z->parent->parent == NIL) {
 		return 1;
 	}
-	// serial_trace("rbt_fix_insert: fixing insert\n");
 
 	rbt_fix_insert(root, z, NIL);
 	return 1;
@@ -166,67 +147,66 @@ rbt_insert_node(rbt_node** root, rbt_node* z, RBT_TYPE* data, rbt_node* NIL) {
 
 static inline rbt_node*
 rbt_search_node(rbt_node* root, uint64_t id, rbt_node* NIL) {
-	if (root == NIL || FIELD_ACCESS(root->data, RBT_ID_NAME) == id)
-		return root;
-
-	if (id < FIELD_ACCESS(root->data, RBT_ID_NAME))
-		return rbt_search_node(root->left, id, NIL);
-
-	return rbt_search_node(root->right, id, NIL);
+	rbt_node* curr = root;
+	while (curr != NIL && curr->data != NULL && FIELD_ACCESS(curr->data, RBT_ID_NAME) != id) {
+		if (id < FIELD_ACCESS(curr->data, RBT_ID_NAME))
+			curr = curr->left;
+		else
+			curr = curr->right;
+	}
+	return curr;
 }
 
-static inline void rbt_fix_delete(rbt_node** root, rbt_node* x, rbt_node* NIL) {
-	// serial_trace("rbt_fix_delete: fixing delete for node with id %d\n",
-	//  FIELD_ACCESS(x->data, RBT_ID_NAME));
+static inline void rbt_fix_delete(rbt_node** root, rbt_node* x, rbt_node* x_parent, rbt_node* NIL) {
 	while (x != *root && x->color == RBT_BLACK) {
-		if (x == x->parent->left) {
-			rbt_node* w = x->parent->right;
+		if (x == x_parent->left) {
+			rbt_node* w = x_parent->right;
 			if (w->color == RBT_RED) {
 				w->color = RBT_BLACK;
-				x->parent->color = RBT_RED;
-				rbt_rotate_left(root, x->parent, NIL);
-				w = x->parent->right;
+				x_parent->color = RBT_RED;
+				rbt_rotate_left(root, x_parent, NIL);
+				w = x_parent->right;
 			}
-			if (w->left->color == RBT_BLACK
-			    && w->right->color == RBT_BLACK) {
+			if (w->left->color == RBT_BLACK && w->right->color == RBT_BLACK) {
 				w->color = RBT_RED;
-				x = x->parent;
+				x = x_parent;
+				x_parent = x->parent;
 			} else {
 				if (w->right->color == RBT_BLACK) {
 					w->left->color = RBT_BLACK;
 					w->color = RBT_RED;
 					rbt_rotate_right(root, w, NIL);
-					w = x->parent->right;
+					w = x_parent->right;
 				}
-				w->color = x->parent->color;
-				x->parent->color = RBT_BLACK;
+				w->color = x_parent->color;
+				x_parent->color = RBT_BLACK;
 				w->right->color = RBT_BLACK;
-				rbt_rotate_left(root, x->parent, NIL);
+				rbt_rotate_left(root, x_parent, NIL);
 				x = *root;
 			}
 		} else {
-			rbt_node* w = x->parent->left;
+			rbt_node* w = x_parent->left;
 			if (w->color == RBT_RED) {
 				w->color = RBT_BLACK;
-				x->parent->color = RBT_RED;
-				rbt_rotate_right(root, x->parent, NIL);
-				w = x->parent->left;
+				x_parent->color = RBT_RED;
+				rbt_rotate_right(root, x_parent, NIL);
+				w = x_parent->left;
 			}
-			if (w->right->color == RBT_BLACK
-			    && w->left->color == RBT_BLACK) {
+			if (w->right->color == RBT_BLACK && w->left->color == RBT_BLACK) {
 				w->color = RBT_RED;
-				x = x->parent;
+				x = x_parent;
+				x_parent = x->parent;
 			} else {
 				if (w->left->color == RBT_BLACK) {
 					w->right->color = RBT_BLACK;
 					w->color = RBT_RED;
 					rbt_rotate_left(root, w, NIL);
-					w = x->parent->left;
+					w = x_parent->left;
 				}
-				w->color = x->parent->color;
-				x->parent->color = RBT_BLACK;
+				w->color = x_parent->color;
+				x_parent->color = RBT_BLACK;
 				w->left->color = RBT_BLACK;
-				rbt_rotate_right(root, x->parent, NIL);
+				rbt_rotate_right(root, x_parent, NIL);
 				x = *root;
 			}
 		}
@@ -238,31 +218,34 @@ static inline void
 rbt_remove_node(rbt_node** root, rbt_node* z, rbt_node* NIL) {
 	rbt_node* y = z;
 	rbt_node* x;
+	rbt_node* x_parent;
 	rbt_node_color y_original_color = y->color;
 
 	if (z->left == NIL) {
 		x = z->right;
+		x_parent = z->parent;
 		if (z->parent == NIL) {
 			*root = x;
 		} else if (z == z->parent->left) {
-			z->parent->left = z->right;
+			z->parent->left = x;
 		} else {
-			z->parent->right = z->right;
+			z->parent->right = x;
 		}
-		if (z->right != NIL) {
-			z->right->parent = z->parent;
+		if (x != NIL) {
+			x->parent = z->parent;
 		}
 	} else if (z->right == NIL) {
 		x = z->left;
+		x_parent = z->parent;
 		if (z->parent == NIL) {
 			*root = x;
 		} else if (z == z->parent->left) {
-			z->parent->left = z->left;
+			z->parent->left = x;
 		} else {
-			z->parent->right = z->left;
+			z->parent->right = x;
 		}
-		if (z->left != NIL) {
-			z->left->parent = z->parent;
+		if (x != NIL) {
+			x->parent = z->parent;
 		}
 	} else {
 		y = z->right;
@@ -271,16 +254,14 @@ rbt_remove_node(rbt_node** root, rbt_node* z, rbt_node* NIL) {
 		}
 		y_original_color = y->color;
 		x = y->right;
+		
 		if (y->parent == z) {
-			if (x != NIL) {
-				x->parent = y;
-			}
+			x_parent = y;
 		} else {
-			if (y->parent != NIL) {
-				y->parent->left = y->right;
-			}
+			x_parent = y->parent;
+			x_parent->left = y->right;
 			if (y->right != NIL) {
-				y->right->parent = y->parent;
+				y->right->parent = x_parent;
 			}
 			y->right = z->right;
 			if (y->right != NIL) {
@@ -296,15 +277,16 @@ rbt_remove_node(rbt_node** root, rbt_node* z, rbt_node* NIL) {
 			z->parent->right = y;
 		}
 		y->parent = z->parent;
-		y->color = z->color;
+		y->left = z->left;
 		if (y->left != NIL) {
 			y->left->parent = y;
 		}
+		y->color = z->color;
 	}
+	
 	if (y_original_color == RBT_BLACK) {
-		// serial_trace("rbt_remove_node: fixing delete\n");
-		rbt_fix_delete(root, x, NIL);
+		rbt_fix_delete(root, x, x_parent, NIL);
 	}
 }
 
-#endif // __LIBK__TREE__RBT__
+#endif 

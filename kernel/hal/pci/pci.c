@@ -8,7 +8,7 @@
 #define PCI_DATA 0xCFC
 
 static uint32_t
-pci_readl(uint8_t bus, uint8_t device, uint8_t func, uint8_t offset) {
+pci_readl(uint8_t bus, uint8_t device, uint8_t func, uint16_t offset) {
 	uint32_t address;
 	uint32_t tmp = 0;
 	address = (uint32_t) (((uint32_t) bus << 16) | ((uint32_t) device << 11)
@@ -20,7 +20,7 @@ pci_readl(uint8_t bus, uint8_t device, uint8_t func, uint8_t offset) {
 }
 
 static void pci_writel(uint8_t bus, uint8_t device, uint8_t func,
-		       uint8_t offset, uint32_t value) {
+		       uint16_t offset, uint32_t value) {
 	uint32_t address;
 	address = (uint32_t) (((uint32_t) bus << 16) | ((uint32_t) device << 11)
 			      | ((uint32_t) func << 8) | (offset & 0xFC)

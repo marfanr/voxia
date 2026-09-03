@@ -4,9 +4,12 @@
 #include "ehci/ehci.hpp"
 #include <ioforge/ioforge_int_pipe.hpp>
 
-class EHCIPipe : USBInterruptPipe {
+class EHCIPipe : public USBInterruptPipe {
       public:
-	explicit EHCIPipe(EHCIModule* ehci) : ehci_(ehci) {
+	explicit EHCIPipe(EHCIModule* ehci)
+	    : qh_node_(nullptr), data_node_(nullptr), ehci_(ehci), cb_(nullptr),
+	      response_(0), response_buf_(0), toggle_(0), buf_(nullptr),
+	      buf_phys_(0) {
 	}
 
 	bool

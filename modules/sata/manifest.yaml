@@ -1,0 +1,14 @@
+name: SATA
+description: driver for handling SATA devices (HDD)
+license: MIT
+version: 0.2
+author: mohammad arfan
+
+main: sata.elf
+
+cap:
+  - pci
+  - interrupt
+
+dependency:
+  - AHCI

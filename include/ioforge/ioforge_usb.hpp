@@ -42,8 +42,8 @@ class IoForgeUSB : public IOForge {
 		setup->wLength = 1;
 
 		// todo: modify send method to add endpoint parameter
-		dev->controller->ops.send(dev->addr, 0, (uint32_t)setup_addr,
-		                          sizeof(*setup), (uint32_t)resp_paddr,
+		dev->controller->ops.send(dev->addr, 0, setup_addr, setup,
+		                          sizeof(*setup), resp_paddr,
 		                          1);
 
 		uint8_t res = *resp;
@@ -69,7 +69,7 @@ class IoForgeUSB : public IOForge {
 		setup->wLength = 0;
 
 		// todo: modify send method to add endpoint parameter
-		dev->controller->ops.send(dev->addr, 0, (uint32_t)setup_addr,
+		dev->controller->ops.send(dev->addr, 0, setup_addr, setup,
 		                          sizeof(struct usb_setup_packet), 0,
 		                          0);
 		IOUtils::DMAFree((void*)setup_addr, (void*)setup,

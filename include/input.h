@@ -159,7 +159,22 @@ void input_report_key(struct ioforge_device* dev, uint16_t code, int value);
 enum {
     INPUT_EVENT_KEY,
     INPUT_EVENT_TEXT,
+    INPUT_EVENT_MOUSE,
 };
+
+#define MODIFIER_LCTRL 1
+#define MODIFIER_RCTRL 2
+#define MODIFIER_CTRL (MODIFIER_LCTRL | MODIFIER_RCTRL)
+#define MODIFIER_LSHIFT 4
+#define MODIFIER_RSHIFT 8
+#define MODIFIER_SHIFT (MODIFIER_LSHIFT | MODIFIER_RSHIFT)
+#define MODIFIER_LALT 16
+#define MODIFIER_RALT 32
+#define MODIFIER_ALT (MODIFIER_LALT | MODIFIER_RALT)
+#define MODIFIER_LGUI 64
+#define MODIFIER_RGUI 128
+#define MODIFIER_GUI (MODIFIER_LGUI | MODIFIER_RGUI)
+
 
 struct input_event_data {
     uint16_t type;
@@ -174,8 +189,17 @@ struct input_event_data {
         struct {
             const char* codepoint;
         } text;
+
+        struct {
+            int16_t x;
+            int16_t y;
+            int8_t z;
+            uint8_t buttons;
+        } mouse;
     };
 };
+
+void input_report_mouse(struct ioforge_device* dev, int16_t x, int16_t y, int8_t z, uint8_t buttons);
 
 #ifdef __cplusplus
 }

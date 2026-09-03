@@ -2,3 +2,4 @@
 *.voxmo
 *.elf
 build
+vk.cpp

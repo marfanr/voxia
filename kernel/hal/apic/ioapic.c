@@ -33,15 +33,15 @@ KERNEL_API uint8_t ioapic_isr_get_apic_id(uint8_t irq) {
 	return (reg >> 24) & 0xFF;
 }
 
-void vxIOAPICMapISR(uint8_t irq, uint8_t vector, uint8_t apic_id) {
+void vxIOAPICMapISR(uint8_t irq, uint8_t vector, uint8_t apic_id, uint8_t polarity, uint8_t trigger_mode) {
 	uint32_t low = 0;
 	uint32_t high = 0;
 
 	low |= vector;
 	low |= (0 << 8); // delivery mode
 	low |= (0 << 11);
-	low |= (0 << 13); // polarity
-	low |= (0 << 15); // trigger mode
+	low |= ((uint32_t)polarity << 13); // polarity
+	low |= ((uint32_t)trigger_mode << 15); // trigger mode
 
 	high |= (uint32_t) (apic_id << 24);
 

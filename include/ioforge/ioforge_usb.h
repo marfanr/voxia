@@ -13,8 +13,8 @@ enum ioforge_usb_version {
 };
 
 struct UsbControllerOp {
-	void (*send)(uint32_t addr, uint8_t endpoint, uint32_t data_phys,
-		     size_t request_size, uint32_t response_phys,
+	void (*send)(uint32_t addr, uint8_t endpoint, uintptr_t data_phys, void* data_virt,
+		     size_t request_size, uintptr_t response_phys,
 		     size_t response_size);
 };
 

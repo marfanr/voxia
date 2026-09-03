@@ -30,8 +30,10 @@ char* strtok_r(char* str, const char* delim, char** saveptr);
 
 typedef const char* __str;
 char* rtrim(char* str);
-char* itoa(int64_t value, int base);
+char* itoa(int64_t value, int base, char* str);
 void* memchr(const void* buf, int c, size_t len);
+
+extern void __memset32__(void* dst, int val, size_t len);
 
 #ifdef __cplusplus
 }

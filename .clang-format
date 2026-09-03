@@ -7,4 +7,4 @@ IndentWidth: 8
 BreakBeforeBraces: Attach
 SpaceBeforeParens: ControlStatements
 PointerAlignment: Left
-ColumnLimit: 80
+ColumnLimit: 160

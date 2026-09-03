@@ -1,10 +1,13 @@
 #include "hal/cpu/core.h"
-#include "hal/cpu/irq_lock.h"
+#include <cpu/irq_lock.h>
 #include "hal/cpu/paging.h"
 #include "libk/serial.h"
 #include "memory/memory_utils.h"
 #include "memory/phys_base_allocator.h"
+#include "memory/vm_manager.h"
 #include "spinlock.h"
+#include <str.h>
+#include <string.h>
 #include <sys/syscall.h>
 
 intptr_t syscall_brk(void* addr) {
@@ -22,26 +25,46 @@ intptr_t syscall_brk(void* addr) {
 		return (intptr_t)old_brk;
 
 	if (new_brk > old_brk) {
+		uintptr_t old_page = ALIGN_UP(old_brk, PAGE_SIZE_4KB);
+		uintptr_t new_page = ALIGN_UP(new_brk, PAGE_SIZE_4KB);
 
-		uintptr_t old_page = ALIGN_UP(old_brk, PAGE_SIZE);
-		uintptr_t new_page = ALIGN_UP(new_brk, PAGE_SIZE);
+		if (new_page > old_page) {
+			void* phys = phys_base_alloc((new_page - old_page) / PAGE_SIZE_4KB);
+			if (!phys) {
+				serial2_printf(
+				    "brk: phys_base_alloc failed for %d pages\n",
+				    (new_page - old_page) / PAGE_SIZE_4KB);
 
-		void* phys = phys_base_alloc((new_page - old_page) / PAGE_SIZE);
-		if (!phys) {
-			serial2_printf(
-			    "brk: phys_base_alloc failed for %d pages\n",
-			    (new_page - old_page) / PAGE_SIZE);
+				return (intptr_t)old_brk;
+			}
 
-			return (intptr_t)old_brk;
+			paging_multiple_mmap(proc->page, old_page, (uintptr_t)phys,
+			               (new_page - old_page) / PAGE_SIZE_4KB,
+			               PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+
+			vma_register(proc->vm_page, (uintptr_t)phys, old_page,
+			             new_page - old_page,
+			             PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER |
+			                 PAGE_NO_EXECUTE);
+			             
+			size_t len_4kb = (new_page - old_page) / PAGE_SIZE_4KB;
+			page_t kpml4 = paging_get_highest_page_map();
+			uintptr_t temp_vaddr = vma_lookup_free_vaddr(get_kernel_vmm_page(), VMA_REGION_A, len_4kb);
+			if (temp_vaddr) {
+				vma_register(get_kernel_vmm_page(), (uintptr_t)phys, temp_vaddr, len_4kb * PAGE_SIZE_4KB,
+				             PAGE_PRESENT | PAGE_WRITABLE | PAGE_NO_EXECUTE);
+				paging_multiple_mmap(kpml4, temp_vaddr, (uintptr_t)phys, len_4kb, PAGE_PRESENT | PAGE_WRITABLE);
+				
+				paging_reload(kpml4);
+				memset((void*)temp_vaddr, 0, len_4kb * PAGE_SIZE_4KB);
+				
+				paging_multiple_unmap(kpml4, temp_vaddr, len_4kb);
+				vma_unregister(get_kernel_vmm_page(), temp_vaddr);
+				paging_reload(proc->page);
+			}
+			
+			serial2_printf("brk: from %x to %x\n", old_page, new_page);
 		}
-
-		vxMultipleMmap(proc->page, old_page, (uintptr_t)phys,
-		               (new_page - old_page) / PAGE_SIZE,
-		               PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
-
-		vma_register(proc->vm_page, (uintptr_t)phys, old_page,
-		             new_page - old_page);
-		serial2_printf("brk: from %x to %x\n", old_page, new_page);
 	}
 
 	proc->heap_end = new_brk;

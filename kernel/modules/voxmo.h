@@ -54,6 +54,7 @@ typedef struct voxmo_loaded_module {
 	kstring path;
 	boolean_t loaded;
 	workqueue_t* queue;
+	boolean_t queue_ref_held;
 
 	struct voxmo_loaded_module* next;
 } voxmo_loaded_module_t __attribute__((aligned(64)));

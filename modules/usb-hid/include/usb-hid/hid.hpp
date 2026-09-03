@@ -3,6 +3,7 @@
 
 #include "ioforge/ioforge_usb.hpp"
 #include "usb-hid/keyboard.hpp"
+#include "usb-hid/mouse.hpp"
 
 enum hid_protocol { BOOT_PROTOCOL = 0, REPORT_PROTOCOL = 1 };
 

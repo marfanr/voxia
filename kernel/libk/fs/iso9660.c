@@ -137,6 +137,38 @@ static int iso9660_get_rr_name(struct iso9660_dir* entry, char* out_name) {
 	return 0;
 }
 
+static int iso9660_get_rr_mode(struct iso9660_dir* entry, uint16_t* out_mode) {
+	uint8_t name_len = entry->name_len;
+	uint8_t sua_offset = 33 + name_len;
+	if (sua_offset % 2 != 0)
+		sua_offset += 1;
+
+	uint8_t total_len = entry->length;
+	if (sua_offset >= total_len)
+		return 0;
+
+	uint8_t* sua = (uint8_t*)entry + sua_offset;
+	uint8_t sua_len = total_len - sua_offset;
+	uint8_t i = 0;
+
+	while (i + 4 <= sua_len) {
+		uint8_t sig0 = sua[i];
+		uint8_t sig1 = sua[i + 1];
+		uint8_t len = sua[i + 2];
+
+		if (len < 4)
+			break;
+
+		if (sig0 == 'P' && sig1 == 'X' && len >= 12) {
+			uint32_t mode = *(uint32_t*)(void *)&sua[i + 4];
+			*out_mode = mode & 0xFFFF;
+			return 1;
+		}
+		i += len;
+	}
+	return 0;
+}
+
 int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
                    dentry_ptr* out) {
 
@@ -221,7 +253,15 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 
 		(*out)->vnode->vnode_private = iso_node;
 		(*out)->vnode->type = VNODE_TYPE_DIR;
+		(*out)->vnode->ops = iso9660_file_operations();
 		(*out)->vnode->fs_instance = instance;
+
+		uint16_t rr_mode = 0;
+		if (iso9660_get_rr_mode(root_dir, &rr_mode)) {
+			(*out)->vnode->permission = rr_mode;
+		} else {
+			(*out)->vnode->permission = 0555;
+		}
 
 		LOG_DEBUG("ISO9660", "root dir extent=0x%x size=%d",
 		          iso_node->extent, iso_node->size);
@@ -329,16 +369,28 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 				int sym_len = iso9660_get_rr_symlink(
 				    entry, symlink_target);
 
+				uint16_t rr_mode = 0;
+				if (iso9660_get_rr_mode(entry, &rr_mode)) {
+					(*out)->vnode->permission = rr_mode;
+				} else {
+					if (entry->flags & iOS9660_DIR_FLAG) {
+						(*out)->vnode->permission = 0555;
+					} else {
+						(*out)->vnode->permission = 0444;
+					}
+				}
+
 				if (sym_len > 0) {
 					serial2_printf(
 					    "found symlink at %s (%d)\n",
 					    symlink_target, sym_len);
 					(*out)->vnode->type = VNODE_TYPE_LNK;
 					(*out)->vnode->vnode_private =
-					    kalloc(256);
+					    kalloc((size_t)sym_len + 1);
 					memcopy((*out)->vnode->vnode_private,
 					        symlink_target,
 					        (size_t)sym_len);
+					((char*)(*out)->vnode->vnode_private)[sym_len] = '\0';
 
 					(*out)->vnode->ops =
 					    iso9660_lnk_operations();
@@ -361,6 +413,8 @@ int iso9660_lookup(struct fs_instance* instance, char* path, dentry_ptr parent,
 					if (entry->flags & iOS9660_DIR_FLAG) {
 						(*out)->vnode->type =
 						    VNODE_TYPE_DIR;
+						(*out)->vnode->ops =
+						    iso9660_file_operations();
 					} else {
 						(*out)->vnode->type =
 						    VNODE_TYPE_FILE;
@@ -408,12 +462,30 @@ int iso9660_read(vnode_t* vnode, void* buf, size_t len, size_t offset) {
 	if (!ops)
 		return -3;
 
-	if (ops->read(block_vnode, iso_node->extent, buf, iso_node->size) < 0) {
-		LOG2_ERROR("ISO9660", "failed to read dir extent");
+	if (offset >= iso_node->size) return 0;
+	size_t read_len = len;
+	if (offset + read_len > iso_node->size) {
+		read_len = iso_node->size - offset;
+	}
+	
+	size_t start_lba = iso_node->extent + (offset / 2048);
+	size_t byte_offset_in_lba = offset % 2048;
+	size_t lba_count = (byte_offset_in_lba + read_len + 2047) / 2048;
+	size_t bytes_to_read = lba_count * 2048;
+
+	void* temp_buf = kalloc(bytes_to_read);
+	if (!temp_buf) return -1;
+
+	if (ops->read(block_vnode, start_lba, temp_buf, bytes_to_read) < 0) {
+		LOG2_ERROR("ISO9660", "failed to read file extent");
+		kfree2(temp_buf);
 		return -3;
 	}
+	
+	memcopy(buf, (void*)((uintptr_t)temp_buf + byte_offset_in_lba), read_len);
+	kfree2(temp_buf);
 
-	return 0;
+	return (int)read_len;
 }
 
 int iso9660_readlink(vnode_t* vnode, char* buf, size_t len) {
@@ -424,13 +496,98 @@ int iso9660_readlink(vnode_t* vnode, char* buf, size_t len) {
 
 	auto len_ = strlen(priv_data) > len ? len : strlen(priv_data);
 	memcopy(buf, priv_data, len_);
-	buf[strlen(priv_data)] = '\0';
+	if (len_ < len) {
+		buf[len_] = '\0';
+	}
 
 	return (int)len_;
 }
 
+static int iso9660_readdir(vnode_t* vnode, void* buf, size_t len, uint64_t* pos) {
+	if (!vnode || !vnode->vnode_private) return -1;
+	auto iso_node = (struct iso9660_internal_data*)vnode->vnode_private;
+	auto block_vnode = vnode->fs_instance->block_dentry->vnode;
+	auto ops = (vops_blk_t*)block_vnode->ops;
+
+	uint8_t* dir_buf = (uint8_t*)kalloc(iso_node->size);
+	if (!dir_buf) return -1;
+	
+	if (ops->read(block_vnode, iso_node->extent, dir_buf, iso_node->size) < 0) {
+		kfree2(dir_buf);
+		return -1;
+	}
+
+	uintptr_t base = (uintptr_t)dir_buf;
+	uintptr_t ptr = base + *pos;
+	uintptr_t end = base + iso_node->size;
+
+	int bytes_written = 0;
+	struct dirent* user_dirent = (struct dirent*)buf;
+	
+	while (ptr < end && bytes_written < (int)len) {
+		auto entry = (struct iso9660_dir*)ptr;
+		if (entry->length == 0) {
+			uintptr_t offset = ptr - base;
+			uintptr_t next_sector = ((offset / 2048) + 1) * 2048;
+			if (next_sector >= iso_node->size) break;
+			ptr = base + next_sector;
+			continue;
+		}
+
+		char name[256];
+		int name_len = 0;
+
+		if (entry->name_len == 1 && entry->name[0] == 0x00) {
+			name[0] = '.'; name[1] = '\0'; name_len = 1;
+		} else if (entry->name_len == 1 && entry->name[0] == 0x01) {
+			name[0] = '.'; name[1] = '.'; name[2] = '\0'; name_len = 2;
+		} else {
+			name_len = iso9660_get_rr_name(entry, name);
+			if (name_len <= 0) {
+				uint8_t iso_len = entry->name_len;
+				if (iso_len > 255) iso_len = 255;
+				memcopy(name, entry->name, iso_len);
+				name[iso_len] = '\0';
+				name_len = iso_len;
+				for (int i = 0; i < name_len; i++) {
+					if (name[i] == ';') {
+						name[i] = '\0';
+						name_len = i;
+						break;
+					}
+				}
+			}
+		}
+
+		int dirent_size = (int)(sizeof(struct dirent)) + name_len + 1;
+		dirent_size = (dirent_size + 7) & ~7;
+		
+		if (bytes_written + dirent_size > (int)len) {
+			break;
+		}
+
+		struct dirent current_entry = {0};
+		current_entry.d_ino = entry->extent_le;
+		current_entry.d_off = ptr - base;
+		current_entry.d_reclen = (uint16_t)dirent_size;
+		current_entry.d_type = (entry->flags & 2) ? DT_DIR : DT_REG;
+		
+		memcopy((void*)user_dirent, &current_entry, sizeof(struct dirent));
+		memcopy((void*)user_dirent->d_name, name, (size_t)(name_len + 1));
+
+		user_dirent = (struct dirent*)((uintptr_t)user_dirent + (uintptr_t)dirent_size);
+		bytes_written += dirent_size;
+		ptr += entry->length;
+	}
+
+	*pos = ptr - base;
+	kfree2(dir_buf);
+	return bytes_written;
+}
+
 vops_file_t* iso9660_file_operations(void) {
 	_file_ops.read = iso9660_read;
+	_file_ops.readdir = iso9660_readdir;
 	return &_file_ops;
 }
 

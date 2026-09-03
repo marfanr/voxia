@@ -11,4 +11,4 @@ cap:
   - interrupt
 
 dependency:
-  - EHCI
+  - XHCI

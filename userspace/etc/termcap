@@ -1,0 +1,22 @@
+# Minimal termcap for voxia
+xterm|xterm-256color|X11 terminal emulator:\
+  :co#80:li#24:\
+  :am:bs:\
+  :cl=\E[H\E[2J:\
+  :cr=^M:do=^J:\
+  :cm=\E[%i%d;%dH:\
+  :nd=\E[C:up=\E[A:\
+  :so=\E[7m:se=\E[m:\
+  :md=\E[1m:me=\E[m:\
+  :ku=\E[A:kd=\E[B:kr=\E[C:kl=\E[D:\
+  :kh=\E[1~:@7=\E[4~:\
+  :kI=\E[2~:kD=\E[3~:\
+  :k1=\EOP:k2=\EOQ:k3=\EOR:k4=\EOS:
+vt100|vt100-am|DEC VT100:\
+  :co#80:li#24:am:bs:\
+  :cl=\E[H\E[2J:\
+  :cm=\E[%i%d;%dH:\
+  :nd=\E[C:up=\E[A:\
+  :so=\E[7m:se=\E[m:
+dumb|dumb terminal:\
+  :co#80:li#24:am:bs:

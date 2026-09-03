@@ -5,8 +5,8 @@
 #include "ioforge/ioforge_block.h"
 #include "ioforge/ioforge_pci.h"
 #include "memory/kalloc.h"
-#include <type.h>
 #include <str.h>
+#include <type.h>
 
 // assume max port is 32
 static struct ahci_internal_vaddr port_vaddr[32];
@@ -82,6 +82,18 @@ void AHCIModule::port_power_on(ahci_port_t* port) {
 	port->cmd |= (1UL << 0); // ST
 }
 
+void AHCIModule::port_recover_error(ahci_port_t* port) {
+	// Reference: AHCI Specification Revision 1.3.1
+	// Chapter 6.2.2: Software Error Recovery
+	// 1. Clear PxCMD.ST to '0' and wait for PxCMD.CR to clear
+	port_power_off(port);
+	// 2. Clear any error bits in PxSERR and PxIS
+	port->serr = 0xFFFFFFFF;
+	port->is = 0xFFFFFFFF;
+	// 3. Set PxCMD.ST to '1' to enable issuing new commands
+	port_power_on(port);
+}
+
 static int find_cmdslot(ahci_port_t* port) {
 	// If not set in SACT and CI, the slot is free
 	uint32_t slots = (port->sact | port->ci);
@@ -94,8 +106,8 @@ static int find_cmdslot(ahci_port_t* port) {
 	return -1;
 }
 
-boolean_t
-AHCIModule::issue_and_wait(ahci_port_t* p, int slot, uint32_t timeout_ms) {
+boolean_t AHCIModule::issue_and_wait(ahci_port_t* p, int slot,
+                                     uint32_t timeout_ms) {
 	uint32_t spin = 0;
 	while ((p->tfd & (ATA_DEV_BUSY | ATA_DEV_DRQ)) && spin < timeout_ms) {
 		spin++;
@@ -117,6 +129,7 @@ AHCIModule::issue_and_wait(ahci_port_t* p, int slot, uint32_t timeout_ms) {
 			log("AHCI",
 			    "Task file error: TFD=0x%x SERR=0x%x IS=0x%x",
 			    p->tfd, p->serr, p->is);
+			port_recover_error(p);
 			return false;
 		}
 
@@ -136,13 +149,15 @@ AHCIModule::issue_and_wait(ahci_port_t* p, int slot, uint32_t timeout_ms) {
 		    timeout_ms, p->ci, p->is, p->tfd);
 
 		// To correctly cancel a command, the port must be stopped
-		port_power_off(p);
-		port_power_on(p);
+		port_recover_error(p);
 		return false;
 	}
 
 	if (p->is & (1UL << 30)) {
-		log("AHCI", "Read disk error after completion");
+		log("AHCI",
+		    "Read disk error after completion: TFD=0x%x IS=0x%x",
+		    p->tfd, p->is);
+		port_recover_error(p);
 		return false;
 	}
 
@@ -157,21 +172,21 @@ AHCIModule::issue_and_wait(ahci_port_t* p, int slot, uint32_t timeout_ms) {
 #define ATA_CMD_FLUSH_CACHE_EXT 0xEA
 
 void AHCIModule::build_prdt(ahci_cmd_t* cmd, ahci_cmd_tbl_t* cmdtbl,
-			    void* buffer, size_t size) {
+                            void* buffer, size_t size) {
 	if (!buffer || size == 0) {
 		cmd->prdtl = 0;
 		return;
 	}
 
-	uintptr_t addr = (uintptr_t) buffer;
+	uintptr_t addr = (uintptr_t)buffer;
 	uint16_t idx = 0;
 
 	while (size > 0 && idx < 8) {
 		size_t bytes = (size > 0x400000) ? 0x400000 : size;
 
-		cmdtbl->prdt[idx].dba = (uint32_t) (addr & 0xFFFFFFFF);
-		cmdtbl->prdt[idx].dbau = (uint32_t) (addr >> 32);
-		cmdtbl->prdt[idx].dbc = (uint32_t) (bytes - 1);
+		cmdtbl->prdt[idx].dba = (uint32_t)(addr & 0xFFFFFFFF);
+		cmdtbl->prdt[idx].dbau = (uint32_t)(addr >> 32);
+		cmdtbl->prdt[idx].dbc = (uint32_t)(bytes - 1);
 		cmdtbl->prdt[idx].i = 1;
 
 		size -= bytes;
@@ -183,8 +198,8 @@ void AHCIModule::build_prdt(ahci_cmd_t* cmd, ahci_cmd_tbl_t* cmdtbl,
 }
 
 bool AHCIModule::ata_rw(ahci_port_t* p, struct ahci_internal_vaddr* vaddr,
-			struct ioforge_block_request* req) {
-	p->is = (uint32_t) -1;
+                        struct ioforge_block_request* req) {
+	p->is = (uint32_t)-1;
 
 	int freeslot = find_cmdslot(p);
 	// log("AHCI", "found free slot at %d", freeslot);
@@ -192,53 +207,55 @@ bool AHCIModule::ata_rw(ahci_port_t* p, struct ahci_internal_vaddr* vaddr,
 	if (freeslot == -1)
 		return false;
 
-	ahci_cmd_t* cmd = (ahci_cmd_t*) vaddr->clb + freeslot;
+	ahci_cmd_t* cmd = (ahci_cmd_t*)vaddr->clb + freeslot;
 	cmd->cfl =
-		sizeof(ahci_fis_h2d_t) / sizeof(uint32_t); // Command FIS size
+	    sizeof(ahci_fis_h2d_t) / sizeof(uint32_t); // Command FIS size
 	cmd->w = (req->op == IOFORGE_BLOCK_OP_WRITE) ? 1 : 0;
 	cmd->a = 0; // bukan atapi
 	cmd->c = 1; // command
 
-	ahci_cmd_tbl_t* cmdtbl = (ahci_cmd_tbl_t*) (vaddr->cmd[freeslot]);
+	ahci_cmd_tbl_t* cmdtbl = (ahci_cmd_tbl_t*)(vaddr->cmd[freeslot]);
 	memset(cmdtbl, 0,
 	       sizeof(ahci_cmd_tbl_t) + (8 - 1) * sizeof(ahci_prdt_t));
 
-	build_prdt(cmd, cmdtbl, req->buffer, (size_t) req->block_count * 512);
+	build_prdt(cmd, cmdtbl, req->buffer, (size_t)req->block_count * 512);
 
-	ahci_fis_h2d_t* cmdfis = (ahci_fis_h2d_t*) (&cmdtbl->cfis);
+	ahci_fis_h2d_t* cmdfis = (ahci_fis_h2d_t*)(&cmdtbl->cfis);
 	memset(cmdfis, 0, sizeof(ahci_fis_h2d_t));
 
 	cmdfis->fis_type = FIS_TYPE_REG_H2D;
 	cmdfis->c = 1; // Command
 	cmdfis->command = (req->op == IOFORGE_BLOCK_OP_WRITE)
-				  ? ATA_CMD_WRITE_DMA_EXT
-				  : ATA_CMD_READ_DMA_EXT;
+	                      ? 0xCA /* ATA_CMD_WRITE_DMA */
+	                      : 0xC8 /* ATA_CMD_READ_DMA */;
 	cmdfis->featureh = 0;
 	cmdfis->featurel = 0;
 
-	cmdfis->lba0 = (uint8_t) (req->lba >> 0) & 0xFF;
-	cmdfis->lba1 = (uint8_t) (req->lba >> 8) & 0xFF;
-	cmdfis->lba2 = (uint8_t) (req->lba >> 16) & 0xFF;
-	cmdfis->device = 1 << 6; // LBA mode
+	cmdfis->lba0 = (uint8_t)(req->lba >> 0) & 0xFF;
+	cmdfis->lba1 = (uint8_t)(req->lba >> 8) & 0xFF;
+	cmdfis->lba2 = (uint8_t)(req->lba >> 16) & 0xFF;
+	cmdfis->device =
+	    0xE0 | ((req->lba >> 24) &
+	            0x0F); // Obsolete bits 7/5=1, LBA mode=1, LBA24-27
 
-	cmdfis->lba3 = (uint8_t) (req->lba >> 24) & 0xFF;
-	cmdfis->lba4 = (uint8_t) (req->lba >> 32) & 0xFF;
-	cmdfis->lba5 = (uint8_t) (req->lba >> 40) & 0xFF;
+	cmdfis->lba3 = 0;
+	cmdfis->lba4 = 0;
+	cmdfis->lba5 = 0;
 
 	cmdfis->countl = req->block_count & 0xFF;
-	cmdfis->counth = (req->block_count >> 8) & 0xFF;
+	cmdfis->counth = 0;
 
 	return issue_and_wait(p, freeslot,
-			      req->timeout_ms ? req->timeout_ms : 30000);
+	                      req->timeout_ms ? req->timeout_ms : 30000);
 }
 
 int AHCIModule::atapi_packet(ahci_port_t* p, struct ahci_internal_vaddr* vaddr,
-			     struct ioforge_block_request* req) {
-	if (!req->packet_cmd || !req->packet_cmd_len
-	    || req->packet_cmd_len > 16)
+                             struct ioforge_block_request* req) {
+	if (!req->packet_cmd || !req->packet_cmd_len ||
+	    req->packet_cmd_len > 16)
 		return -1;
 
-	p->is = (uint32_t) -1;
+	p->is = (uint32_t)-1;
 	p->serr = p->serr;
 
 	int freeslot = find_cmdslot(p);
@@ -248,21 +265,21 @@ int AHCIModule::atapi_packet(ahci_port_t* p, struct ahci_internal_vaddr* vaddr,
 	bool is_dma = req->flags & IOFORGE_FLAG_DMA;
 	bool is_write = req->flags & IOFORGE_FLAG_WRITE;
 
-	ahci_cmd_t* cmd = (ahci_cmd_t*) vaddr->clb + freeslot;
+	ahci_cmd_t* cmd = (ahci_cmd_t*)vaddr->clb + freeslot;
 	cmd->cfl = sizeof(ahci_fis_h2d_t) / sizeof(uint32_t);
 	cmd->w = is_write ? 1 : 0;
 	cmd->a = 1;
 	cmd->c = 1;
 
-	ahci_cmd_tbl_t* cmdtbl = (ahci_cmd_tbl_t*) (vaddr->cmd[freeslot]);
+	ahci_cmd_tbl_t* cmdtbl = (ahci_cmd_tbl_t*)(vaddr->cmd[freeslot]);
 	memset(cmdtbl, 0,
 	       sizeof(ahci_cmd_tbl_t) + (8 - 1) * sizeof(ahci_prdt_t));
 
 	build_prdt(cmd, cmdtbl, req->buffer, req->buffer_size);
 
-	memcopy((void*) cmdtbl->acmd, req->packet_cmd, req->packet_cmd_len);
+	memcopy((void*)cmdtbl->acmd, req->packet_cmd, req->packet_cmd_len);
 
-	ahci_fis_h2d_t* cmdfis = (ahci_fis_h2d_t*) (&cmdtbl->cfis);
+	ahci_fis_h2d_t* cmdfis = (ahci_fis_h2d_t*)(&cmdtbl->cfis);
 	memset(cmdfis, 0, sizeof(ahci_fis_h2d_t));
 
 	cmdfis->fis_type = FIS_TYPE_REG_H2D;
@@ -277,44 +294,43 @@ int AHCIModule::atapi_packet(ahci_port_t* p, struct ahci_internal_vaddr* vaddr,
 	} else {
 		cmdfis->featurel = 0x00;
 		uint16_t byte_count =
-			req->buffer_size
-				? (uint16_t) (req->buffer_size & 0xFFFE)
-				: 0xFFFE;
-		cmdfis->lba1 = (uint8_t) (byte_count & 0xFF); // byte count LOW
+		    req->buffer_size ? (uint16_t)(req->buffer_size & 0xFFFE)
+		                     : 0xFFFE;
+		cmdfis->lba1 = (uint8_t)(byte_count & 0xFF); // byte count LOW
 		cmdfis->lba2 =
-			(uint8_t) ((byte_count >> 8) & 0xFF); // byte count HIGH
+		    (uint8_t)((byte_count >> 8) & 0xFF); // byte count HIGH
 	}
-	// lba0, lba3, lba4, lba5 = 0 — jangan di-set apapun
+	// lba0, lba3, lba4, lba5 = 0
 	cmdfis->device = 0;
 
 	int r = issue_and_wait(p, freeslot,
-			       req->timeout_ms ? req->timeout_ms : 30000);
+	                       req->timeout_ms ? req->timeout_ms : 30000);
 
 	return r;
 }
 
 int AHCIModule::ata_identify(ahci_port_t* p, struct ahci_internal_vaddr* vaddr,
-			     struct ioforge_block_request* req, bool is_atapi) {
-	p->is = (uint32_t) -1;
+                             struct ioforge_block_request* req, bool is_atapi) {
+	p->is = (uint32_t)-1;
 
 	int freeslot = find_cmdslot(p);
 
 	if (freeslot == -1)
 		return false;
 
-	ahci_cmd_t* cmd = (ahci_cmd_t*) vaddr->clb + freeslot;
+	ahci_cmd_t* cmd = (ahci_cmd_t*)vaddr->clb + freeslot;
 	cmd->cfl = sizeof(ahci_fis_h2d_t) / sizeof(uint32_t);
 	cmd->w = 0;
 	cmd->a = 0; // not atapi packet (it's a reg command)
 	cmd->c = 1; // command
 
-	ahci_cmd_tbl_t* cmdtbl = (ahci_cmd_tbl_t*) (vaddr->cmd[freeslot]);
+	ahci_cmd_tbl_t* cmdtbl = (ahci_cmd_tbl_t*)(vaddr->cmd[freeslot]);
 	memset(cmdtbl, 0,
 	       sizeof(ahci_cmd_tbl_t) + (8 - 1) * sizeof(ahci_prdt_t));
 
 	build_prdt(cmd, cmdtbl, req->buffer, 512);
 
-	ahci_fis_h2d_t* cmdfis = (ahci_fis_h2d_t*) (&cmdtbl->cfis);
+	ahci_fis_h2d_t* cmdfis = (ahci_fis_h2d_t*)(&cmdtbl->cfis);
 	memset(cmdfis, 0, sizeof(ahci_fis_h2d_t));
 
 	cmdfis->fis_type = FIS_TYPE_REG_H2D;
@@ -334,23 +350,18 @@ int AHCIModule::ata_identify(ahci_port_t* p, struct ahci_internal_vaddr* vaddr,
 	cmdfis->counth = 0;
 
 	return issue_and_wait(p, freeslot,
-			      req->timeout_ms ? req->timeout_ms : 30000);
+	                      req->timeout_ms ? req->timeout_ms : 30000);
 }
 
 int AHCIModule::ata_flush(ahci_port_t* p, struct ahci_internal_vaddr* vaddr,
-			  struct ioforge_block_request* req) {
-
-	if (!req->packet_cmd || !req->packet_cmd_len
-	    || req->packet_cmd_len > 16)
-		return -1;
+                          struct ioforge_block_request* req) {
 
 	int freeslot = find_cmdslot(p);
-	// log("AHCI", "found free slot at %d", freeslot);
 
 	if (freeslot == -1)
 		return false;
 
-	ahci_cmd_t* cmd = (ahci_cmd_t*) vaddr->clb + freeslot;
+	ahci_cmd_t* cmd = (ahci_cmd_t*)vaddr->clb + freeslot;
 
 	cmd->cfl = sizeof(ahci_fis_h2d_t) / 4;
 	cmd->w = 0;
@@ -358,30 +369,28 @@ int AHCIModule::ata_flush(ahci_port_t* p, struct ahci_internal_vaddr* vaddr,
 	cmd->c = 1;
 	cmd->prdtl = 0; // tidak ada data transfer
 
-	ahci_cmd_tbl_t* cmdtbl = (ahci_cmd_tbl_t*) (vaddr->cmd[freeslot]);
+	ahci_cmd_tbl_t* cmdtbl = (ahci_cmd_tbl_t*)(vaddr->cmd[freeslot]);
 	memset(cmdtbl, 0,
 	       sizeof(ahci_cmd_tbl_t) + (cmd->prdtl - 1) * sizeof(ahci_prdt_t));
 
-	ahci_fis_h2d_t* cmdfis = (ahci_fis_h2d_t*) (&cmdtbl->cfis);
+	ahci_fis_h2d_t* cmdfis = (ahci_fis_h2d_t*)(&cmdtbl->cfis);
 	memset(cmdfis, 0, sizeof(ahci_fis_h2d_t));
 
 	cmdfis->fis_type = FIS_TYPE_REG_H2D;
 	cmdfis->c = 1;
 	cmdfis->command = 0xEA; // FLUSH CACHE EXT
 
-	// Flush bisa lambat (beberapa detik pada HDD besar)
-	// timeout lebih panjang dari read/write biasa
 	return issue_and_wait(p, freeslot,
-			      req->timeout_ms ? req->timeout_ms : 30000);
+	                      req->timeout_ms ? req->timeout_ms : 30000);
 }
 
 int AHCIModule::submit_impl(struct ioforge_block_device* dev,
-			    struct ioforge_block_request* req) {
+                            struct ioforge_block_request* req) {
 
 	// TODO: wait until ready
 
 	ahci_port_t* p = &op->ports[dev->port];
-	p->is = (uint32_t) -1;
+	p->is = (uint32_t)-1;
 
 	switch (req->op) {
 	case IOFORGE_BLOCK_OP_READ:
@@ -390,17 +399,16 @@ int AHCIModule::submit_impl(struct ioforge_block_device* dev,
 		break;
 	}
 	case IOFORGE_BLOCK_OP_PACKET: {
-		log(mod, "request packet found type");
 		return atapi_packet(p, &port_vaddr[dev->port], req);
 		break;
 	}
 	case IOFORGE_BLOCK_OP_IDENTIFY: {
 		return ata_identify(p, &port_vaddr[dev->port], req,
-				    dev->type == IOFORGE_BLOCK_TYPE_SATAPI);
+		                    dev->type == IOFORGE_BLOCK_TYPE_SATAPI);
 		break;
 	}
 	case IOFORGE_BLOCK_OP_FLUSH: {
-		break;
+		return ata_flush(p, &port_vaddr[dev->port], req);
 	}
 	default:
 		return -1;
@@ -409,21 +417,22 @@ int AHCIModule::submit_impl(struct ioforge_block_device* dev,
 	return 1;
 }
 
-extern "C" int
-submit(struct ioforge_block_device* dev, struct ioforge_block_request* req) {
+extern "C" int submit(struct ioforge_block_device* dev,
+                      struct ioforge_block_request* req) {
 	auto instance = AHCIModule::getInstance();
 	return instance->submit_impl(dev, req);
 }
 
 void AHCIModule::port_configure(ahci_port_t* port,
-				struct ahci_internal_vaddr* vaddr) {
+                                struct ahci_internal_vaddr* vaddr) {
 	port_power_off(port);
 
 	// setupping command list base address (1kb aligne)
 	uintptr_t clb_phys_addr = 0;
-	auto clb = (uintptr_t) IOForge::IOUtils::DMAAlloc(1024, &clb_phys_addr);
-	IOForge::IOUtils::memset((void*) clb, 0, 1024);
-	auto aligned_clb_paddr = (clb_phys_addr + 1024 - 1) & (uintptr_t)~(1024 - 1);
+	auto clb = (uintptr_t)IOForge::IOUtils::DMAAlloc(1024, &clb_phys_addr);
+	IOForge::IOUtils::memset((void*)clb, 0, 1024);
+	auto aligned_clb_paddr =
+	    (clb_phys_addr + 1024 - 1) & (uintptr_t) ~(1024 - 1);
 
 	port->clbu = (aligned_clb_paddr >> 32) & 0xFFFFFFFF;
 	port->clb = aligned_clb_paddr & 0xFFFFFFFF;
@@ -431,33 +440,36 @@ void AHCIModule::port_configure(ahci_port_t* port,
 
 	// setupping FIS base address (256 byte alligned)
 	uintptr_t fb_paddr = 0;
-	auto fb = (uintptr_t) IOForge::IOUtils::DMAAlloc(256, &fb_paddr);
-	auto aligned_fb_paddr = (fb_paddr + 256 - 1) & (uintptr_t)~(256 - 1);
+	auto fb = (uintptr_t)IOForge::IOUtils::DMAAlloc(256, &fb_paddr);
+	auto aligned_fb_paddr = (fb_paddr + 256 - 1) & (uintptr_t) ~(256 - 1);
 
 	port->fb = aligned_fb_paddr & 0xFFFFFFFF;
 	port->fbu = (aligned_fb_paddr >> 32) & 0xFFFFFFFF;
-	IOForge::IOUtils::memset((void*) fb, 0, 256);
+	IOForge::IOUtils::memset((void*)fb, 0, 256);
 	vaddr->fb = fb;
 
-	ahci_cmd_t* cmd = (ahci_cmd_t*) clb;
+	ahci_cmd_t* cmd = (ahci_cmd_t*)clb;
 	for (int j = 0; j < 32; j++) {
 		cmd[j].prdtl = 8;
 
 		uintptr_t ctba_paddr = 0;
-		auto ctba = (uintptr_t) IOForge::IOUtils::DMAAlloc(256,
-								   &ctba_paddr);
+		auto ctba =
+		    (uintptr_t)IOForge::IOUtils::DMAAlloc(256, &ctba_paddr);
 		vaddr->cmd[j] = ctba;
-		auto aligned_ctba_paddr = (ctba_paddr + 128 - 1) & (uintptr_t)~(128 - 1);
+		auto aligned_ctba_paddr =
+		    (ctba_paddr + 128 - 1) & (uintptr_t) ~(128 - 1);
 		cmd[j].ctba = aligned_ctba_paddr & 0xFFFFFFFF;
 		cmd[j].ctbau = (aligned_ctba_paddr >> 32) & 0xFFFFFFFF;
-		IOForge::IOUtils::memset((void*) ctba, 0, 256);
+		IOForge::IOUtils::memset((void*)ctba, 0, 256);
 	}
 
 	port_power_on(port);
 }
 
 void AHCIModule::probe() {
-	// Check Ports Implemented (PI) register
+	/*This register is bit significant. If a bit is set to ‘1’, the
+	corresponding port is available for software to use. If a bit is cleared
+	to ‘0’, the port is not available for software to use*/
 	uint32_t ports_implemented = op->pi;
 
 	for (uint8_t i = 0; i < 32; i++) {
@@ -516,9 +528,8 @@ void AHCIModule::probe() {
 			// registering block
 			{
 				struct ioforge_block_device* dev =
-					(struct ioforge_block_device*) kalloc(
-						sizeof(struct
-						       ioforge_block_device));
+				    (struct ioforge_block_device*)kalloc(
+				        sizeof(struct ioforge_block_device));
 				memset(dev, 0,
 				       sizeof(struct ioforge_block_device));
 
@@ -527,27 +538,26 @@ void AHCIModule::probe() {
 
 				switch (type) {
 				case AHCI_DEV_SATA: {
-					strcpy((char*) dev->base.name, "SATA");
+					strcpy((char*)dev->base.name, "SATA");
 					dev->base.name[4] = '\0';
 					dev->type = IOFORGE_BLOCK_TYPE_SATA;
 					break;
 				}
 
 				case AHCI_DEV_SATAPI: {
-					strcpy((char*) dev->base.name,
-					       "SATAPI");
+					strcpy((char*)dev->base.name, "SATAPI");
 					dev->base.name[6] = '\0';
 					dev->type = IOFORGE_BLOCK_TYPE_SATAPI;
 					break;
 				}
 
 				case AHCI_DEV_SEMB: {
-					strcpy((char*) dev->base.name, "SEMB");
+					strcpy((char*)dev->base.name, "SEMB");
 					break;
 				}
 
 				case AHCI_DEV_PM: {
-					strcpy((char*) dev->base.name, "PM");
+					strcpy((char*)dev->base.name, "PM");
 					break;
 				}
 
@@ -559,7 +569,7 @@ void AHCIModule::probe() {
 				dev->base.type = IOFORGE_BLOCK;
 
 				ioforge_attach(ioforge_get_block_devices_root(),
-					       &dev->base);
+				               &dev->base);
 			}
 		}
 	}
@@ -571,15 +581,15 @@ void AHCIModule::setup() {
 		return;
 	}
 
-	op = (ahci_op_t*) dev_->bar[5].address;
+	op = (ahci_op_t*)dev_->bar[5].address;
 
-	// Enable AHCI mode dulu
-	op->ghc |= (1UL << 31);
+	// Enable AHCI
+	op->ghc |= AHCI_GHC_ENABLE;
 
 	// Reset HBA
-	op->ghc |= (1UL << 0);
+	op->ghc |= AHCI_GHC_HBA_RESET;
 
-	// Tunggu reset selesai (bit 0 harus clear sendiri)
+	// wait reset until finished
 	int timeout = 1000;
 	while ((op->ghc & (1UL << 0)) && timeout-- > 0) {
 		IOUtils::sleep(1);
@@ -589,14 +599,20 @@ void AHCIModule::setup() {
 		return;
 	}
 
-	// Enable AHCI + interrupt setelah reset
-	op->ghc |= (1UL << 31) | (1UL << 1);
+	// Enable AHCI after reset
+	op->ghc |= AHCI_GHC_ENABLE;
 
-	log(mod, "AHCI reset ghc done");
+	log(mod, "reset GHC done");
 
-	if (op->cap & (1UL << 31)) {
-		log(mod, "Support 64bit");
+	if (op->cap & AHCI_HBA_S64A) {
+		log(mod, "Support 64bit Addressing");
+	} else {
+		log(mod, "Only Support 32bit Addressing");
 	}
+
+	auto major = op->vs >> 16;
+	auto minor = op->vs & 0xFFFF;
+	log(mod, "AHCI Version %d.%d\n", major, minor);
 
 	probe();
 }

@@ -1,12 +1,10 @@
+#include "libk/simd.h"
+#include "type.h"
 #include <str.h>
 #include <vector.h>
-#include "type.h"
-#include "libk/simd.h"
 
 extern void __fast__memcpy__(void* dst, void* val, size_t len);
-extern void __fast__memcpy_aligned__(void* dst, void* val, size_t len);
 extern void __fast_memset__(void* dst, int val, size_t len);
-extern void __fast_memset_aligned__(void* dst, int val, size_t len);
 extern int __fast__strncmp__(const char* s1, const char* s2, size_t n);
 extern void* __fast__memchr__(const void* buf, int c, size_t len);
 
@@ -15,37 +13,34 @@ KERNEL_API int strcmp(const char* s1, const char* s2) {
 		s1++;
 		s2++;
 	}
-	return *(unsigned char*) s1 - *(unsigned char*) s2;
+	return *(unsigned char*)s1 - *(unsigned char*)s2;
 }
 
 KERNEL_API int strncmp(const char* s1, const char* s2, size_t n) {
-	if (!simd_has_avx2) {
-		while (n-- != 0) {
-			if (*s1 != *s2++)
-				return *(unsigned char*) s1
-				       - *(unsigned char*) --s2;
-			if (*s1++ == 0)
-				break;
-		}
-		return 0;
-	}
-
+#ifdef VOXIA_USE_FAST_STR
 	return __fast__strncmp__(s1, s2, n);
+#endif
+	while (n-- != 0) {
+		if (*s1 != *s2++)
+			return *(unsigned char*)s1 - *(unsigned char*)--s2;
+		if (*s1++ == 0)
+			break;
+	}
+	return 0;
 }
 
 KERNEL_API void* memchr(const void* buf, int c, size_t len) {
-    if (!simd_has_avx2) {
-        const unsigned char* p = (const unsigned char*)buf;
-        const unsigned char target = (unsigned char)c;
-        while (len--) {
-            if (*p == target)
-                return (void*)p;
-            p++;
-        }
-        return NULL;
-    }
-
-    return __fast__memchr__(buf, c, len);
+#ifdef VOXIA_USE_FAST_STR
+	return __fast__memchr__(buf, c, len);
+#endif
+	const unsigned char* p = (const unsigned char*)buf;
+	const unsigned char target = (unsigned char)c;
+	while (len--) {
+		if (*p == target)
+			return (void*)p;
+		p++;
+	}
+	return NULL;
 }
 
 KERNEL_API int memcmp(const void* s1, const void* s2, size_t n) {
@@ -62,12 +57,12 @@ KERNEL_API int memcmp(const void* s1, const void* s2, size_t n) {
 }
 
 void to_lowercase(char* str) {
-    while (*str) {
-        if (*str >= 'A' && *str <= 'Z') {
-            *str += ('a' - 'A');
-        }
-        str++;
-    }
+	while (*str) {
+		if (*str >= 'A' && *str <= 'Z') {
+			*str += ('a' - 'A');
+		}
+		str++;
+	}
 }
 
 // warn: modifies the input string
@@ -102,7 +97,7 @@ KERNEL_API void strcat(char* dest, const char* src) {
 	strcpy(dest, src);
 }
 
-size_t strlen(const char* s) {
+KERNEL_API size_t strlen(const char* s) {
 	size_t len = 0;
 	while (s[len]) {
 		len++;
@@ -110,15 +105,15 @@ size_t strlen(const char* s) {
 	return len;
 }
 
-char* strchr(const char* s, int c) {
-	while (*s != (char) c) {
+KERNEL_API char* strchr(const char* s, int c) {
+	while (*s != (char)c) {
 		if (!*s++)
 			return 0;
 	}
-	return (char*) s;
+	return (char*)s;
 }
 
-size_t strspn(const char* s, const char* accept) {
+KERNEL_API size_t strspn(const char* s, const char* accept) {
 	const char* p = s;
 	const char* a;
 	size_t count = 0;
@@ -134,7 +129,7 @@ size_t strspn(const char* s, const char* accept) {
 	return count;
 }
 
-size_t strcspn(const char* s, const char* reject) {
+KERNEL_API size_t strcspn(const char* s, const char* reject) {
 	size_t count = 0;
 	while (*s) {
 		if (strchr(reject, *s++))
@@ -144,7 +139,7 @@ size_t strcspn(const char* s, const char* reject) {
 	return count;
 }
 
-char* strtok_r(char* str, const char* delim, char** saveptr) {
+KERNEL_API char* strtok_r(char* str, const char* delim, char** saveptr) {
 	char* end;
 	if (str == NULL)
 		str = *saveptr;
@@ -168,41 +163,36 @@ char* strtok_r(char* str, const char* delim, char** saveptr) {
 }
 
 KERNEL_API void memset(void* ptr, int value, size_t num) {
-	if (!simd_has_avx2) {
-		uint8_t* ptr_ = (uint8_t*) ptr;
+#ifdef VOXIA_USE_FAST_STR
+	return __fast_memset__(ptr, value, num);
+#endif
 
-		uint64_t fill = 0;
-		for (size_t i = 0; i < 8; i++) {
-			fill <<= 8;
-			fill |= (uint64_t) value;
-		}
+	uint8_t* ptr_ = (uint8_t*)ptr;
 
-		// Align ke 8-byte dulu
-		while (num > 0 && ((uintptr_t) ptr_ & 7)) {
-			*ptr_++ = (uint8_t) value;
-			num--;
-		}
-
-		size_t blocks = num / 8;
-		size_t tail = num % 8;
-
-		for (size_t i = 0; i < blocks; i++) {
-			memcopy(ptr_ + (i * 8), &fill, 8);
-		}
-
-		ptr_ += blocks * 8;
-
-		for (size_t i = 0; i < tail; i++)
-			ptr_[i] = (uint8_t) value;
-
-		return;
+	uint64_t fill = 0;
+	for (size_t i = 0; i < 8; i++) {
+		fill <<= 8;
+		fill |= (uint64_t)value;
 	}
 
-	// check is ptr alignment 32
-	if (((uintptr_t) ptr % 32) == 0)
-		__fast_memset_aligned__(ptr, value, num);
-	else
-		__fast_memset__(ptr, value, num);
+	while (num > 0 && ((uintptr_t)ptr_ & 7)) {
+		*ptr_++ = (uint8_t)value;
+		num--;
+	}
+
+	size_t blocks = num / 8;
+	size_t tail = num % 8;
+
+	for (size_t i = 0; i < blocks; i++) {
+		memcopy(ptr_ + (i * 8), &fill, 8);
+	}
+
+	ptr_ += blocks * 8;
+
+	for (size_t i = 0; i < tail; i++)
+		ptr_[i] = (uint8_t)value;
+
+	return;
 }
 
 char* strpbrk(const char* s, const char* accept) {
@@ -215,7 +205,7 @@ char* strpbrk(const char* s, const char* accept) {
 
 		while (*a != '\0') {
 			if (*a == *s) {
-				return (char*) s;
+				return (char*)s;
 			}
 			a++;
 		}
@@ -233,7 +223,6 @@ char* strsep2(char** stringp, const char* delim) {
 		return NULL;
 	}
 
-	// strpbrk mencari karakter apa pun yang ada di dalam string delim
 	p = strpbrk(start, delim);
 
 	if (p) {
@@ -267,26 +256,21 @@ const char* strsep(char** str, const char delim) {
 	return start;
 }
 
-KERNEL_API void memcopy(void* dest, void* src, size_t size) {
-	if (!simd_has_avx) {
-		uint8_t* d = (uint8_t*) dest;
-		uint8_t* s = (uint8_t*) src;
-		for (size_t i = 0; i < size; i++) {
-			d[i] = s[i];
-		}
-		return;
-	}
 
-	if ((((uintptr_t) dest & 31) == 0) && (((uintptr_t) src & 31) == 0)) {
-		__fast__memcpy_aligned__(dest, src, size);
-		return;
+KERNEL_API void memcopy(void* dest, void* src, size_t size) {
+#ifdef VOXIA_USE_FAST_STR
+	return __fast__memcpy__(dest, src, size);
+#endif
+	uint8_t* d = (uint8_t*)dest;
+	uint8_t* s = (uint8_t*)src;
+	for (size_t i = 0; i < size; i++) {
+		d[i] = s[i];
 	}
-	__fast__memcpy__(dest, src, size);
 }
 
-void* memmove(void* dest, const void* src, size_t n) {
-	unsigned char* d = (unsigned char*) dest;
-	const unsigned char* s = (const unsigned char*) src;
+KERNEL_API void* memmove(void* dest, const void* src, size_t n) {
+	unsigned char* d = (unsigned char*)dest;
+	const unsigned char* s = (const unsigned char*)src;
 	if (d < s) {
 		while (n--)
 			*d++ = *s++;
@@ -299,8 +283,7 @@ void* memmove(void* dest, const void* src, size_t n) {
 	return dest;
 }
 
-char* itoa(int64_t value, int base) {
-	static char str[32];
+char* itoa(int64_t value, int base, char* str) {
 	if (base < 2 || base > 36) {
 		*str = '\0';
 		return str;
@@ -322,8 +305,8 @@ char* itoa(int64_t value, int base) {
 
 		int64_t digit = tmp - value * base;
 
-		*last++ = (char) ((digit < 10) ? ('0' + digit)
-					       : ('a' + (digit - 10)));
+		*last++ =
+		    (char)((digit < 10) ? ('0' + digit) : ('a' + (digit - 10)));
 	}
 
 	*last = '\0';

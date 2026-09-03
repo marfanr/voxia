@@ -19,6 +19,8 @@ class ATAPIModule : public IOForgeBlock {
 	void probe(struct ioforge_block_device* block);
 	void identify(struct ioforge_block_device* block);
 	void read_sector_size(struct ioforge_block_device* block);
+	void request_sense(struct ioforge_block_device* block);
+	bool test_unit_ready(struct ioforge_block_device* block);
 	void build_acmd(uint8_t opcode, uint32_t lba, uint32_t sector_count,
 			uint8_t (&acmd)[16]);
 

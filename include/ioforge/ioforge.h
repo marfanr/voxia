@@ -47,18 +47,18 @@ void ioforge_memset(void* ptr, uint8_t value, size_t num);
 void ioforge_memcpy(void* dst, void* src, size_t num);
 void ioforge_sleep(uint32_t time);
 uint16_t ioforge_irq_alloc_entry();
+uint16_t ioforge_irq_alloc_on_core(uint8_t core_id);
 uint32_t ioforge_isr_get_vector(uint8_t irq);
 uint32_t isr_irq_register(uint8_t irq, void* handler);
 
 void ioforge_irq_register(uint8_t n, void* handler);
+void ioforge_irq_register_on_core(uint8_t core_id, uint8_t n, void* handler);
 void ioforge_map_isr(uint8_t irq, uint8_t vector);
 void serial_printf(const char* fmt, ...);
 void* ioforge_alloc(size_t size);
 void ioforge_dma_free(void* paddr, void* vaddr, size_t size);
 void IOforgeStrCopy(char* dst, char* src);
 void IOforgeStrnCopy(char* dst, char* src, size_t len);
-
-uintptr_t IOforgeMMapPhys(uintptr_t paddr, size_t size);
 void ioforge_free(void* ptr, size_t size);
 
 void ioforge_attach(struct ioforge_device* parent,
@@ -77,6 +77,18 @@ struct ioforge_pci_device* ioforge_find_pci_device(struct ioforge_device* node,
 void print_device_tree(struct ioforge_device* node, int indent);
 
 uint8_t ioforge_get_current_core_id();
+uint8_t ioforge_get_active_core_count();
+
+struct dma_alloc_aligned_result {
+	void* vaddr;         // aligned virtual address  (use this for access)
+	uintptr_t paddr;     // aligned physical address (use this for HW)
+	void* raw_vaddr;     // original vaddr from DMAAlloc (use for DMAFree)
+	uintptr_t raw_paddr; // original paddr from DMAAlloc (use for DMAFree)
+	size_t raw_size;     // total bytes handed to DMAAlloc
+};
+
+struct dma_alloc_aligned_result dma_alloc_aligned(size_t size,
+                                                             size_t align);
 
 #ifdef __cplusplus
 }

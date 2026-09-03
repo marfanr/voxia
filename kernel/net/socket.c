@@ -3,8 +3,10 @@
 #include "ioforge/ioforge.h"
 #include "ioforge/ioforge_nic.h"
 #include "libk/serial.h"
+#include "sys/err_no.h"
 #include <str.h>
 #include "memory/slab.h"
+#include "memory/kalloc.h"
 #include "ethernet.h"
 #include "arp.h"
 #include "icmp.h"
@@ -16,8 +18,10 @@
 #include "netdev.h"
 #include "type.h"
 
-static struct slab_cache* socket_cache = 0;
-static socket_ops_t* socket_ops = 0;
+/* helper: get inet_socket from base socket_t* (safe because base is first member) */
+#define INET_SOCK(s) ((struct inet_socket*)(s))
+
+static inet_socket_ops_t* socket_ops = 0;
 
 static int socket_receive(socket_t* socket, void* buffer, size_t size);
 static int
@@ -26,28 +30,51 @@ socket_set_sockopt(socket_t* socket, uint32_t level, uint32_t optname,
 static int socket_bind(socket_t* socket, sockaddr_in_t* addr, uint32_t len);
 
 INIT(Socket) {
-	socket_ops = (socket_ops_t*) kalloc(sizeof(socket_ops_t));
+	socket_ops = (inet_socket_ops_t*)kalloc(sizeof(inet_socket_ops_t));
 	socket_ops->recv = socket_receive;
 	socket_ops->set_sockopt = socket_set_sockopt;
 	socket_ops->bind = socket_bind;
 }
 
-void vxSocket(sock_family_t family, sock_type_t type, uint16_t protocol,
-	      socket_t** socket) {
-	// kalau belum ada cache buat dulu
-	if (!socket_cache)
-		vxCreateSlabCache(&socket_cache, "socket", sizeof(socket_t), 0,
-				  0);
+int create_socket(sock_family_t family, sock_type_t type, uint16_t protocol,
+		  socket_t** out_socket) {
+	socket_t* sock;
+	size_t alloc_size;
 
-	*socket = (socket_t*) vxSlabAlloc(socket_cache);
-	(*socket)->family = family;
-	(*socket)->type = type;
-	(*socket)->protocol = protocol;
+	switch (family) {
+	case AF_INET:
+		alloc_size = sizeof(struct inet_socket);
+		break;
+	case AF_UNIX:
+		alloc_size = sizeof(struct unix_socket);
+		break;
+	default:
+		return -EAFNOSUPPORT;
+	}
+
+	auto s = kalloc(alloc_size);
+	memset(s, 0, alloc_size);
+
+	// sock points to the base (first field) of the allocated struct
+	sock = (socket_t*)s;
+	sock->family = family;
+	sock->type = type;
+	sock->protocol = protocol;
+	sock->state = SOCK_STATE_CLOSED;
+
+	if (family == AF_INET) {
+		sock->ops = socket_ops;
+	} else {
+		sock->ops = NULL; /* UNIX ops not yet implemented */
+	}
 
 	if (!socket_ops)
 		LOG2_WARN("Socket", "socket ops not initialized");
 
-	(*socket)->ops = socket_ops;
+	if (out_socket)
+		*out_socket = sock;
+
+	return 0;
 }
 
 // checksum
@@ -56,10 +83,7 @@ void vxSocket(sock_family_t family, sock_type_t type, uint16_t protocol,
 #define MYIP "192.168.100.80"
 
 static int socket_receive(socket_t* socket, void* buffer, size_t size) {
-	// auto family = socket->family;
-	// auto type = socket->type;
-
-	auto dev = socket->netdev;
+	auto dev = INET_SOCK(socket)->netdev;
 	if (!dev) {
 		return SOCK_ERR_NODEV;
 	}
@@ -132,8 +156,8 @@ socket_set_sockopt(socket_t* socket, uint32_t level, uint32_t optname,
 	case SOL_SOCKET: {
 		switch (optname) {
 		case SO_BINDTODEVICE: {
-			auto netdev = lookup_netdev((char*) optval);
-			socket->netdev = netdev;
+			auto netdev = lookup_netdev((char*)optval);
+			INET_SOCK(socket)->netdev = netdev;
 			if (!netdev) {
 				return SOCK_ERR_NODEV;
 			}

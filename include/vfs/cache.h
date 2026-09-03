@@ -41,5 +41,6 @@ struct dentry*
 cache_lookup(struct vfs_cache* cache, struct dentry* parent, const char* name);
 
 void cache_remove(struct vfs_cache* cache, struct dentry* dentry);
+void vfs_cache_remove_dentry(struct dentry* dentry);
 
 #endif // __VFS__CACHE_H_

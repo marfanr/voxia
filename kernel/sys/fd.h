@@ -1,6 +1,7 @@
 #ifndef __SYS_FD_H__
 #define __SYS_FD_H__
 
+#include "string.h"
 #include "vfs/dentry.h"
 #include <type.h>
 
@@ -8,19 +9,24 @@
 
 struct fdtable;
 struct file_descriptor {
-    atomic_t count;
-    struct fdtable *fdt;
-    void* ops;
-    uint8_t mode;
-    uint64_t pos;
-    uint32_t flags;
-    vnode_ptr_t vnode;
+	atomic_t count;
+	struct fdtable* fdt;
+	void* ops;
+	dentry_ptr dentry;
+	uint8_t mode;
+	uint64_t pos;
+	uint32_t flags;
+	vnode_ptr_t vnode;
+	void* private_data;
+	void* write_buffer;
+	size_t write_buffer_size;
 } __attribute__((aligned(64)));
 
 struct fdtable {
-    uint32_t max_fds;
-    struct file_descriptor ** fds;
-    uint32_t next_fd;
+	uint32_t max_fds;
+	struct file_descriptor** fds;
+	uint8_t* fd_flags;
+	uint32_t next_fd;
 };
 
 struct fdtable* alloc_fdtable();

@@ -22,25 +22,28 @@ KERNEL_SSE_FLAGS := -mno-sse -mno-sse2 -mno-mmx -mno-avx -mno-avx2 \
 WARNING := -Wall -Wextra -Werror -Wshadow -Wpointer-arith -Wcast-align \
 	-Wstrict-prototypes -Wmissing-prototypes -Wundef -Wconversion \
 	-Wdouble-promotion -Wvla -Wstrict-aliasing=2 -Warray-bounds \
-	-Wformat=2 -Wuninitialized
+	-Wformat=2 -Wuninitialized -g3
 
-CFLAGS := $(WARNING) -O2 -pipe -ggdb -g -fno-strict-aliasing \
-					-std=gnu2x -ffreestanding \
-					-fstack-clash-protection -fstack-protector-strong -fno-pie \
-					$(KERNEL_SSE_FLAGS) \
-					-I . -I ../include -nostdlib -nostartfiles -I $(ROOT)/generated \
-					-nodefaultlibs -nostdinc -fno-builtin \
-			-mcmodel=kernel -fno-omit-frame-pointer
+CFLAGS := $(WARNING) -O3 -pipe -ggdb -g -fno-strict-aliasing \
+                                        -std=gnu2x -ffreestanding \
+                                        -fno-stack-protector -fno-stack-clash-protection -fPIC \
+                                        -fvisibility=hidden \
+                                        $(KERNEL_SSE_FLAGS) \
+                                        -I . -I ../include -nostdlib -nostartfiles -I $(ROOT)/generated \
+                                        -nodefaultlibs -nostdinc -fno-builtin \
+                        -mcmodel=medium -fno-omit-frame-pointer \
+						-MMD -MP
 
 CFLAGS := $(CFLAGS)
 
 LDFLAGS := -nostdlib -static \
 					 -z max-page-size=0x1000 \
-					 -T linker.ld --no-dynamic-linker
+					 -T linker.ld --no-dynamic-linker \
+					 -pie -shared -Bsymbolic
 
 .PHONY: all
 all: $(OBJ)
-	$(E) "  LD     $(notdir $(KERNEL_ELF))"
+	$(E) "  LD      $(notdir $(KERNEL_ELF))"
 	$(AS) -f bin ./hal/cpu/core_ap.asm -o ./hal/cpu/core_ap.bin
 	$(OBJCOPY) --input-target=binary \
         --output-target=elf64-x86-64 \
@@ -48,6 +51,25 @@ all: $(OBJ)
         hal/cpu/core_ap.bin hal/cpu/core_ap.o
 	rm -f hal/cpu/core_ap.bin
 	$(LD) $(LDFLAGS) $(OBJ) hal/cpu/core_ap.o -o $(KERNEL_ELF)
+# 	$(E) "  EXPORT  $(notdir $(KERNEL_ELF)) (enforcing .export API)"
+# 	$(Q)SEC_INDEX=$$(readelf -W -S $(KERNEL_ELF) | awk '$$2 == ".export" {print $$1}' | tr -d '[]'); \
+# 	if [ -n "$$SEC_INDEX" ]; then \
+# 		echo "{" > exports.map; \
+# 		echo "  global:" >> exports.map; \
+# 		readelf -W -s $(KERNEL_ELF) | \
+# 		awk -v idx="$$SEC_INDEX" '$$7 == idx && $$8 != "" {print $$8}' | \
+# 		grep -vE "^_|^@" | \
+# 		awk '{print "    " $$1 ";"}' >> exports.map; \
+# 		echo "  local: *;" >> exports.map; \
+# 		echo "};" >> exports.map; \
+# 		$(LD) $(LDFLAGS) \
+# 			--version-script=exports.map \
+# 			$(OBJ) hal/cpu/core_ap.o \
+# 			-o $(KERNEL_ELF); \
+# 		rm exports.map; \
+# 	fi
+
+
 
 -include $(DFILES)
 

@@ -1279,6 +1279,7 @@ again:  if(p >= SSFN_FAMILY_BYNAME) { n = 0; m = 4; } else n = m = p;
                                 } else {
                                     P = *((uint32_t*)((uint8_t*)ctx->f + le32(ctx->f->cmap_offs) + (k << 2)));
                                     dR = (P >> 16) & 0xFF; dG = (P >> 8) & 0xFF; dB = (P >> 0) & 0xFF; dA = (P >> 24) & 0xFF;
+                                    dR = (dR * fR) / 255; dG = (dG * fG) / 255; dB = (dB * fB) / 255;
                                 }
                                 if(dA == 255) {
                                     sB += dB * pc; sG += dG * pc; sR += dR * pc; sA += dA * pc;

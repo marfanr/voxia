@@ -1,4 +1,5 @@
 #include "hal/cpu/core.h"
+#include "hal/cpu/paging.h"
 #include "libk/serial.h"
 #include "sys/err_no.h"
 #include "sys/sig.h"
@@ -16,13 +17,23 @@ int64_t syscall_rt_sigprocmask(int how, void* set, void* oldset,
 		return -ENOSYS;
 	}
 
+	if (thr->process) {
+		paging_reload(thr->process->page);
+	}
+
+	uint64_t current_mask = __atomic_load_n(thr->signal->mask.__bits, __ATOMIC_RELAXED);
+
 	if (oldset) {
-		memset(oldset, 0, sigsetsize);
+		memcopy(oldset, &current_mask, (sigsetsize < sizeof(uint64_t)) ? sigsetsize : sizeof(uint64_t));
+	}
+
+	if (!set) {
+		return 0;
 	}
 
 	serial2_printf("sig %d on %x (size %d)\n", how, set, sigsetsize);
 	sigset_t set_ = {0};
-	memcopy((void*)&set_, set, sigsetsize);
+	memcopy((void*)&set_, set, (sigsetsize < sizeof(sigset_t)) ? sigsetsize : sizeof(sigset_t));
 
 	switch (how) {
 	case SIG_BLOCK:
@@ -36,11 +47,11 @@ int64_t syscall_rt_sigprocmask(int how, void* set, void* oldset,
 		break;
 
 	case SIG_SETMASK:
-		__atomic_fetch_and(thr->signal->mask.__bits, set_.__bits[0],
-		                   __ATOMIC_RELAXED);
+		__atomic_store_n(thr->signal->mask.__bits, set_.__bits[0],
+		                 __ATOMIC_RELAXED);
 		break;
 	default:
-		break;
+		return -EINVAL;
 	}
 
 	return 0;

@@ -20,7 +20,6 @@ start_trampoline:
     mov ss, ax
 
     ; cek signature
-    ; memastikan tidak ada corrupt
     mov eax, [signature]
     mov ebx, 0x00EEDDAB
     cmp ebx, eax
@@ -111,12 +110,11 @@ core_ap_64:
     mov rax, [r12 + 8]     ; load stack_top
     mov rsp, rax
     and rsp, -16
-    sub rsp, 8
 
     mov qword [r12 + 16], 1 ; set handshake[2] = 1
 
     mov rax, [r12]         ; load cpuTrampolinePhase2
-    mov rdi, qword [rel real_apic_id] ; load real_apic_id (32-bit)
+    mov edi, [rel real_apic_id] ; load real_apic_id (32-bit, zero-extended)
     call rax 
     jmp $
 

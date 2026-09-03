@@ -13,6 +13,8 @@ typedef struct {
 		r14, r15, int_no, err_code, rip, cs, rflags, rsp, ss;
 } __attribute__((packed)) cpu_register_t;
 
+#define ISUSERSPACE(x) (((cpu_register_t)x)->cs & 3) != 0
+
 #ifdef __cplusplus
 }
 #endif
